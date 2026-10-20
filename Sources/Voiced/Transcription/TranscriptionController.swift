@@ -613,7 +613,13 @@ extension TranscriptionController: LiveTranscriberDelegate {
             latest: assembler.sentences(from: segmentLines),
             completed: assembler.sentences(from: segmentLines, includeTrailing: false)
         )
-        liveText = assembler.draft(from: session.pendingLines.map(\.text))
+        // When every segment of this decode was dropped as noise or a hallucination, right after a
+        // pause, there is no pending text yet. Keep the streamed preview on screen instead of
+        // blanking the row; the next decode or the pause commit replaces it.
+        let draft = assembler.draft(from: session.pendingLines.map(\.text))
+        if !draft.isEmpty {
+            liveText = draft
+        }
         publish(session)
         return session.committedEnd
     }

@@ -6,14 +6,12 @@ import WhisperKit
 /// Nothing it recognizes reaches the transcript or the history.
 @MainActor
 final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
-    /// Committed sentences kept on screen: only the latest one, since the preview exists to check
-    /// that speech is picked up, not to read a transcript.
-    private static let visibleLines = 1
-
     @Published private(set) var isActive = false
     /// RMS of the newest 100 ms of input.
     @Published private(set) var level: Float = 0
-    @Published private(set) var lines: [String] = []
+    /// The one sentence on screen: the text being recognized, or the last finished sentence while
+    /// nothing is in flight. The preview exists to check that speech is picked up, not to read a
+    /// transcript, so finished sentences are shown the same way as in-flight text.
     @Published private(set) var liveText = ""
     @Published private(set) var errorMessage: String?
 
@@ -38,7 +36,6 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         stop()
         self.assembler = assembler
         session = RecordingSession(startedAt: Date(), baseLines: [])
-        lines = []
         liveText = ""
         level = 0
         errorMessage = nil
@@ -118,26 +115,28 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
             latest: assembler.sentences(from: segmentLines),
             completed: assembler.sentences(from: segmentLines, includeTrailing: false)
         )
-        liveText = assembler.draft(from: session.pendingLines.map(\.text))
-        publish(session)
+        // Keep the streamed preview when every segment was dropped, as the transcript does.
+        let draft = assembler.draft(from: session.pendingLines.map(\.text))
+        if !draft.isEmpty {
+            liveText = draft
+        }
+        self.session = session
         return session.committedEnd
     }
 
     func transcriberDidDetectPause(_ transcriber: LiveTranscriber) -> Float {
         guard self.transcriber === transcriber, var session else { return 0 }
         session.commitTrailing(finalize: assembler.terminated)
-        liveText = ""
-        publish(session)
+        // Show the finished sentence until the next one starts, rather than an empty box.
+        if let last = session.transcript.last {
+            liveText = last.text
+        }
+        self.session = session
         return session.committedEnd
     }
 
     func transcriber(_ transcriber: LiveTranscriber, didFailWith error: Error) {
         guard self.transcriber === transcriber else { return }
         fail(with: error.localizedDescription)
-    }
-
-    private func publish(_ session: RecordingSession) {
-        self.session = session
-        lines = session.transcript.suffix(Self.visibleLines).map(\.text)
     }
 }

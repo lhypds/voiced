@@ -276,15 +276,15 @@ private struct RecognitionPreviewSection: View {
         return line * 3 + 20
     }()
 
-    /// One sentence only: the text being recognized, or the last finished sentence while nothing is in flight.
+    /// One sentence only, always in the live style: the text being recognized, or the last finished
+    /// sentence while nothing is in flight. The preview exists to check that speech is picked up,
+    /// so it never distinguishes final text from in-flight text.
     private var previewText: some View {
         ScrollView(.vertical) {
             Group {
                 if !preview.liveText.isEmpty {
                     Text(preview.liveText)
                         .foregroundStyle(.secondary)
-                } else if let last = preview.lines.last {
-                    Text(last)
                 } else {
                     Text(strings.previewListening)
                         .foregroundStyle(.tertiary)
