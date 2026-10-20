@@ -74,22 +74,6 @@ final class RecordingSessionTests: XCTestCase {
         XCTAssertEqual(session.transcript.map(\.text), ["Hello there.", "Next."])
     }
 
-    func testClearDoesNotResurrectCommittedLines() {
-        var session = RecordingSession(startedAt: Date(), baseLines: [line("old", 0, 1, "Earlier.")])
-        let first = line("a", 0, 2, "One.")
-        _ = session.update(latest: [first], completed: [first])
-
-        session.clearTranscript()
-        XCTAssertTrue(session.transcript.isEmpty)
-
-        XCTAssertFalse(session.update(latest: [first], completed: [first]))
-        XCTAssertTrue(session.transcript.isEmpty)
-
-        let second = line("b", 2, 4, "Two.")
-        XCTAssertTrue(session.update(latest: [first, second], completed: [first, second]))
-        XCTAssertEqual(session.transcript.map(\.text), ["Two."])
-    }
-
     private func line(_ id: String, _ start: Float, _ end: Float, _ text: String) -> TranscriptLine {
         TranscriptLine(id: id, start: start, end: end, recordedAt: Date(timeIntervalSince1970: 0), text: text)
     }

@@ -450,10 +450,13 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - Transcript
 
-    /// Starts a new record: empties the screen and detaches from the current record, which stays in the
-    /// history. The new record is named by the time of the press; the next committed line is saved into it.
+    /// Starts a new record: stops a running recognition, whose last lines and audio stay with the
+    /// current record, then empties the screen and detaches from that record, which stays in the
+    /// history. The new record is named by the time of the press; the next recording is saved into it.
     func startNewRecord() {
-        session?.clearTranscript()
+        if isRecording {
+            stopRecording()
+        }
         lines = []
         liveText = ""
         currentRecordID = nil
@@ -552,9 +555,9 @@ final class TranscriptionController: ObservableObject {
         }
         record.sessions.append(info)
         record.updatedAt = info.endedAt ?? Date()
-        // With nothing on screen the next recording continues this record; after a mid-recording
-        // clear the screen already belongs to a newer record and stays with it.
-        store(record, makeCurrent: currentRecordID == nil)
+        // With nothing on screen the next recording continues this record, unless the new button
+        // has already reserved a newer record for it.
+        store(record, makeCurrent: currentRecordID == nil && pendingRecord == nil)
     }
 
     /// Saves the record and moves it to the top of the history.

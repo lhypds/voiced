@@ -60,14 +60,6 @@ struct RecordingSession {
         return committed
     }
 
-    /// Empties the visible transcript while keeping the committed boundary,
-    /// so already-seen sentences are not re-added by the next decode.
-    mutating func clearTranscript() {
-        baseLines = []
-        committedLines = []
-        latestLines = []
-    }
-
     private mutating func commit(_ lines: [TranscriptLine]) -> Bool {
         var added = false
         for line in lines {
