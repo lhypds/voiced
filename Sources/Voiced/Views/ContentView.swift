@@ -7,6 +7,8 @@ struct ContentView: View {
     /// How far the transcript list has been scrolled down from its top.
     @State private var transcriptScrollOffset: CGFloat = 0
     @State private var showsCopiedToast = false
+    /// Measured height of the model banner above the record button, 0 while there is none.
+    @State private var preparationBannerHeight: CGFloat = 0
     @State private var copiedToastResetTask: Task<Void, Never>?
 
     private var strings: AppStrings { controller.strings }
@@ -34,9 +36,12 @@ struct ContentView: View {
         .background(Theme.background)
         .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
         .preferredColorScheme(.light)
-        .sheet(isPresented: $isSettingsPresented) {
-            SettingsView(controller: controller, isPresented: $isSettingsPresented)
-        }
+        // Not a sheet: a sheet hangs from the title bar, this panel is centered on the window.
+        .background(
+            SettingsWindowPresenter(isPresented: isSettingsPresented) {
+                SettingsView(controller: controller, isPresented: $isSettingsPresented)
+            }
+        )
     }
 
     // MARK: - Header
@@ -111,7 +116,7 @@ struct ContentView: View {
                     .padding(.top, Self.rowEdgeGap)
                     // Room to scroll the last row clear of the record button, leaving the same
                     // gap above the button as between the header and the first row.
-                    .padding(.bottom, Self.listBottomInset)
+                    .padding(.bottom, Self.listBottomInset + bottomExtraInset)
                 }
                 .scrollIndicators(.hidden)
                 .modifier(ScrollOffsetReader(offset: $transcriptScrollOffset))
@@ -125,7 +130,7 @@ struct ContentView: View {
                         LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                             .frame(height: Self.bottomFadeHeight)
                         Color.clear
-                            .frame(height: Self.hiddenHeight)
+                            .frame(height: Self.hiddenHeight + bottomExtraInset)
                     }
                 )
             }
@@ -146,6 +151,10 @@ struct ContentView: View {
     /// nearly the same gap above it as the header leaves above the first row. The button's shadow
     /// and round shape read as extra space, so the row sits a little closer than the top gap.
     private static let listBottomInset: CGFloat = edgeInset + recordButtonSize + headerBottomInset + rowEdgeGap - 5
+    /// Extra room at the bottom while the model banner sits above the record button.
+    private var bottomExtraInset: CGFloat {
+        controller.isPreparing && preparationBannerHeight > 0 ? preparationBannerHeight + Self.preparationBannerGap : 0
+    }
 
     private var timestampWidth: CGFloat {
         controller.timestampMode == .current && controller.showTimestampDate ? 78 : 66
@@ -205,18 +214,84 @@ struct ContentView: View {
     /// Gap between the header and the list's top edge.
     private static let headerBottomInset: CGFloat = 4
     /// Gap between the window's bottom edge and the record button.
-    private static let edgeInset: CGFloat = 16
+    private static let edgeInset: CGFloat = 21
     private static let recordButtonSize: CGFloat = 72
 
     private var bottomControl: some View {
-        recordButton
-            .overlay(alignment: .trailing) {
-                statusDot
-                    .offset(x: 20)
+        VStack(spacing: Self.preparationBannerGap) {
+            if controller.isPreparing {
+                preparationBanner
             }
-            .padding(.horizontal, Theme.contentPadding)
-            .padding(.vertical, Self.edgeInset)
-            .frame(maxWidth: .infinity)
+            recordButton
+                .overlay(alignment: .trailing) {
+                    statusDot
+                        .offset(x: 20)
+                }
+        }
+        .padding(.horizontal, Theme.contentPadding)
+        .padding(.vertical, Self.edgeInset)
+        .frame(maxWidth: .infinity)
+        .animation(.easeOut(duration: 0.2), value: controller.isPreparing)
+    }
+
+    private static let preparationBannerGap: CGFloat = 12
+    /// Space between the banner's edge and its content, and between the rows inside it.
+    private static let preparationBannerPadding: CGFloat = 12
+    private static let progressBarHeight: CGFloat = 6
+
+    /// What the model is doing before recognition can start: the phase text over a progress bar,
+    /// filled to the downloaded fraction, or sweeping while the model loads into memory. The bar
+    /// is drawn here rather than with `ProgressView`, whose control is taller than the bar it
+    /// shows, so the rows sit at even distances from each other and from the banner's edges. The
+    /// banner sizes itself to its rows and reports its height so the list can make room for it.
+    private var preparationBanner: some View {
+        VStack(spacing: Self.preparationBannerPadding) {
+            Text(controller.phaseLabel)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            HStack(spacing: 10) {
+                Group {
+                    if case .downloading(let fraction) = controller.phase {
+                        ProgressBar(fraction: fraction)
+                    } else {
+                        ProgressBar(fraction: nil)
+                    }
+                }
+                .frame(height: Self.progressBarHeight)
+                // The download percentage is already in the label above the bar.
+                if case .loading = controller.phase, let startedAt = controller.loadingStartedAt {
+                    // Ticks once a second so the user can see the load is alive.
+                    TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                        Text(strings.elapsed(max(0, Int(context.date.timeIntervalSince(startedAt)))))
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                            .foregroundStyle(Theme.accentDark)
+                            .fixedSize()
+                    }
+                }
+            }
+            if case .loading = controller.phase {
+                Text(strings.loadingModelHint)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, Self.preparationBannerPadding)
+        .frame(width: 300)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Theme.accent.opacity(Theme.rowFillOpacity))
+        )
+        .background(
+            GeometryReader { geometry in
+                Color.clear.preference(key: BannerHeightKey.self, value: geometry.size.height)
+            }
+        )
+        .onPreferenceChange(BannerHeightKey.self) { preparationBannerHeight = $0 }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     private var recordButton: some View {
@@ -262,6 +337,43 @@ struct ContentView: View {
 }
 
 // MARK: - Components
+
+private struct BannerHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// A capsule progress bar of exactly the height it is given: filled to `fraction`, or, when the
+/// fraction is unknown, a short segment sweeping back and forth.
+private struct ProgressBar: View {
+    let fraction: Double?
+
+    @State private var sweep = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Theme.accent.opacity(0.25))
+                if let fraction {
+                    Capsule()
+                        .fill(Theme.accent)
+                        .frame(width: max(0, min(1, fraction)) * width)
+                        .animation(.linear(duration: 0.2), value: fraction)
+                } else {
+                    let segment = width * 0.3
+                    Capsule()
+                        .fill(Theme.accent)
+                        .frame(width: segment)
+                        .offset(x: sweep ? width - segment : 0)
+                        .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: sweep)
+                        .onAppear { sweep = true }
+                }
+            }
+        }
+    }
+}
 
 /// A small round orange button with a white symbol, styled like the record button.
 private struct ToolbarIconButton: View {

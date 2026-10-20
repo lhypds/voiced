@@ -1,5 +1,13 @@
+import ArgmaxCore
 import Foundation
 @preconcurrency import WhisperKit
+
+/// One of the Core ML components WhisperKit loads, in load order.
+enum ModelComponent: Int, CaseIterable, Sendable {
+    case featureExtractor
+    case textDecoder
+    case audioEncoder
+}
 
 /// Finds, downloads and loads the Core ML model behind a `RecognitionEngine`.
 enum WhisperModelStore {
@@ -43,14 +51,44 @@ enum WhisperModelStore {
     }
 
     /// Loads an already downloaded model into memory.
-    static func load(modelFolder: URL) async throws -> WhisperKit {
+    ///
+    /// WhisperKit loads the feature extractor, the text decoder and the audio encoder one after
+    /// another and reports nothing but a debug log line as each begins. Core ML compiles a model
+    /// for the Neural Engine the first time a process loads it, which takes minutes for the
+    /// encoder of a large model, so `onComponent` is the only sign of life to show meanwhile.
+    static func load(
+        modelFolder: URL,
+        onComponent: (@Sendable (ModelComponent) -> Void)? = nil
+    ) async throws -> WhisperKit {
         let config = WhisperKitConfig(
             modelFolder: modelFolder.path,
-            verbose: false,
+            verbose: onComponent != nil,
+            logLevel: .debug,
             prewarm: false,
             load: true,
             download: false
         )
+        if let onComponent {
+            Logging.updateCallback { message in
+                if let component = Self.component(startingIn: message) {
+                    onComponent(component)
+                }
+            }
+        }
+        defer {
+            Logging.updateCallback(nil)
+            Logging.updateLogLevel(.none)
+        }
         return try await WhisperKit(config)
+    }
+
+    /// The component a WhisperKit log line announces the loading of, if any. Visible for tests.
+    static func component(startingIn message: String) -> ModelComponent? {
+        switch message {
+        case "Loading feature extractor": .featureExtractor
+        case "Loading text decoder": .textDecoder
+        case "Loading audio encoder": .audioEncoder
+        default: nil
+        }
     }
 }

@@ -6,15 +6,16 @@ Voiced is a native macOS app for local, real-time speech recognition. It listens
 
 ## Models
 
-Recognition runs on WhisperKit Core ML models. Three are available in Settings, listed by model name:
+Recognition runs on WhisperKit Core ML models. Four are available in Settings, listed by model name:
 
 | Model | Source | Notes |
 | --- | --- | --- |
 | Whisper Large v3 Turbo (default) | OpenAI, 632 MB | Faster responses, lower load. Suited to live captions and lower-end Macs. |
 | Whisper Large v3 | OpenAI, 626 MB | Better accuracy across languages at the cost of speed. |
 | Belle Whisper Large v3 Turbo zh | BELLE-2, 1.5 GB | Turbo fine-tuned on Mandarin. Better Chinese vocabulary, weaker on English terms; Chinese only. |
+| Kotoba Whisper v2.2 ja | Kotoba Technologies, 1.5 GB | Large v3 distilled on Japanese television speech. Better and faster on broadcast Japanese, slightly behind Large v3 on read speech; no punctuation; Japanese only. |
 
-Each model is downloaded from Hugging Face the first time it is selected and cached locally afterwards. The OpenAI models come from [argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml); the Belle model is a community Core ML conversion of [BELLE-2/Belle-whisper-large-v3-turbo-zh](https://huggingface.co/BELLE-2/Belle-whisper-large-v3-turbo-zh), hosted at [wolfofbackstreet/BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit](https://huggingface.co/wolfofbackstreet/BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit). Pin the recognition language to Chinese when using it.
+Each model is downloaded from Hugging Face the first time it is selected and cached locally afterwards. The OpenAI models come from [argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml); the Belle model is a community Core ML conversion of [BELLE-2/Belle-whisper-large-v3-turbo-zh](https://huggingface.co/BELLE-2/Belle-whisper-large-v3-turbo-zh), hosted at [wolfofbackstreet/BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit](https://huggingface.co/wolfofbackstreet/BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit); the Kotoba model is a community conversion of [kotoba-tech/kotoba-whisper-v2.2](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.2), hosted at [yslinear/kotoba-whisper-v2.2-coreml](https://huggingface.co/yslinear/kotoba-whisper-v2.2-coreml). Pin the recognition language to Chinese or Japanese when using them.
 
 Recognition languages: auto detect, Chinese, English, Japanese, Korean, Spanish, French, German, Portuguese, Russian.
 

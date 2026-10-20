@@ -119,7 +119,11 @@ let engineIndex = CommandLine.arguments.firstIndex(of: "--engine")
 let engine = engineIndex.flatMap { RecognitionEngine(rawValue: CommandLine.arguments[$0 + 1]) } ?? .turbo
 print("loading \(engine.rawValue) model...")
 guard let folder = WhisperModelStore.cachedModelFolder(for: engine) else { fatalError("\(engine.rawValue) model not cached") }
-let whisperKit = try await WhisperModelStore.load(modelFolder: folder)
+let loadStarted = Date()
+let whisperKit = try await WhisperModelStore.load(modelFolder: folder) { component in
+    print(String(format: "loading component %d: %@", component.rawValue + 1, String(describing: component)))
+}
+print(String(format: "model loaded in %.1fs", Date().timeIntervalSince(loadStarted)))
 let noiseIndex = CommandLine.arguments.firstIndex(of: "--noise")
 let noise = noiseIndex.flatMap { Float(CommandLine.arguments[$0 + 1]) } ?? 0
 let audio = try FileAudioSource(file: file, noise: noise, denoise: CommandLine.arguments.contains("--denoise"))

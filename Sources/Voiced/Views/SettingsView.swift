@@ -62,20 +62,30 @@ struct SettingsView: View {
                 Divider()
 
                 SettingsRow(title: strings.recognitionEngine, accessory: engineHelpButton) {
-                    Picker(
-                        strings.recognitionEngine,
-                        selection: Binding(
-                            get: { controller.selectedEngine },
-                            set: controller.selectEngine
-                        )
-                    ) {
-                        ForEach(RecognitionEngine.allCases) { engine in
-                            Text(engine.displayName).tag(engine)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        // A pop-up button sizes itself to its widest item, which left a blank
+                        // stretch beside the shorter model names; a menu sizes to the chosen one.
+                        Menu {
+                            ForEach(RecognitionEngine.allCases) { engine in
+                                Button {
+                                    controller.selectEngine(engine)
+                                } label: {
+                                    if engine == controller.selectedEngine {
+                                        Label(engine.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(engine.displayName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Text(controller.selectedEngine.displayName)
+                        }
+                        .fixedSize()
+                        .disabled(controller.isRecording || controller.isPreparing || controller.preview.isActive)
+                        if controller.isPreparing {
+                            enginePreparationProgress
                         }
                     }
-                    .labelsHidden()
-                    .frame(maxWidth: 220, alignment: .trailing)
-                    .disabled(controller.isRecording || controller.isPreparing || controller.preview.isActive)
                 }
 
                 Divider()
@@ -180,6 +190,26 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .help(strings.close)
+        }
+    }
+
+    /// Download or load progress of the engine just selected, under its picker: the bar on one
+    /// line and the phase text on the next, so the row's title keeps its width.
+    private var enginePreparationProgress: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            Group {
+                if case .downloading(let fraction) = controller.phase {
+                    ProgressView(value: fraction)
+                } else {
+                    ProgressView()
+                }
+            }
+            .progressViewStyle(.linear)
+            .frame(width: 160)
+            Text(controller.phaseLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 

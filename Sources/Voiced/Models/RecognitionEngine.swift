@@ -11,6 +11,10 @@ enum RecognitionEngine: String, CaseIterable, Identifiable, Sendable {
     /// (slower than real time here) and that checkpoint emits no punctuation, so lines could not be
     /// split; it is not offered.
     case belleTurbo
+    /// kotoba-whisper-v2.2: Whisper large-v3 distilled to a two-layer decoder and trained on
+    /// Japanese television speech by Kotoba Technologies. Its output carries no punctuation and
+    /// the conversion has no word timings, so lines follow Whisper's own segment boundaries.
+    case kotoba
 
     var id: String { rawValue }
 
@@ -20,14 +24,17 @@ enum RecognitionEngine: String, CaseIterable, Identifiable, Sendable {
         case .turbo: "Whisper Large v3 Turbo"
         case .accurate: "Whisper Large v3"
         case .belleTurbo: "Belle Whisper Large v3 Turbo zh"
+        case .kotoba: "Kotoba Whisper v2.2 ja"
         }
     }
 
-    /// Whether the model was fine-tuned for Mandarin only. Other languages suffer with it.
-    var isChineseSpecialized: Bool {
+    /// Whisper language code the model was fine-tuned for, or nil for a general model. Other
+    /// languages suffer with a specialized model.
+    var specializedLanguage: String? {
         switch self {
-        case .turbo, .accurate: false
-        case .belleTurbo: true
+        case .turbo, .accurate: nil
+        case .belleTurbo: "zh"
+        case .kotoba: "ja"
         }
     }
 
@@ -36,6 +43,7 @@ enum RecognitionEngine: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .turbo, .accurate: "argmaxinc/whisperkit-coreml"
         case .belleTurbo: "wolfofbackstreet/BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit"
+        case .kotoba: "yslinear/kotoba-whisper-v2.2-coreml"
         }
     }
 
@@ -45,6 +53,7 @@ enum RecognitionEngine: String, CaseIterable, Identifiable, Sendable {
         case .turbo: "openai_whisper-large-v3-v20240930_turbo_632MB"
         case .accurate: "openai_whisper-large-v3-v20240930_626MB"
         case .belleTurbo: "BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit"
+        case .kotoba: "kotoba-tech_kotoba-whisper-v2.2"
         }
     }
 
@@ -54,7 +63,7 @@ enum RecognitionEngine: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .turbo: "large-v3-v20240930_turbo_632MB"
         case .accurate: "large-v3-v20240930_626MB"
-        case .belleTurbo: modelFolderName
+        case .belleTurbo, .kotoba: modelFolderName
         }
     }
 }

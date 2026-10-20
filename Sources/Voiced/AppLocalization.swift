@@ -71,6 +71,8 @@ struct AppStrings: Sendable {
             value("OpenAI 的完整 Large v3，626 MB。多语言识别更准确，但响应较慢。", "OpenAI の完全版 Large v3、626 MB。多言語の精度が高い分、応答は遅くなります。", "OpenAI's full Large v3, 626 MB. More accurate across languages, slower to respond.", "Large v3 complet d'OpenAI, 626 Mo. Plus précis dans toutes les langues, réponses plus lentes.", "Large v3 completo de OpenAI, 626 MB. Más preciso en todos los idiomas, respuestas más lentas.", "Vollständiges Large v3 von OpenAI, 626 MB. Genauer in allen Sprachen, langsamer.")
         case .belleTurbo:
             value("BELLE 团队用中文数据微调的 Large v3 Turbo，1.5 GB。中文词汇更准，英文术语较弱，只适合中文；社区转换的 Core ML 版本。", "BELLE チームが中国語データで微調整した Large v3 Turbo、1.5 GB。中国語の語彙に強く英語の用語には弱い、中国語専用。コミュニティによる Core ML 変換版。", "Large v3 Turbo fine-tuned on Mandarin by the BELLE team, 1.5 GB. Better Chinese vocabulary, weaker English terms; Chinese only. Community Core ML conversion.", "Large v3 Turbo affiné sur le mandarin par l'équipe BELLE, 1,5 Go. Meilleur vocabulaire chinois, termes anglais plus faibles ; chinois uniquement. Conversion Core ML communautaire.", "Large v3 Turbo ajustado para mandarín por el equipo BELLE, 1,5 GB. Mejor vocabulario chino, términos en inglés más débiles; solo chino. Conversión Core ML de la comunidad.", "Von BELLE auf Mandarin feinabgestimmtes Large v3 Turbo, 1,5 GB. Besserer chinesischer Wortschatz, schwächere englische Begriffe; nur Chinesisch. Core-ML-Konvertierung aus der Community.")
+        case .kotoba:
+            value("Kotoba Technologies 用日本电视语料蒸馏训练的模型，1.5 GB。电视、广播类日语更准、速度快，朗读类略逊于 Large v3；不输出标点，只适合日语；社区转换的 Core ML 版本。", "Kotoba Technologies が日本のテレビ音声で蒸留学習したモデル、1.5 GB。テレビ・放送系の日本語に強く高速ですが、朗読系では Large v3 にやや劣ります。句読点は出力されず、日本語専用。コミュニティによる Core ML 変換版。", "Distilled by Kotoba Technologies on Japanese television speech, 1.5 GB. Better and faster on broadcast Japanese, slightly behind Large v3 on read speech; no punctuation; Japanese only. Community Core ML conversion.", "Distillé par Kotoba Technologies sur de la parole télévisée japonaise, 1,5 Go. Meilleur et plus rapide sur le japonais de diffusion, légèrement derrière Large v3 en lecture ; sans ponctuation ; japonais uniquement. Conversion Core ML communautaire.", "Destilado por Kotoba Technologies con habla de televisión japonesa, 1,5 GB. Mejor y más rápido en japonés de emisiones, algo por detrás de Large v3 en lectura; sin puntuación; solo japonés. Conversión Core ML de la comunidad.", "Von Kotoba Technologies auf japanischer Fernsehsprache destilliert, 1,5 GB. Besser und schneller bei Sendungen, bei vorgelesener Sprache etwas hinter Large v3; keine Zeichensetzung; nur Japanisch. Core-ML-Konvertierung aus der Community.")
         }
     }
     var interfaceLanguage: String { value("界面语言", "表示言語", "Interface language", "Langue de l'interface", "Idioma de la interfaz", "Sprache der Oberfläche") }
@@ -108,6 +110,25 @@ struct AppStrings: Sendable {
     var stopRecognition: String { value("停止识别", "認識を停止", "Stop recognition", "Arrêter la reconnaissance", "Detener reconocimiento", "Erkennung beenden") }
     var startRecognition: String { value("开始识别", "認識を開始", "Start recognition", "Démarrer la reconnaissance", "Iniciar reconocimiento", "Erkennung starten") }
     var loadingModel: String { value("正在加载模型", "モデルを読み込み中", "Loading model", "Chargement du modèle", "Cargando el modelo", "Modell wird geladen") }
+    /// "Loading model 2/3: text decoder" once a component is known; the plain label before that.
+    func loadingModel(_ component: ModelComponent?) -> String {
+        guard let component else { return loadingModel }
+        let step = "\(component.rawValue + 1)/\(ModelComponent.allCases.count)"
+        return value("正在加载模型 \(step)：\(componentName(component))", "モデルを読み込み中 \(step)：\(componentName(component))", "Loading model \(step): \(componentName(component))", "Chargement du modèle \(step) : \(componentName(component))", "Cargando el modelo \(step): \(componentName(component))", "Modell wird geladen \(step): \(componentName(component))")
+    }
+    func componentName(_ component: ModelComponent) -> String {
+        switch component {
+        case .featureExtractor: value("特征提取器", "特徴抽出器", "feature extractor", "extracteur de caractéristiques", "extractor de características", "Merkmalsextraktor")
+        case .textDecoder: value("文本解码器", "テキストデコーダー", "text decoder", "décodeur de texte", "decodificador de texto", "Textdecoder")
+        case .audioEncoder: value("音频编码器", "音声エンコーダー", "audio encoder", "encodeur audio", "codificador de audio", "Audioencoder")
+        }
+    }
+    /// Why a load can take minutes, shown under the loading bar.
+    var loadingModelHint: String { value("首次加载会为神经网络引擎编译模型，可能需要几分钟；之后再加载只需几秒。", "初回の読み込みでは Neural Engine 向けにモデルをコンパイルするため数分かかることがあります。2 回目以降は数秒です。", "The first load compiles the model for the Neural Engine and can take a few minutes; later loads take seconds.", "Le premier chargement compile le modèle pour le Neural Engine et peut prendre quelques minutes ; les suivants prennent quelques secondes.", "La primera carga compila el modelo para el Neural Engine y puede tardar unos minutos; las siguientes tardan segundos.", "Das erste Laden kompiliert das Modell für die Neural Engine und kann einige Minuten dauern; spätere Ladevorgänge dauern Sekunden.") }
+    func elapsed(_ seconds: Int) -> String {
+        let clock = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        return value("已用 \(clock)", "経過 \(clock)", "Elapsed \(clock)", "Écoulé \(clock)", "Transcurrido \(clock)", "Vergangen \(clock)")
+    }
     var ready: String { value("就绪", "準備完了", "Ready", "Prêt", "Listo", "Bereit") }
     var recognizing: String { value("正在识别", "認識中", "Recognizing", "Reconnaissance", "Reconociendo", "Erkennung läuft") }
     var retry: String { value("重试", "再試行", "Retry", "Réessayer", "Reintentar", "Erneut versuchen") }

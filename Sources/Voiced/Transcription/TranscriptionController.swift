@@ -27,6 +27,10 @@ final class TranscriptionController: ObservableObject {
     private static let silenceCommitDelay: TimeInterval = 2
 
     @Published private(set) var phase: Phase = .loading
+    /// The component WhisperKit is loading while `phase` is `.loading`, once it has started on one.
+    @Published private(set) var loadingComponent: ModelComponent?
+    /// When the current load began, for showing how long it has been running.
+    @Published private(set) var loadingStartedAt: Date?
     @Published private(set) var lines: [TranscriptLine] = []
     @Published private(set) var liveText = ""
     /// Saved transcripts, most recently updated first.
@@ -125,7 +129,7 @@ final class TranscriptionController: ObservableObject {
     var phaseLabel: String {
         switch phase {
         case .downloading(let progress): strings.downloadingModel(progress)
-        case .loading: strings.loadingModel
+        case .loading: strings.loadingModel(loadingComponent)
         case .ready: strings.ready
         case .recording: strings.recognizing
         case .failed(.model(let detail)): strings.modelLoadFailed(detail)
@@ -182,11 +186,19 @@ final class TranscriptionController: ObservableObject {
             }
 
             phase = .loading
-            whisperKit = try await WhisperModelStore.load(modelFolder: modelFolder)
+            loadingComponent = nil
+            loadingStartedAt = Date()
+            whisperKit = try await WhisperModelStore.load(modelFolder: modelFolder) { [weak self] component in
+                Task { @MainActor [weak self] in
+                    self?.loadingComponent = component
+                }
+            }
             phase = .ready
         } catch {
             phase = .failed(.model(error.localizedDescription))
         }
+        loadingComponent = nil
+        loadingStartedAt = nil
     }
 
     func retryPreparation() {

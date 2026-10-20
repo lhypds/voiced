@@ -18,15 +18,31 @@ final class RecognitionEngineTests: XCTestCase {
         }
     }
 
-    func testBelleModelsAreSearchedByFolderName() {
-        for engine in [RecognitionEngine.belleTurbo] {
+    func testSpecializedModelsAreSearchedByFolderName() {
+        XCTAssertEqual(RecognitionEngine.belleTurbo.specializedLanguage, "zh")
+        XCTAssertEqual(RecognitionEngine.kotoba.specializedLanguage, "ja")
+        XCTAssertNil(RecognitionEngine.turbo.specializedLanguage)
+        for engine in [RecognitionEngine.belleTurbo, .kotoba] {
             XCTAssertEqual(engine.modelVariant, engine.modelFolderName)
-            XCTAssertTrue(engine.isChineseSpecialized)
             XCTAssertTrue(engine.repo.contains("/"))
         }
     }
 
     func testDisplayNamesAreDistinct() {
         XCTAssertEqual(Set(RecognitionEngine.allCases.map(\.displayName)).count, RecognitionEngine.allCases.count)
+    }
+}
+
+final class WhisperModelStoreTests: XCTestCase {
+    func testComponentIsRecognizedFromWhisperKitLogLines() {
+        XCTAssertEqual(WhisperModelStore.component(startingIn: "Loading feature extractor"), .featureExtractor)
+        XCTAssertEqual(WhisperModelStore.component(startingIn: "Loading text decoder"), .textDecoder)
+        XCTAssertEqual(WhisperModelStore.component(startingIn: "Loading audio encoder"), .audioEncoder)
+        XCTAssertNil(WhisperModelStore.component(startingIn: "Loaded audio encoder in 1.20s"))
+        XCTAssertNil(WhisperModelStore.component(startingIn: "Decoding Seek: 0"))
+    }
+
+    func testComponentsAreInLoadOrder() {
+        XCTAssertEqual(ModelComponent.allCases.map(\.rawValue), [0, 1, 2])
     }
 }

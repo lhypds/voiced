@@ -46,7 +46,7 @@ swift run -c release VoicedSimulate sample.wav --lang ja
 | Option | Effect |
 | --- | --- |
 | `--lang <code>` | Recognition language (default `en`). |
-| `--engine accurate` | Model to use: `turbo` (default), `accurate` or `belleTurbo`; it must already be cached by the app. |
+| `--engine accurate` | Model to use: `turbo` (default), `accurate`, `belleTurbo` or `kotoba`; it must already be cached by the app. |
 | `--noise 0.02` | Add white noise of the given amplitude. |
 | `--denoise` | Run the audio through spectral subtraction first, with a profile from noise of the `--noise` amplitude. Compare runs with and without it. |
 | `--floor 0.01` | Energy threshold (default 0.02). |
@@ -59,7 +59,7 @@ swift run -c release VoicedSimulate sample.wav --lang ja
 - WhisperKit is native Swift, runs on the Apple Neural Engine, and supports streaming recognition with segment timestamps.
 - [FluidAudio](https://github.com/FluidInference/FluidAudio)/Parakeet is faster, but its general multilingual model mostly covers European languages and Chinese needs a separate model, so it does not fit the mixed-language goal.
 
-Model variants are listed in `RecognitionEngine.swift`, each with the Hugging Face repository and folder it lives in; `WhisperModelStore` caches them under `~/Documents/huggingface/models/<repo>/<folder>`, the layout WhisperKit's downloader uses. The Belle model is Whisper large-v3 Turbo fine-tuned on Mandarin by the BELLE team, loaded from a community Core ML conversion; WhisperKit detects the architecture from the Core ML bundles, so a conversion needs only the three `.mlmodelc` folders. The full large-v3 fine-tune (`holgt/belle-whisper-large-v3-zh-coreml`) was tried and rejected: unquantized, it decoded at 6 to 20 seconds per window on an M-series Mac, and that checkpoint emits no punctuation at all, so lines could not be split. Chinese and Japanese transcripts are joined with full-width punctuation.
+Model variants are listed in `RecognitionEngine.swift`, each with the Hugging Face repository and folder it lives in; `WhisperModelStore` caches them under `~/Documents/huggingface/models/<repo>/<folder>`, the layout WhisperKit's downloader uses. The Belle model is Whisper large-v3 Turbo fine-tuned on Mandarin by the BELLE team, loaded from a community Core ML conversion; WhisperKit detects the architecture from the Core ML bundles, so a conversion needs only the three `.mlmodelc` folders. The Kotoba model is kotoba-whisper-v2.2, Whisper large-v3 distilled to a two-layer decoder on Japanese television speech; its conversion exposes no alignment heads, so word timings are unavailable and lines follow Whisper's segment boundaries, and the checkpoint emits no punctuation. The full Belle large-v3 fine-tune (`holgt/belle-whisper-large-v3-zh-coreml`) was tried and rejected: unquantized, it decoded at 6 to 20 seconds per window on an M-series Mac, and that checkpoint emits no punctuation at all, so lines could not be split. Chinese and Japanese transcripts are joined with full-width punctuation.
 
 ## How sentences are committed
 
