@@ -214,7 +214,7 @@ struct ContentView: View {
     /// Gap between the header and the list's top edge.
     private static let headerBottomInset: CGFloat = 4
     /// Gap between the window's bottom edge and the record button.
-    private static let edgeInset: CGFloat = 21
+    private static let edgeInset: CGFloat = 18
     private static let recordButtonSize: CGFloat = 72
 
     private var bottomControl: some View {
@@ -344,11 +344,15 @@ private struct BannerHeightKey: PreferenceKey {
 }
 
 /// A capsule progress bar of exactly the height it is given: filled to `fraction`, or, when the
-/// fraction is unknown, a short segment sweeping back and forth.
+/// fraction is unknown, a short segment sweeping back and forth. The sweep is driven by the clock
+/// rather than a repeating state animation: the bar's width changes while it is on screen (the
+/// elapsed label appears beside it once a load starts), and a repeating animation begun at the
+/// old width keeps sliding the segment to the old end, out past the track.
 private struct ProgressBar: View {
     let fraction: Double?
 
-    @State private var sweep = false
+    /// One sweep from one end to the other.
+    private static let sweepDuration: TimeInterval = 1.1
 
     var body: some View {
         GeometryReader { geometry in
@@ -363,15 +367,24 @@ private struct ProgressBar: View {
                         .animation(.linear(duration: 0.2), value: fraction)
                 } else {
                     let segment = width * 0.3
-                    Capsule()
-                        .fill(Theme.accent)
-                        .frame(width: segment)
-                        .offset(x: sweep ? width - segment : 0)
-                        .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: sweep)
-                        .onAppear { sweep = true }
+                    TimelineView(.animation) { context in
+                        Capsule()
+                            .fill(Theme.accent)
+                            .frame(width: segment)
+                            .offset(x: Self.sweepOffset(at: context.date) * (width - segment))
+                    }
                 }
             }
+            .clipShape(Capsule())
         }
+    }
+
+    /// Where the sweeping segment sits at `date`, as 0...1 of its travel, easing in and out at
+    /// each end like the state animation it replaces.
+    static func sweepOffset(at date: Date) -> CGFloat {
+        let cycle = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: sweepDuration * 2)
+        let linear = cycle < sweepDuration ? cycle / sweepDuration : 2 - cycle / sweepDuration
+        return CGFloat(0.5 - cos(linear * .pi) / 2)
     }
 }
 
