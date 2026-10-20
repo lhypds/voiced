@@ -12,7 +12,7 @@ struct VoicedApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(controller: transcriber)
-                .frame(minWidth: 360, minHeight: 600)
+                .frame(minWidth: 360, minHeight: 360)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 380, height: 720)

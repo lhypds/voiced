@@ -44,6 +44,7 @@ With BlackHole, use a Multi-Output Device that routes to both the speakers and B
 ## Settings
 
 - Recognition engine, recognition language and interface language.
+- Keep window on top: the window stays in front when you switch to other apps.
 - Timestamp: relative time or clock time, with an optional date.
 - Energy threshold: sound below it is ignored. Lower it for quiet sources such as speakers picked up by a microphone.
 - Measure background noise: keep quiet for 2 seconds. The room's noise is recorded for noise reduction and the threshold is set just above it, so fans or hum do not trigger recognition.

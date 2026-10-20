@@ -32,6 +32,7 @@ struct ContentView: View {
             }
         }
         .background(Theme.background)
+        .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
         .preferredColorScheme(.light)
         .sheet(isPresented: $isSettingsPresented) {
             SettingsView(controller: controller, isPresented: $isSettingsPresented)

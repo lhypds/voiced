@@ -26,6 +26,14 @@ struct SettingsView: View {
 
                 Divider()
 
+                SettingsRow(title: strings.keepWindowOnTop, hint: strings.keepWindowOnTopHint) {
+                    Toggle(strings.keepWindowOnTop, isOn: $controller.keepWindowOnTop)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                Divider()
+
                 SettingsRow(title: strings.input, hint: strings.inputHint) {
                     Picker(strings.input, selection: $controller.selectedDeviceID) {
                         ForEach(controller.audioDevices) { device in

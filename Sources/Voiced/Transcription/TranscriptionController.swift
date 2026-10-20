@@ -46,6 +46,10 @@ final class TranscriptionController: ObservableObject {
     @Published var showTimestampDate: Bool {
         didSet { settings.showTimestampDate = showTimestampDate }
     }
+    /// Whether the main window stays above other apps' windows.
+    @Published var keepWindowOnTop: Bool {
+        didSet { settings.keepWindowOnTop = keepWindowOnTop }
+    }
     @Published private(set) var selectedEngine: RecognitionEngine {
         didSet { settings.recognitionEngine = selectedEngine }
     }
@@ -147,6 +151,7 @@ final class TranscriptionController: ObservableObject {
         selectedLanguage = settings.recognitionLanguage
         timestampMode = settings.timestampMode
         showTimestampDate = settings.showTimestampDate
+        keepWindowOnTop = settings.keepWindowOnTop
         selectedEngine = settings.recognitionEngine
         speechEnergyFloor = settings.speechEnergyFloor
         Task { await prepare() }

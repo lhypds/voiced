@@ -41,6 +41,8 @@ struct AppStrings: Sendable {
     /// Shown under the language row in English whatever language is active, so the row can
     /// always be found; nil when the interface is already in English.
     var interfaceLanguageHint: String? { language == .english ? nil : "Language" }
+    var keepWindowOnTop: String { value("窗口置顶", "ウインドウを最前面に固定", "Keep window on top", "Fenêtre toujours visible", "Ventana siempre visible", "Fenster im Vordergrund") }
+    var keepWindowOnTopHint: String { value("切换到其他应用时窗口仍保持在最前面。", "他のアプリに切り替えてもウインドウを前面に表示し続けます。", "The window stays in front when you switch to other apps.", "La fenêtre reste au premier plan quand vous passez à d'autres apps.", "La ventana se mantiene delante al cambiar a otras apps.", "Das Fenster bleibt vorne, wenn du zu anderen Apps wechselst.") }
     var timestamp: String { value("时间戳", "タイムスタンプ", "Timestamp", "Horodatage", "Marca de tiempo", "Zeitstempel") }
     var relativeTime: String { value("相对时间", "相対時間", "Relative", "Relatif", "Relativo", "Relativ") }
     var currentTime: String { value("当前时间", "現在時刻", "Clock time", "Heure", "Hora", "Uhrzeit") }

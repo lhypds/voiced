@@ -13,6 +13,7 @@ struct AppSettings {
         case recognitionEngine
         case speechEnergyFloor
         case noiseReduction
+        case keepWindowOnTop
     }
 
     private let file: SettingsFile
@@ -52,6 +53,12 @@ struct AppSettings {
     var noiseReduction: Bool {
         get { file[Key.noiseReduction.rawValue] as? Bool ?? true }
         nonmutating set { set(newValue, for: .noiseReduction) }
+    }
+
+    /// Whether the main window floats above other apps' windows.
+    var keepWindowOnTop: Bool {
+        get { file[Key.keepWindowOnTop.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .keepWindowOnTop) }
     }
 
     /// Minimum frame RMS the voice detector treats as speech. Clamped to the transcriber's range.

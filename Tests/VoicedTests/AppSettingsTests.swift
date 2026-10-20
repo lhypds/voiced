@@ -26,6 +26,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.timestampMode, .current)
         XCTAssertFalse(settings.showTimestampDate)
         XCTAssertTrue(settings.noiseReduction)
+        XCTAssertFalse(settings.keepWindowOnTop)
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
@@ -49,6 +50,7 @@ final class AppSettingsTests: XCTestCase {
         settings.recognitionEngine = .accurate
         settings.timestampMode = .relative
         settings.showTimestampDate = true
+        settings.keepWindowOnTop = true
 
         let reloaded = AppSettings(fileURL: fileURL)
         XCTAssertEqual(reloaded.appLanguage, .japanese)
@@ -56,6 +58,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.recognitionEngine, .accurate)
         XCTAssertEqual(reloaded.timestampMode, .relative)
         XCTAssertTrue(reloaded.showTimestampDate)
+        XCTAssertTrue(reloaded.keepWindowOnTop)
     }
 
     func testStorageKeysAreStable() throws {
@@ -66,6 +69,7 @@ final class AppSettingsTests: XCTestCase {
         settings.timestampMode = .relative
         settings.showTimestampDate = true
         settings.noiseReduction = false
+        settings.keepWindowOnTop = true
 
         XCTAssertEqual(try storedValue("appLanguage") as? String, "english")
         XCTAssertEqual(try storedValue("noiseReduction") as? Bool, false)
@@ -73,6 +77,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(try storedValue("recognitionEngine") as? String, "accurate")
         XCTAssertEqual(try storedValue("timestampMode") as? String, "relative")
         XCTAssertEqual(try storedValue("showTimestampDate") as? Bool, true)
+        XCTAssertEqual(try storedValue("keepWindowOnTop") as? Bool, true)
     }
 
     func testUnknownStoredValuesFallBackToDefaults() throws {
