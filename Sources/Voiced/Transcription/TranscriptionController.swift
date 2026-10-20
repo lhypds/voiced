@@ -235,7 +235,7 @@ final class TranscriptionController: ObservableObject {
     /// otherwise falls back to the system's default input, and to the first listed device when
     /// there is no default.
     func refreshAudioDevices() {
-        let devices = AudioProcessor.getAudioDevices()
+        let devices = AudioProcessor.getAudioDevices().filter { !Self.isPrivateAggregateDevice($0.id) }
         // Called whenever the input menu opens; an unchanged list must not redraw the open menu.
         if devices != audioDevices {
             audioDevices = devices
@@ -244,6 +244,30 @@ final class TranscriptionController: ObservableObject {
             let systemDefault = Self.systemDefaultInputDeviceID()
             selectedDeviceID = audioDevices.first(where: { $0.id == systemDefault })?.id ?? audioDevices.first?.id
         }
+    }
+
+    /// Whether `deviceID` is an aggregate device marked private in its composition. Core Audio
+    /// creates one of these, named `CADefaultDeviceAggregate-<pid>-<n>`, for every process that
+    /// opens the system default input, this app included. It is that process's own view of the
+    /// default input, not a device the user can pick, so it is kept out of the input menu.
+    /// User-made aggregates from Audio MIDI Setup are not private and stay listed.
+    private static func isPrivateAggregateDevice(_ deviceID: DeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport) == noErr,
+              transport == kAudioDeviceTransportTypeAggregate else { return false }
+
+        address.mSelector = kAudioAggregateDevicePropertyComposition
+        var composition: Unmanaged<CFDictionary>?
+        size = UInt32(MemoryLayout<Unmanaged<CFDictionary>?>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &composition) == noErr,
+              let dictionary = composition?.takeRetainedValue() as? [String: Any] else { return false }
+        return (dictionary[kAudioAggregateDeviceIsPrivateKey] as? NSNumber)?.boolValue == true
     }
 
     /// The input device selected in System Settings > Sound, or nil when there is none.
