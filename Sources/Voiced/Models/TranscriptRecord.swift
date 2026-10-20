@@ -1,22 +1,62 @@
 import Foundation
 
-/// One saved transcript in the history. A record is created the first time a transcript gets a line
-/// and updated every time more lines are committed, so it always mirrors what was on screen.
+/// One saved transcript in the history. A record is created when a recording starts and updated every
+/// time more lines are committed, so it always mirrors what was on screen.
+///
+/// On disk a record is a directory named by its `id` under `~/.voiced/history`, holding
+/// `transcript.json` and one WAV file per recording session.
 struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
-    let id: UUID
+    /// One start/stop recording cycle that fed this record, and the raw audio it saved.
+    struct Session: Codable, Equatable, Sendable {
+        var startedAt: Date
+        var endedAt: Date?
+        var inputDevice: String
+        /// Recognition language code, or nil for auto detect.
+        var language: String?
+        var engine: String
+        /// Name of the WAV file in the record's directory, or nil when nothing was captured.
+        var audioFile: String?
+    }
+
+    /// Name of the record's directory: the unix time in seconds at which it was started, with a
+    /// `-2`-style suffix when two records were started within the same second.
+    let id: String
     let createdAt: Date
     var updatedAt: Date
     var lines: [TranscriptLine]
+    var sessions: [Session]
 
-    init(id: UUID = UUID(), createdAt: Date = Date(), updatedAt: Date? = nil, lines: [TranscriptLine]) {
-        self.id = id
+    init(
+        id: String? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date? = nil,
+        lines: [TranscriptLine],
+        sessions: [Session] = []
+    ) {
+        self.id = id ?? Self.directoryName(for: createdAt)
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.lines = lines
+        self.sessions = sessions
+    }
+
+    /// Unix time of `date` in whole seconds, the way record directories are named.
+    static func directoryName(for date: Date) -> String {
+        String(Int(date.timeIntervalSince1970.rounded(.down)))
     }
 
     /// Opening words of the transcript, used as the title in the history list.
     var preview: String {
         lines.first?.text ?? ""
+    }
+
+    /// Files written before sessions were tracked have no `sessions` key, and their ids are UUIDs.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        lines = try container.decode([TranscriptLine].self, forKey: .lines)
+        sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
     }
 }

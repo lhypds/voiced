@@ -24,7 +24,7 @@ The script reads `VERSION`, writes the new version to `VERSION` and `Support/Inf
 
 ## Tests
 
-Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the hallucination filter and the history store:
+Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the hallucination filter, the history store, the session recorder (WAV output) and the migration into `~/.voiced`:
 
 ```sh
 swift test
@@ -41,7 +41,7 @@ say -v Kyoko -o sample.wav --data-format=LEI16@16000 "こんにちは [[slnc 300
 swift run -c release VoicedSimulate sample.wav --lang ja
 ```
 
-`VoicedSimulate` feeds the file into `LiveTranscriber` at real-time pace, prints every decode, commit and pause event, and checks that committed sentences never change afterwards.
+`VoicedSimulate` feeds the file into `LiveTranscriber` at real-time pace, prints every decode, commit and pause event, and checks that committed sentences never change afterwards and that the audio handed to the session recorder is exactly what was fed in. The WAV files saved under `~/.voiced/history/<record>/` are already 16 kHz mono and can be passed in directly.
 
 | Option | Effect |
 | --- | --- |
@@ -76,15 +76,21 @@ Model variants are listed in `RecognitionEngine.swift`. Chinese and Japanese tra
 Sources/Voiced/
   VoicedApp.swift              App entry point
   AppLocalization.swift        UI strings (English / Chinese / Japanese / French / Spanish / German)
-  Models/                      Plain data types: TranscriptLine, TranscriptRecord, RecognitionEngine, RecognitionLanguage, AppSettings
+  Models/                      Plain data types: TranscriptLine, RecognitionEngine, RecognitionLanguage
+    TranscriptRecord.swift     A history record: lines plus one entry per recording session; its id is its directory name
+    AppSettings.swift          Preferences, stored as JSON in ~/.voiced/settings.json
+    VoicedDirectory.swift      Layout of ~/.voiced and migration of data from older versions
   Transcription/
-    LiveTranscriber.swift      Streaming recognition loop with its own audio buffer: silence detection, dropping committed audio
+    LiveTranscriber.swift      Streaming recognition loop with its own audio buffer: silence detection, dropping committed audio,
+                               hands every captured sample to an audio sink before it can be dropped
+    SessionRecorder.swift      Saves one session's raw audio as <unix time>.wav in the record's directory
+    WAVWriter.swift            Streaming 16-bit PCM WAV writer; header kept valid after every write
     HallucinationFilter.swift  Known hallucinated phrases
     SentenceAssembler.swift    Merges recognition segments into sentences (pure function, unit tested)
     RecordingSession.swift     Commit state for one recording
     RecognitionPreview.swift   Throwaway recognition run for the Settings sheet (input level and preview text)
     WhisperModelStore.swift    Model cache check, download and loading
-    TranscriptHistoryStore.swift  Reads and writes history (Application Support/Voiced/History, one JSON file per record)
+    TranscriptHistoryStore.swift  Reads and writes history (~/.voiced/history/<unix time>/transcript.json, one directory per record)
     TranscriptionController.swift  Connects recognition events to the UI
   Views/                       ContentView, SettingsView, HistoryView, Theme
 Sources/VoicedSimulate/        Development tool that drives the pipeline with an audio file (sources are symlinks)

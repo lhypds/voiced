@@ -48,9 +48,26 @@ With BlackHole, use a Multi-Output Device that routes to both the speakers and B
 - Energy threshold: sound below it is ignored. Lower it for quiet sources such as speakers picked up by a microphone.
 - Recognition preview: listens with the current settings and shows the input level and recognized text without writing to the transcript. Useful for tuning the threshold.
 
+## Data on disk
+
+Everything Voiced stores lives under `~/.voiced`:
+
+```
+~/.voiced/
+  settings.json             preferences
+  history/<unix time>/      one directory per history record, named after the time it was started
+    transcript.json         the lines, plus one entry per recording session: start and end time,
+                            input device, language, engine and the name of its audio file
+    <unix time>.wav         the raw audio of each session (16 kHz mono 16-bit PCM)
+```
+
+A recording session runs from the start button to the stop button. The first session of a record creates its directory, and every later session recorded into the same record (by selecting it in the history first) adds another WAV file named after its own start time. The audio file is written while recording, so it is complete even if the app quits unexpectedly. A session that recognized nothing still keeps its audio; one that captured no audio at all leaves nothing behind. Deleting a record in the history removes its directory with the audio. The saved audio can be replayed through the recognizer with `VoicedSimulate` (see [docs/Develop.md](docs/Develop.md)).
+
+Settings and history written by earlier versions (in `UserDefaults` and `~/Library/Application Support/Voiced/History/`) are moved into `~/.voiced` on the first launch.
+
 ## History
 
-Every time a sentence is committed, the current transcript is saved automatically to `~/Library/Application Support/Voiced/History/`. The history button in the top right lists past records; selecting one puts it back on screen, and starting recognition again appends new sentences after it. Clear only empties the screen and keeps the saved records. To delete a record, click the trash icon in the list.
+Every time a sentence is committed, the current transcript is saved automatically to `~/.voiced/history/`. The history button in the top right lists past records; selecting one puts it back on screen, and starting recognition again appends new sentences after it. Clear only empties the screen and keeps the saved records. To delete a record, click the trash icon in the list.
 
 ## Development
 

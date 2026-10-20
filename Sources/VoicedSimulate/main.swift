@@ -1,5 +1,6 @@
 // Development tool: feeds a 16 kHz speech file through LiveTranscriber at real-time pace, mirrors the
-// app's commit logic and verifies that pauses finalize the live sentence and committed lines never change.
+// app's commit logic and verifies that pauses finalize the live sentence, committed lines never change
+// and the raw audio handed to the session recorder is exactly what was fed in.
 //
 //   say -v Kyoko -o sample.wav --data-format=LEI16@16000 "こんにちは [[slnc 3000]] さようなら"
 //   swift run -c release VoicedSimulate sample.wav --lang ja [--noise 0.02] [--floor 0.01] [--energy]
@@ -25,6 +26,8 @@ final class FileAudioSource: AudioProcessing, @unchecked Sendable {
 
     private let lock = NSLock()
     private var samples = ContiguousArray<Float>()
+    /// Everything ever appended to the buffer, for checking the transcriber's audio sink.
+    private var fed: [Float] = []
     private var energy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
     private let source: [Float]
     private var cursor = 0
@@ -43,6 +46,7 @@ final class FileAudioSource: AudioProcessing, @unchecked Sendable {
     }
 
     var audioSamples: ContiguousArray<Float> { lock.withLock { samples } }
+    var fedSamples: [Float] { lock.withLock { fed } }
     var relativeEnergy: [Float] { lock.withLock { energy.map(\.rel) } }
 
     func purgeAudioSamples(keepingLast keep: Int) {
@@ -59,6 +63,7 @@ final class FileAudioSource: AudioProcessing, @unchecked Sendable {
             if buffer.count < chunk { buffer.append(contentsOf: [Float](repeating: 0, count: chunk - buffer.count)) }
             lock.withLock {
                 samples.append(contentsOf: buffer)
+                fed.append(contentsOf: buffer)
                 let minAvg = energy.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
                 let rel = AudioProcessor.calculateRelativeEnergy(of: buffer, relativeTo: minAvg)
                 let e = AudioProcessor.calculateEnergy(of: buffer)
@@ -176,8 +181,17 @@ func lines(from segments: [TranscriptionSegment]) -> [TranscriptLine] {
     }
 }
 
+/// Collects what the transcriber hands to the audio sink, the way `SessionRecorder` would write it.
+final class CapturedAudio: @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Float] = []
+    func append(_ new: [Float]) { lock.withLock { samples.append(contentsOf: new) } }
+    var all: [Float] { lock.withLock { samples } }
+}
+let captured = CapturedAudio()
+
 let driver = Driver()
-let transcriber = LiveTranscriber(whisperKit: whisperKit, options: options, inputDeviceID: 0, silenceThreshold: 0.12, silenceDelay: 2, speechEnergyFloor: speechEnergyFloor, delegate: driver, audioProcessor: audio, log: { message in
+let transcriber = LiveTranscriber(whisperKit: whisperKit, options: options, inputDeviceID: 0, silenceThreshold: 0.12, silenceDelay: 2, speechEnergyFloor: speechEnergyFloor, delegate: driver, audioProcessor: audio, audioSink: { captured.append($0) }, log: { message in
     print("\(stamp()) LT fed=\(String(format: "%.1f", audio.fedSeconds))s \(message)")
 })
 
@@ -188,6 +202,11 @@ try? await Task.sleep(for: .seconds(1))
 session.commitTrailing(finalize: assembler.terminated)
 print("\nFINAL transcript: \(session.transcript.map(\.text))")
 print("silence commits: \(silenceCommits)")
+let capturedSamples = captured.all
+let fedSamples = audio.fedSamples
+print("captured audio: \(Float(capturedSamples.count) / 16_000)s of \(Float(fedSamples.count) / 16_000)s fed")
+if capturedSamples.count < Int(audio.sourceSeconds * 16_000) { failures.append("audio sink missed the end of the file") }
+if !fedSamples.starts(with: capturedSamples) { failures.append("audio sink received samples out of order, duplicated or skipped") }
 print("texts containing U+FFFD: \(replacementCharacterHits)")
 if replacementCharacterHits > 0 { failures.append("replacement characters reached the UI") }
 if silenceCommits < 1 { failures.append("expected at least one pause event, got \(silenceCommits)") }

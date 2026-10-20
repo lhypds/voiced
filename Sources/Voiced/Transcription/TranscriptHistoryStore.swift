@@ -1,51 +1,113 @@
 import Foundation
 
-/// Persists transcript records as one JSON file per record inside a directory.
+/// Persists transcript records as one directory per record inside the history directory.
 ///
-/// The default directory lives in Application Support, so history survives app updates.
-/// Files that cannot be decoded are skipped rather than failing the whole load.
+/// ```
+/// history/
+///   1760950000/              record id: unix time of its start
+///     transcript.json        lines and sessions
+///     1760950000.wav         raw audio of each session, named by the session's start
+/// ```
+///
+/// The default directory is `~/.voiced/history`. Directories without a readable transcript are
+/// skipped rather than failing the whole load.
 struct TranscriptHistoryStore {
+    static let transcriptFileName = "transcript.json"
+
     let directory: URL
 
     init(directory: URL = TranscriptHistoryStore.defaultDirectory) {
         self.directory = directory
     }
 
-    static var defaultDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent("Voiced/History", isDirectory: true)
-    }
+    static var defaultDirectory: URL { VoicedDirectory.historyDirectory }
 
     /// All stored records, most recently updated first.
     func load() -> [TranscriptRecord] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return []
-        }
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return [] }
         let decoder = Self.makeDecoder()
-        return files
-            .filter { $0.pathExtension == "json" }
-            .compactMap { url in
-                guard let data = try? Data(contentsOf: url) else { return nil }
-                return try? decoder.decode(TranscriptRecord.self, from: data)
+        return entries
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .compactMap { folder in
+                guard let data = try? Data(contentsOf: folder.appendingPathComponent(Self.transcriptFileName)),
+                      let stored = try? decoder.decode(TranscriptRecord.self, from: data)
+                else { return nil }
+                // The directory name is the identity; the file's id is only a copy of it.
+                return TranscriptRecord(
+                    id: folder.lastPathComponent,
+                    createdAt: stored.createdAt,
+                    updatedAt: stored.updatedAt,
+                    lines: stored.lines,
+                    sessions: stored.sessions
+                )
             }
             .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     func save(_ record: TranscriptRecord) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let folder = recordDirectory(id: record.id)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let data = try Self.makeEncoder().encode(record)
-        try data.write(to: fileURL(for: record.id), options: .atomic)
+        try data.write(to: folder.appendingPathComponent(Self.transcriptFileName), options: .atomic)
     }
 
-    func delete(id: UUID) throws {
-        let url = fileURL(for: id)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        try FileManager.default.removeItem(at: url)
+    /// Removes the record's directory with everything in it, including the audio.
+    func delete(id: String) throws {
+        let folder = recordDirectory(id: id)
+        guard FileManager.default.fileExists(atPath: folder.path) else { return }
+        try FileManager.default.removeItem(at: folder)
     }
 
-    private func fileURL(for id: UUID) -> URL {
-        directory.appendingPathComponent(id.uuidString).appendingPathExtension("json")
+    /// Removes the record's directory only when it holds nothing.
+    func deleteIfEmpty(id: String) {
+        let folder = recordDirectory(id: id)
+        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: folder.path), contents.isEmpty else { return }
+        try? FileManager.default.removeItem(at: folder)
+    }
+
+    func recordDirectory(id: String) -> URL {
+        directory.appendingPathComponent(id, isDirectory: true)
+    }
+
+    /// The id for a record started at `date` that no directory uses yet.
+    func unusedID(startedAt date: Date) -> String {
+        let name = TranscriptRecord.directoryName(for: date)
+        var candidate = name
+        var attempt = 1
+        while FileManager.default.fileExists(atPath: recordDirectory(id: candidate).path) {
+            attempt += 1
+            candidate = "\(name)-\(attempt)"
+        }
+        return candidate
+    }
+
+    /// Converts records stored as flat `<uuid>.json` files by earlier versions into directories named by
+    /// their start time. Files that cannot be decoded are left where they are.
+    func migrateFlatFiles() {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return }
+        let decoder = Self.makeDecoder()
+        let flat = entries
+            .filter { $0.pathExtension == "json" && (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true }
+            .compactMap { file -> (URL, TranscriptRecord)? in
+                guard let data = try? Data(contentsOf: file), let record = try? decoder.decode(TranscriptRecord.self, from: data) else { return nil }
+                return (file, record)
+            }
+            .sorted { $0.1.createdAt < $1.1.createdAt }
+        for (file, legacy) in flat {
+            let record = TranscriptRecord(
+                id: unusedID(startedAt: legacy.createdAt),
+                createdAt: legacy.createdAt,
+                updatedAt: legacy.updatedAt,
+                lines: legacy.lines,
+                sessions: legacy.sessions
+            )
+            guard (try? save(record)) != nil else { continue }
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     private static func makeEncoder() -> JSONEncoder {

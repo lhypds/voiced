@@ -2,22 +2,23 @@ import XCTest
 @testable import Voiced
 
 final class AppSettingsTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private let suiteName = "VoicedTests.AppSettings"
+    private var directory: URL!
+    private var fileURL: URL!
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: suiteName)
-        defaults.removePersistentDomain(forName: suiteName)
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoicedTests.Settings.\(UUID().uuidString)", isDirectory: true)
+        fileURL = directory.appendingPathComponent("settings.json")
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(at: directory)
         super.tearDown()
     }
 
     func testDefaultsWhenNothingIsStored() {
-        let settings = AppSettings(defaults: defaults)
+        let settings = AppSettings(fileURL: fileURL)
 
         XCTAssertEqual(settings.appLanguage, .chinese)
         XCTAssertEqual(settings.recognitionLanguage, .automatic)
@@ -25,21 +26,22 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.timestampMode, .current)
         XCTAssertFalse(settings.showTimestampDate)
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
 
-    func testSpeechEnergyFloorRoundTripsAndClamps() {
-        let settings = AppSettings(defaults: defaults)
+    func testSpeechEnergyFloorRoundTripsAndClamps() throws {
+        let settings = AppSettings(fileURL: fileURL)
 
         settings.speechEnergyFloor = 0.01
-        XCTAssertEqual(AppSettings(defaults: defaults).speechEnergyFloor, 0.01, accuracy: 0.0001)
-        XCTAssertEqual(defaults.double(forKey: "speechEnergyFloor"), 0.01, accuracy: 0.0001)
+        XCTAssertEqual(AppSettings(fileURL: fileURL).speechEnergyFloor, 0.01, accuracy: 0.0001)
+        XCTAssertEqual(try storedValue("speechEnergyFloor") as? Double ?? 0, 0.01, accuracy: 0.0001)
 
         settings.speechEnergyFloor = 5
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.speechEnergyFloorRange.upperBound)
     }
 
     func testValuesRoundTrip() {
-        let settings = AppSettings(defaults: defaults)
+        let settings = AppSettings(fileURL: fileURL)
 
         settings.appLanguage = .japanese
         settings.recognitionLanguage = RecognitionLanguage.choice(id: "ja")
@@ -47,7 +49,7 @@ final class AppSettingsTests: XCTestCase {
         settings.timestampMode = .relative
         settings.showTimestampDate = true
 
-        let reloaded = AppSettings(defaults: defaults)
+        let reloaded = AppSettings(fileURL: fileURL)
         XCTAssertEqual(reloaded.appLanguage, .japanese)
         XCTAssertEqual(reloaded.recognitionLanguage.code, "ja")
         XCTAssertEqual(reloaded.recognitionEngine, .accurate)
@@ -55,27 +57,74 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(reloaded.showTimestampDate)
     }
 
-    func testStorageKeysAreStable() {
-        let settings = AppSettings(defaults: defaults)
+    func testStorageKeysAreStable() throws {
+        let settings = AppSettings(fileURL: fileURL)
         settings.appLanguage = .english
         settings.recognitionLanguage = RecognitionLanguage.choice(id: "zh")
         settings.recognitionEngine = .accurate
         settings.timestampMode = .relative
         settings.showTimestampDate = true
 
-        XCTAssertEqual(defaults.string(forKey: "appLanguage"), "english")
-        XCTAssertEqual(defaults.string(forKey: "recognitionLanguage"), "zh")
-        XCTAssertEqual(defaults.string(forKey: "recognitionEngine"), "accurate")
-        XCTAssertEqual(defaults.string(forKey: "timestampMode"), "relative")
-        XCTAssertTrue(defaults.bool(forKey: "showTimestampDate"))
+        XCTAssertEqual(try storedValue("appLanguage") as? String, "english")
+        XCTAssertEqual(try storedValue("recognitionLanguage") as? String, "zh")
+        XCTAssertEqual(try storedValue("recognitionEngine") as? String, "accurate")
+        XCTAssertEqual(try storedValue("timestampMode") as? String, "relative")
+        XCTAssertEqual(try storedValue("showTimestampDate") as? Bool, true)
     }
 
-    func testUnknownStoredValuesFallBackToDefaults() {
-        defaults.set("klingon", forKey: "appLanguage")
-        defaults.set("xx", forKey: "recognitionLanguage")
+    func testUnknownStoredValuesFallBackToDefaults() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(#"{"appLanguage": "klingon", "recognitionLanguage": "xx"}"#.utf8).write(to: fileURL)
 
-        let settings = AppSettings(defaults: defaults)
+        let settings = AppSettings(fileURL: fileURL)
         XCTAssertEqual(settings.appLanguage, .chinese)
         XCTAssertEqual(settings.recognitionLanguage, .automatic)
+    }
+
+    func testCorruptFileFallsBackToDefaults() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: fileURL)
+
+        XCTAssertEqual(AppSettings(fileURL: fileURL).recognitionEngine, .turbo)
+    }
+
+    func testLegacyDefaultsAreImportedOnce() {
+        let suiteName = "VoicedTests.AppSettings.Legacy"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set("japanese", forKey: "appLanguage")
+        defaults.set("accurate", forKey: "recognitionEngine")
+        defaults.set(true, forKey: "showTimestampDate")
+        defaults.set(0.005, forKey: "speechEnergyFloor")
+
+        AppSettings.importLegacyDefaults(defaults, into: fileURL)
+
+        let settings = AppSettings(fileURL: fileURL)
+        XCTAssertEqual(settings.appLanguage, .japanese)
+        XCTAssertEqual(settings.recognitionEngine, .accurate)
+        XCTAssertTrue(settings.showTimestampDate)
+        XCTAssertEqual(settings.speechEnergyFloor, 0.005, accuracy: 0.0001)
+        XCTAssertEqual(settings.timestampMode, .current, "keys missing from the defaults keep their default")
+
+        // Once the file exists the defaults are no longer consulted.
+        defaults.set("english", forKey: "appLanguage")
+        AppSettings.importLegacyDefaults(defaults, into: fileURL)
+        XCTAssertEqual(AppSettings(fileURL: fileURL).appLanguage, .japanese)
+    }
+
+    func testNothingToImportCreatesNoFile() {
+        let suiteName = "VoicedTests.AppSettings.Empty"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        AppSettings.importLegacyDefaults(defaults, into: fileURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    private func storedValue(_ key: String) throws -> Any? {
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        return object?[key]
     }
 }

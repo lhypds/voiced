@@ -72,10 +72,16 @@ actor LiveTranscriber {
     private let log: (@Sendable (String) -> Void)?
     /// Receives the RMS of the newest 100 ms of audio on every poll, for level meters.
     private let levelHandler: (@Sendable (Float) -> Void)?
+    /// Receives every captured sample exactly once, in order, before it can be dropped from the buffer.
+    private let audioSink: (@Sendable ([Float]) -> Void)?
 
     private var isRunning = false
+    /// Samples removed from the front of the buffer so far.
+    private var discardedSampleCount = 0
+    /// Samples handed to `audioSink` so far, counted from the start of the capture.
+    private var capturedSampleCount = 0
     /// Seconds of audio removed from the front of the buffer so far.
-    private var discardedSeconds: Float = 0
+    private var discardedSeconds: Float { Float(discardedSampleCount) / Self.sampleRate }
     /// Buffer length when the last decode started; audio after it has not been decoded yet.
     private var decodedSampleCount = 0
     private var lastVoiceAt = Date()
@@ -84,8 +90,10 @@ actor LiveTranscriber {
     private var decodeCount = 0
     private var lastCommittedEnd: Float = 0
 
-    /// - Parameter audioProcessor: capture source; defaults to the model's own processor.
-    ///   Injectable so the pipeline can be driven from a file in tests.
+    /// - Parameters:
+    ///   - audioProcessor: capture source; defaults to the model's own processor.
+    ///     Injectable so the pipeline can be driven from a file in tests.
+    ///   - audioSink: receives the raw captured audio, for saving the session to disk.
     init(
         whisperKit: WhisperKit,
         options: DecodingOptions,
@@ -96,6 +104,7 @@ actor LiveTranscriber {
         delegate: any LiveTranscriberDelegate,
         audioProcessor: (any AudioProcessing)? = nil,
         levelHandler: (@Sendable (Float) -> Void)? = nil,
+        audioSink: (@Sendable ([Float]) -> Void)? = nil,
         log: (@Sendable (String) -> Void)? = nil
     ) {
         self.whisperKit = whisperKit
@@ -107,6 +116,7 @@ actor LiveTranscriber {
         self.speechEnergyFloor = speechEnergyFloor
         self.delegate = delegate
         self.levelHandler = levelHandler
+        self.audioSink = audioSink
         self.log = log
     }
 
@@ -120,7 +130,8 @@ actor LiveTranscriber {
         guard !isRunning else { return }
         try audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID, callback: nil)
         isRunning = true
-        discardedSeconds = 0
+        discardedSampleCount = 0
+        capturedSampleCount = 0
         decodedSampleCount = 0
         lastVoiceAt = Date()
         awaitingPause = false
@@ -132,6 +143,7 @@ actor LiveTranscriber {
         guard isRunning else { return }
         isRunning = false
         audioProcessor.stopRecording()
+        captureNewAudio(audioProcessor.audioSamples)
     }
 
     // MARK: - Loop
@@ -152,6 +164,7 @@ actor LiveTranscriber {
 
     private func step() async throws {
         let samples = audioProcessor.audioSamples
+        captureNewAudio(samples)
         if let levelHandler {
             let frame = Int(Self.speechFrameSeconds * Self.sampleRate)
             levelHandler(Self.rms(samples.suffix(frame)))
@@ -366,13 +379,28 @@ actor LiveTranscriber {
     }
 
     private func trimBuffer(keepingLast keep: Int, reason: String) {
-        let total = audioProcessor.audioSamples.count
+        let samples = audioProcessor.audioSamples
+        // Audio that arrived since the last poll must reach the sink before it can be purged.
+        captureNewAudio(samples)
+        let total = samples.count
         let removed = total - keep
         guard removed > 0 else { return }
         audioProcessor.purgeAudioSamples(keepingLast: keep)
-        discardedSeconds += Float(removed) / Self.sampleRate
+        discardedSampleCount += removed
         decodedSampleCount = max(0, decodedSampleCount - removed)
         log?("\(reason): dropped \(Float(removed) / Self.sampleRate)s, buffer \(bufferSpan(keep)), undecoded \(Float(keep - decodedSampleCount) / Self.sampleRate)s")
+    }
+
+    /// Hands the sink the samples at the end of the buffer that it has not seen yet. The buffer's end
+    /// sits at `discardedSampleCount + samples.count` in the capture, so anything past the captured
+    /// count is new.
+    private func captureNewAudio(_ samples: ContiguousArray<Float>) {
+        guard let audioSink else { return }
+        let captureEnd = discardedSampleCount + samples.count
+        let new = captureEnd - capturedSampleCount
+        guard new > 0 else { return }
+        audioSink(Array(samples.suffix(min(new, samples.count))))
+        capturedSampleCount = captureEnd
     }
 
     private func bufferSpan(_ count: Int) -> String {

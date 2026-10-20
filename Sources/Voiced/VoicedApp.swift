@@ -4,6 +4,11 @@ import SwiftUI
 struct VoicedApp: App {
     @StateObject private var transcriber = TranscriptionController()
 
+    init() {
+        // Must run before the controller loads settings and history from `~/.voiced`.
+        VoicedDirectory.migrateLegacyData()
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView(controller: transcriber)

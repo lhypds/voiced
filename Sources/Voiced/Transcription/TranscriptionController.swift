@@ -31,7 +31,7 @@ final class TranscriptionController: ObservableObject {
     /// Saved transcripts, most recently updated first.
     @Published private(set) var history: [TranscriptRecord] = []
     /// The history record the visible transcript belongs to, if it has been saved.
-    @Published private(set) var currentRecordID: UUID?
+    @Published private(set) var currentRecordID: String?
     @Published private(set) var audioDevices: [AudioDevice] = []
     @Published var selectedDeviceID: DeviceID?
     @Published var selectedLanguage: RecognitionLanguage {
@@ -63,6 +63,14 @@ final class TranscriptionController: ObservableObject {
     /// Trial recognition shown in the settings sheet so the user can tune the threshold.
     let preview = RecognitionPreview()
 
+    /// Files of the running recording session, separate from the transcript state in `session`.
+    private struct ActiveRecording {
+        /// The record directory the audio is written to.
+        let recordID: String
+        let recorder: SessionRecorder?
+        var info: TranscriptRecord.Session
+    }
+
     private let settings: AppSettings
     private let historyStore: TranscriptHistoryStore
     private var whisperKit: WhisperKit?
@@ -70,6 +78,12 @@ final class TranscriptionController: ObservableObject {
     private var startTask: Task<Void, Never>?
     /// Present only while recording.
     private var session: RecordingSession?
+    /// Present only while recording.
+    private var activeRecording: ActiveRecording?
+    /// Identity and start time reserved for the record the next committed line creates, when the
+    /// session started without a current record. Cleared by `clear()`, after which the next line
+    /// starts a record of its own.
+    private var pendingRecord: (id: String, createdAt: Date)?
     /// Progress updates from decodes up to this one are stale and ignored.
     private var lastFinishedDecode = 0
 
@@ -178,8 +192,30 @@ final class TranscriptionController: ObservableObject {
         }
         preview.stop()
 
-        session = RecordingSession(startedAt: Date(), baseLines: lines)
+        let startedAt = Date()
+        session = RecordingSession(startedAt: startedAt, baseLines: lines)
         lastFinishedDecode = 0
+
+        // The audio goes into the current record's directory, or into a new one reserved for this session.
+        let recordID: String
+        if let currentRecordID {
+            recordID = currentRecordID
+        } else {
+            recordID = historyStore.unusedID(startedAt: startedAt)
+            pendingRecord = (recordID, startedAt)
+        }
+        let recorder = SessionRecorder(directory: historyStore.recordDirectory(id: recordID), startedAt: startedAt)
+        activeRecording = ActiveRecording(
+            recordID: recordID,
+            recorder: recorder,
+            info: TranscriptRecord.Session(
+                startedAt: startedAt,
+                inputDevice: selectedDeviceName,
+                language: selectedLanguage.code,
+                engine: selectedEngine.rawValue,
+                audioFile: recorder?.fileName
+            )
+        )
         let transcriber = LiveTranscriber(
             whisperKit: whisperKit,
             options: Self.decodingOptions(for: selectedLanguage),
@@ -187,7 +223,8 @@ final class TranscriptionController: ObservableObject {
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
             speechEnergyFloor: speechEnergyFloor,
-            delegate: self
+            delegate: self,
+            audioSink: recorder.map { recorder in { samples in recorder.append(samples) } }
         )
         self.transcriber = transcriber
         phase = .recording
@@ -228,10 +265,10 @@ final class TranscriptionController: ObservableObject {
     func stopRecording() {
         startTask?.cancel()
         startTask = nil
-        if let transcriber {
-            Task { await transcriber.stop() }
-        }
-        transcriber = nil
+        let transcriber = transcriber
+        let active = activeRecording
+        self.transcriber = nil
+        activeRecording = nil
 
         if var session {
             session.commitTrailing(finalize: assembler.terminated)
@@ -241,6 +278,20 @@ final class TranscriptionController: ObservableObject {
         liveText = ""
         phase = .ready
         persistTranscript()
+        pendingRecord = nil
+
+        // The transcriber flushes its last samples into the recorder when it stops, so the file is
+        // closed only after that.
+        guard var active else { return }
+        active.info.endedAt = Date()
+        Task {
+            await transcriber?.stop()
+            let hasAudio = active.recorder?.finish() ?? false
+            if !hasAudio {
+                active.info.audioFile = nil
+            }
+            attach(active.info, to: active.recordID)
+        }
     }
 
     private struct MicrophoneAccessDenied: LocalizedError {
@@ -260,6 +311,7 @@ final class TranscriptionController: ObservableObject {
         lines = []
         liveText = ""
         currentRecordID = nil
+        pendingRecord = nil
     }
 
     func copyTranscript() {
@@ -322,14 +374,47 @@ final class TranscriptionController: ObservableObject {
             record.lines = lines
             record.updatedAt = now
         } else {
-            record = TranscriptRecord(createdAt: now, lines: lines)
+            let (id, createdAt) = pendingRecord ?? (historyStore.unusedID(startedAt: now), now)
+            record = TranscriptRecord(id: id, createdAt: createdAt, updatedAt: now, lines: lines)
         }
+        store(record, makeCurrent: true)
+    }
+
+    /// Adds a finished session to its record. A record that does not exist yet is created when the
+    /// session left audio behind, so the recording is kept even though nothing was recognized;
+    /// otherwise the empty directory is removed.
+    private func attach(_ info: TranscriptRecord.Session, to recordID: String) {
+        var info = info
+        if let audioFile = info.audioFile,
+           !FileManager.default.fileExists(atPath: historyStore.recordDirectory(id: recordID).appendingPathComponent(audioFile).path) {
+            info.audioFile = nil
+        }
+        var record: TranscriptRecord
+        if let existing = history.first(where: { $0.id == recordID }) {
+            record = existing
+        } else if info.audioFile != nil {
+            record = TranscriptRecord(id: recordID, createdAt: info.startedAt, lines: [])
+        } else {
+            historyStore.deleteIfEmpty(id: recordID)
+            return
+        }
+        record.sessions.append(info)
+        record.updatedAt = info.endedAt ?? Date()
+        // With nothing on screen the next recording continues this record; after a mid-recording
+        // clear the screen already belongs to a newer record and stays with it.
+        store(record, makeCurrent: currentRecordID == nil)
+    }
+
+    /// Saves the record and moves it to the top of the history.
+    private func store(_ record: TranscriptRecord, makeCurrent: Bool) {
         do {
             try historyStore.save(record)
         } catch {
             return
         }
-        currentRecordID = record.id
+        if makeCurrent {
+            currentRecordID = record.id
+        }
         history.removeAll { $0.id == record.id }
         history.insert(record, at: 0)
     }
