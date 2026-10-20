@@ -36,7 +36,11 @@ final class TranscriptHistoryStoreTests: XCTestCase {
             startedAt: Date(timeIntervalSince1970: 100), endedAt: Date(timeIntervalSince1970: 150),
             inputDevice: "Mic", language: "ja", engine: "turbo", audioFile: "100.wav"
         )
-        let older = TranscriptRecord(createdAt: Date(timeIntervalSince1970: 100), lines: [line("a", "first")], sessions: [session])
+        let continued = TranscriptRecord.Session(
+            startedAt: Date(timeIntervalSince1970: 160), endedAt: Date(timeIntervalSince1970: 170),
+            inputDevice: "Mic", language: "ja", engine: "turbo", audioFile: "100.wav", audioOffset: 50
+        )
+        let older = TranscriptRecord(createdAt: Date(timeIntervalSince1970: 100), lines: [line("a", "first")], sessions: [session, continued])
         let newer = TranscriptRecord(createdAt: Date(timeIntervalSince1970: 200), lines: [line("b", "second"), line("c", "third")])
 
         try store.save(older)
@@ -45,7 +49,7 @@ final class TranscriptHistoryStoreTests: XCTestCase {
         let loaded = store.load()
         XCTAssertEqual(loaded.map(\.id), [newer.id, older.id])
         XCTAssertEqual(loaded.last, older)
-        XCTAssertEqual(loaded.last?.sessions, [session])
+        XCTAssertEqual(loaded.last?.sessions, [session, continued])
         XCTAssertEqual(loaded.first?.preview, "second")
     }
 

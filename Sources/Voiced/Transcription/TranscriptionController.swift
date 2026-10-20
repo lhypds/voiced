@@ -224,7 +224,7 @@ final class TranscriptionController: ObservableObject {
             recordID = historyStore.unusedID(startedAt: startedAt)
             pendingRecord = (recordID, startedAt)
         }
-        let recorder = SessionRecorder(directory: historyStore.recordDirectory(id: recordID), startedAt: startedAt)
+        let recorder = makeRecorder(recordID: recordID, startedAt: startedAt)
         activeRecording = ActiveRecording(
             recordID: recordID,
             recorder: recorder,
@@ -233,7 +233,8 @@ final class TranscriptionController: ObservableObject {
                 inputDevice: selectedDeviceName,
                 language: selectedLanguage.code,
                 engine: selectedEngine.rawValue,
-                audioFile: recorder?.fileName
+                audioFile: recorder?.fileName,
+                audioOffset: recorder?.startOffset
             )
         )
         let transcriber = LiveTranscriber(
@@ -261,6 +262,18 @@ final class TranscriptionController: ObservableObject {
                 self?.fail(with: error.localizedDescription)
             }
         }
+    }
+
+    /// Continues the record's audio file when it already has one, so a record resumed from the
+    /// history keeps all its audio in one file; otherwise starts a new file.
+    private func makeRecorder(recordID: String, startedAt: Date) -> SessionRecorder? {
+        let directory = historyStore.recordDirectory(id: recordID)
+        if let record = history.first(where: { $0.id == recordID }),
+           let audioFile = record.sessions.last(where: { $0.audioFile != nil })?.audioFile,
+           let recorder = SessionRecorder(appendingTo: audioFile, in: directory) {
+            return recorder
+        }
+        return SessionRecorder(directory: directory, startedAt: startedAt)
     }
 
     // MARK: - Preview

@@ -4,7 +4,7 @@ import Foundation
 /// time more lines are committed, so it always mirrors what was on screen.
 ///
 /// On disk a record is a directory named by its `id` under `~/.voiced/history`, holding
-/// `transcript.json` and one WAV file per recording session.
+/// `transcript.json` and the WAV file its recording sessions append to in turn.
 struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
     /// One start/stop recording cycle that fed this record, and the raw audio it saved.
     struct Session: Codable, Equatable, Sendable {
@@ -16,6 +16,9 @@ struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         var engine: String
         /// Name of the WAV file in the record's directory, or nil when nothing was captured.
         var audioFile: String?
+        /// Where this session starts in `audioFile`, in seconds: sessions of one record share its
+        /// file, each appended after the previous one. Nil (zero) for files written before this was tracked.
+        var audioOffset: TimeInterval?
     }
 
     /// Name of the record's directory: the unix time in seconds at which it was started, with a

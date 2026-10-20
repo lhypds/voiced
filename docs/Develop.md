@@ -79,14 +79,14 @@ Sources/Voiced/
   VoicedApp.swift              App entry point
   AppLocalization.swift        UI strings (English / Chinese / Japanese / French / Spanish / German)
   Models/                      Plain data types: TranscriptLine, RecognitionEngine, RecognitionLanguage
-    TranscriptRecord.swift     A history record: lines plus one entry per recording session; its id is its directory name
+    TranscriptRecord.swift     A history record: lines plus one entry per recording session (with its offset in the shared WAV); its id is its directory name
     AppSettings.swift          Preferences, stored as JSON in ~/.voiced/settings.json
     VoicedDirectory.swift      Layout of ~/.voiced and migration of data from older versions
   Transcription/
     LiveTranscriber.swift      Streaming recognition loop with its own audio buffer: silence detection, dropping committed audio,
                                hands every captured sample to an audio sink before it can be dropped
-    SessionRecorder.swift      Saves one session's raw audio as <unix time>.wav in the record's directory
-    WAVWriter.swift            Streaming 16-bit PCM WAV writer; header kept valid after every write
+    SessionRecorder.swift      Saves a session's raw audio as <unix time>.wav in the record's directory, or appends to the record's file
+    WAVWriter.swift            Streaming 16-bit PCM WAV writer; header kept valid after every write, can reopen its own files to append
     HallucinationFilter.swift  Known hallucinated phrases
     SentenceAssembler.swift    Merges recognition segments into sentences (pure function, unit tested)
     RecordingSession.swift     Commit state for one recording

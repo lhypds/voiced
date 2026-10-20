@@ -61,10 +61,10 @@ Everything Voiced stores lives under `~/.voiced`:
   history/<unix time>/      one directory per history record, named after the time it was started
     transcript.json         the lines, plus one entry per recording session: start and end time,
                             input device, language, engine and the name of its audio file
-    <unix time>.wav         the raw audio of each session (16 kHz mono 16-bit PCM)
+    <unix time>.wav         the raw audio of all sessions, one after another (16 kHz mono 16-bit PCM)
 ```
 
-A recording session runs from the start button to the stop button. The first session of a record creates its directory, and every later session recorded into the same record (by selecting it in the history first) adds another WAV file named after its own start time. The audio file is written while recording, so it is complete even if the app quits unexpectedly. A session that recognized nothing still keeps its audio; one that captured no audio at all leaves nothing behind. Deleting a record in the history removes its directory with the audio. The saved audio can be replayed through the recognizer with `VoicedSimulate` (see [docs/Develop.md](docs/Develop.md)).
+A recording session runs from the start button to the stop button. The first session of a record creates its directory and its WAV file, named after the session's start time. Every later session recorded into the same record (by selecting it in the history first) continues that file, and its entry in `transcript.json` notes the offset, in seconds, where its audio starts. The audio file is written while recording, so it is complete even if the app quits unexpectedly. A session that recognized nothing still keeps its audio; one that captured no audio at all leaves nothing behind. Deleting a record in the history removes its directory with the audio. The saved audio can be replayed through the recognizer with `VoicedSimulate` (see [docs/Develop.md](docs/Develop.md)).
 
 Settings and history written by earlier versions (in `UserDefaults` and `~/Library/Application Support/Voiced/History/`) are moved into `~/.voiced` on the first launch.
 

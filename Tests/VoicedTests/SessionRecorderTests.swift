@@ -73,6 +73,46 @@ final class SessionRecorderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path), "the record directory is left to the caller")
     }
 
+    func testLaterSessionAppendsToTheRecordsFile() throws {
+        let first = try XCTUnwrap(SessionRecorder(directory: directory, startedAt: Date(timeIntervalSince1970: 1_700_000_000)))
+        first.append([Float](repeating: 0.5, count: 1_600))
+        XCTAssertTrue(first.finish())
+
+        let second = try XCTUnwrap(SessionRecorder(appendingTo: "1700000000.wav", in: directory))
+        XCTAssertEqual(second.fileName, "1700000000.wav")
+        XCTAssertEqual(second.startOffset, 0.1, accuracy: 0.0001, "one tenth of a second was already in the file")
+        second.append([Float](repeating: -0.25, count: 800))
+        XCTAssertTrue(second.finish())
+
+        let file = try AVAudioFile(forReading: second.fileURL)
+        XCTAssertEqual(Int(file.length), 2_400)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
+        try file.read(into: buffer)
+        let samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData?[0], count: Int(buffer.frameLength)))
+        XCTAssertEqual(samples[1_599], 0.5, accuracy: 0.001)
+        XCTAssertEqual(samples[1_600], -0.25, accuracy: 0.001)
+        XCTAssertEqual(samples[2_399], -0.25, accuracy: 0.001)
+    }
+
+    func testAppendedSessionWithoutAudioKeepsTheFile() throws {
+        let first = try XCTUnwrap(SessionRecorder(directory: directory, startedAt: Date(timeIntervalSince1970: 1_700_000_000)))
+        first.append([Float](repeating: 0.5, count: 1_600))
+        first.finish()
+
+        let second = try XCTUnwrap(SessionRecorder(appendingTo: "1700000000.wav", in: directory))
+        XCTAssertFalse(second.finish())
+
+        XCTAssertEqual(try Int(AVAudioFile(forReading: second.fileURL).length), 1_600)
+    }
+
+    func testAppendingNeedsAFileThisRecorderWrote() throws {
+        XCTAssertNil(SessionRecorder(appendingTo: "missing.wav", in: directory))
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(repeating: 0, count: 100).write(to: directory.appendingPathComponent("junk.wav"))
+        XCTAssertNil(SessionRecorder(appendingTo: "junk.wav", in: directory))
+    }
+
     func testSessionsStartedInTheSameSecondGetDistinctFiles() throws {
         let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let first = try XCTUnwrap(SessionRecorder(directory: directory, startedAt: startedAt))
