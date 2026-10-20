@@ -27,6 +27,23 @@ struct RecognitionLanguage: Identifiable, Hashable, Sendable {
         RecognitionLanguage(code: "ru", nativeName: "Русский"),
     ]
 
+    /// The choices the picker offers with a model: only the fine-tuned language for a
+    /// specialized one, which recognizes nothing else well; otherwise every language, plus
+    /// automatic detection when the model can do it.
+    static func choices(for engine: RecognitionEngine) -> [RecognitionLanguage] {
+        if let code = engine.specializedLanguage {
+            return choices.filter { $0.code == code }
+        }
+        return choices.filter { engine.supportsAutomaticDetection || !$0.isAutomatic }
+    }
+
+    /// The language a model starts with: automatic detection when it offers that, otherwise the
+    /// first language it supports.
+    static func defaultChoice(for engine: RecognitionEngine) -> RecognitionLanguage {
+        let supported = choices(for: engine)
+        return supported.first { $0.isAutomatic } ?? supported.first ?? .automatic
+    }
+
     /// Looks up a persisted choice by id, falling back to automatic detection.
     static func choice(id: String?) -> RecognitionLanguage {
         choices.first { $0.id == id } ?? .automatic

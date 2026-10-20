@@ -38,6 +38,12 @@ enum RecognitionEngine: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Whether the model can work out the spoken language itself. A general Whisper model can;
+    /// a fine-tuned one is only ever run in its own language.
+    var supportsAutomaticDetection: Bool {
+        specializedLanguage == nil
+    }
+
     /// Hugging Face repository holding the Core ML model folder.
     var repo: String {
         switch self {

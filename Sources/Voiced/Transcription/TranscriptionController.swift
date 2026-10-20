@@ -162,6 +162,7 @@ final class TranscriptionController: ObservableObject {
         keepWindowOnTop = settings.keepWindowOnTop
         selectedEngine = settings.recognitionEngine
         speechEnergyFloor = settings.speechEnergyFloor
+        pinLanguageToEngine()
         Task { await prepare() }
     }
 
@@ -209,9 +210,17 @@ final class TranscriptionController: ObservableObject {
     func selectEngine(_ engine: RecognitionEngine) {
         guard engine != selectedEngine, !isRecording else { return }
         selectedEngine = engine
+        selectedLanguage = RecognitionLanguage.defaultChoice(for: engine)
         whisperKit = nil
         phase = .loading
         Task { await prepare() }
+    }
+
+    /// Keeps a saved language the model supports; a choice it cannot honour, such as one saved
+    /// with a different model, is replaced by the model's default.
+    private func pinLanguageToEngine() {
+        guard !RecognitionLanguage.choices(for: selectedEngine).contains(selectedLanguage) else { return }
+        selectedLanguage = RecognitionLanguage.defaultChoice(for: selectedEngine)
     }
 
     /// Keeps the user's choice while it is still attached; otherwise falls back to the system's

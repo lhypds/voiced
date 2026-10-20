@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The settings sheet: input device, recognition language and engine, timestamps, UI language.
+/// The settings sheet: input device, recognition engine and language, timestamps, UI language.
 struct SettingsView: View {
     @ObservedObject var controller: TranscriptionController
     @Binding var isPresented: Bool
@@ -47,20 +47,6 @@ struct SettingsView: View {
 
                 Divider()
 
-                SettingsRow(title: strings.recognitionLanguage) {
-                    Picker(strings.recognitionLanguage, selection: $controller.selectedLanguage) {
-                        ForEach(RecognitionLanguage.choices) { language in
-                            Text(language.isAutomatic ? strings.automaticDetection : language.nativeName)
-                                .tag(language)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 140, alignment: .trailing)
-                    .disabled(controller.isRecording || controller.preview.isActive)
-                }
-
-                Divider()
-
                 SettingsRow(title: strings.recognitionEngine, accessory: engineHelpButton) {
                     VStack(alignment: .trailing, spacing: 6) {
                         // A pop-up button sizes itself to its widest item, which left a blank
@@ -86,6 +72,25 @@ struct SettingsView: View {
                             enginePreparationProgress
                         }
                     }
+                }
+
+                Divider()
+
+                // Under the model row: a specialized model offers only the language it was
+                // fine-tuned for, so the choices depend on the model picked above.
+                SettingsRow(title: strings.recognitionLanguage, hint: strings.recognitionLanguageHint) {
+                    Picker(strings.recognitionLanguage, selection: $controller.selectedLanguage) {
+                        ForEach(RecognitionLanguage.choices(for: controller.selectedEngine)) { language in
+                            Text(language.isAutomatic ? strings.automaticDetection : language.nativeName)
+                                .tag(language)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 140, alignment: .trailing)
+                    .disabled(
+                        controller.isRecording || controller.preview.isActive
+                            || RecognitionLanguage.choices(for: controller.selectedEngine).count < 2
+                    )
                 }
 
                 Divider()

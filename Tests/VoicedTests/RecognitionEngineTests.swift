@@ -28,6 +28,24 @@ final class RecognitionEngineTests: XCTestCase {
         }
     }
 
+    func testGeneralModelsOfferEveryLanguageAndSpecializedOnesOnlyTheirOwn() {
+        XCTAssertEqual(RecognitionLanguage.choices(for: .turbo), RecognitionLanguage.choices)
+        XCTAssertEqual(RecognitionLanguage.choices(for: .accurate), RecognitionLanguage.choices)
+        XCTAssertEqual(RecognitionLanguage.choices(for: .belleTurbo).map(\.code), ["zh"])
+        XCTAssertEqual(RecognitionLanguage.choices(for: .kotoba).map(\.code), ["ja"])
+        XCTAssertFalse(RecognitionLanguage.choices(for: .kotoba).contains(.automatic))
+    }
+
+    func testEachModelStartsWithAutomaticDetectionWhenItHasItOtherwiseItsFirstLanguage() {
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .turbo), .automatic)
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .accurate), .automatic)
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .belleTurbo).code, "zh")
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .kotoba).code, "ja")
+        for engine in RecognitionEngine.allCases {
+            XCTAssertTrue(RecognitionLanguage.choices(for: engine).contains(RecognitionLanguage.defaultChoice(for: engine)))
+        }
+    }
+
     func testDisplayNamesAreDistinct() {
         XCTAssertEqual(Set(RecognitionEngine.allCases.map(\.displayName)).count, RecognitionEngine.allCases.count)
     }
