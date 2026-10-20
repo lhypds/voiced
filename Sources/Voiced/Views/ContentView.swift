@@ -146,6 +146,7 @@ struct ContentView: View {
             .font(.title3.weight(.medium))
             .foregroundStyle(Theme.accent)
             .padding(Theme.contentPadding)
+            .offset(y: -5)
             .allowsHitTesting(false)
     }
 

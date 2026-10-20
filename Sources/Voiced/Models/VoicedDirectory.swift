@@ -5,6 +5,7 @@ import Foundation
 /// ```
 /// ~/.voiced/
 ///   settings.json             user preferences
+///   prompt.txt                recognition prompt: words the recognizer should prefer
 ///   noise-profile.json        background noise spectrum for noise reduction
 ///   history/<unix time>/      one directory per record (see `TranscriptHistoryStore`)
 ///     transcript.json         lines and recording sessions
@@ -14,6 +15,7 @@ enum VoicedDirectory {
     static let root = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".voiced", isDirectory: true)
     static let settingsFile = root.appendingPathComponent("settings.json")
+    static let promptFile = root.appendingPathComponent("prompt.txt")
     static let noiseProfileFile = root.appendingPathComponent("noise-profile.json")
     static let historyDirectory = root.appendingPathComponent("history", isDirectory: true)
 

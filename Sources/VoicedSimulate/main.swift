@@ -127,7 +127,11 @@ let langIndex = CommandLine.arguments.firstIndex(of: "--lang")
 let language = langIndex.map { CommandLine.arguments[$0 + 1] } ?? "en"
 let floorIndex = CommandLine.arguments.firstIndex(of: "--floor")
 let speechEnergyFloor = floorIndex.flatMap { Float(CommandLine.arguments[$0 + 1]) } ?? LiveTranscriber.defaultSpeechEnergyFloor
-let options = DecodingOptions(task: .transcribe, language: language, temperatureFallbackCount: 1, usePrefillPrompt: true, detectLanguage: false, skipSpecialTokens: true, withoutTimestamps: false, logProbThreshold: -0.8, noSpeechThreshold: 0.4)
+let promptIndex = CommandLine.arguments.firstIndex(of: "--prompt-file")
+let promptText = promptIndex.flatMap { RecognitionPrompt.load(from: URL(fileURLWithPath: CommandLine.arguments[$0 + 1])) }
+let promptTokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: promptText, tokenizer: $0) }
+if let promptText { print("prompt (\(promptTokens?.count ?? 0) tokens): \(promptText)") }
+let options = DecodingOptions(task: .transcribe, language: language, temperatureFallbackCount: 1, usePrefillPrompt: true, detectLanguage: false, skipSpecialTokens: true, withoutTimestamps: false, promptTokens: promptTokens, logProbThreshold: -0.8, noSpeechThreshold: 0.4)
 let assembler = SentenceAssembler(languageCode: language)
 var session = RecordingSession(startedAt: started, baseLines: [])
 var liveText = ""

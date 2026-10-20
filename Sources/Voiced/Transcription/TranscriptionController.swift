@@ -91,6 +91,7 @@ final class TranscriptionController: ObservableObject {
     private let settings: AppSettings
     private let historyStore: TranscriptHistoryStore
     private let noiseProfileURL: URL
+    private let promptFileURL: URL
     private var whisperKit: WhisperKit?
     private var transcriber: LiveTranscriber?
     private var startTask: Task<Void, Never>?
@@ -140,11 +141,13 @@ final class TranscriptionController: ObservableObject {
     init(
         settings: AppSettings = AppSettings(),
         historyStore: TranscriptHistoryStore = TranscriptHistoryStore(),
-        noiseProfileURL: URL = VoicedDirectory.noiseProfileFile
+        noiseProfileURL: URL = VoicedDirectory.noiseProfileFile,
+        promptFileURL: URL = VoicedDirectory.promptFile
     ) {
         self.settings = settings
         self.historyStore = historyStore
         self.noiseProfileURL = noiseProfileURL
+        self.promptFileURL = promptFileURL
         noiseReductionEnabled = settings.noiseReduction
         noiseProfile = NoiseProfile.load(from: noiseProfileURL)
         history = historyStore.load()
@@ -268,7 +271,7 @@ final class TranscriptionController: ObservableObject {
         )
         let transcriber = LiveTranscriber(
             whisperKit: whisperKit,
-            options: Self.decodingOptions(for: selectedLanguage),
+            options: currentDecodingOptions(whisperKit: whisperKit),
             inputDeviceID: selectedDeviceID,
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
@@ -312,7 +315,7 @@ final class TranscriptionController: ObservableObject {
         guard let whisperKit, canPreview, let selectedDeviceID else { return }
         preview.start(
             whisperKit: whisperKit,
-            options: Self.decodingOptions(for: selectedLanguage),
+            options: currentDecodingOptions(whisperKit: whisperKit),
             inputDeviceID: selectedDeviceID,
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
@@ -536,7 +539,7 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - WhisperKit adapters
 
-    private static func decodingOptions(for language: RecognitionLanguage) -> DecodingOptions {
+    private static func decodingOptions(for language: RecognitionLanguage, promptTokens: [Int]?) -> DecodingOptions {
         DecodingOptions(
             task: .transcribe,
             language: language.code,
@@ -545,9 +548,28 @@ final class TranscriptionController: ObservableObject {
             detectLanguage: language.isAutomatic,
             skipSpecialTokens: true,
             withoutTimestamps: false,
+            promptTokens: promptTokens,
             logProbThreshold: -0.8,
             noSpeechThreshold: 0.4
         )
+    }
+
+    /// Decoding options for a run starting now: the selected language plus whatever is in
+    /// `~/.voiced/prompt.txt` at this moment.
+    private func currentDecodingOptions(whisperKit: WhisperKit) -> DecodingOptions {
+        let prompt = RecognitionPrompt.load(from: promptFileURL)
+        let tokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
+        return Self.decodingOptions(for: selectedLanguage, promptTokens: tokens)
+    }
+
+    /// Creates `prompt.txt` with its template when needed and opens it in the default text editor.
+    func openPromptFile() {
+        do {
+            try RecognitionPrompt.ensureFileExists(at: promptFileURL)
+            NSWorkspace.shared.open(promptFileURL)
+        } catch {
+            NSWorkspace.shared.activateFileViewerSelecting([promptFileURL.deletingLastPathComponent()])
+        }
     }
 
     static func transcriptLines(

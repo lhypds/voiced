@@ -50,6 +50,7 @@ With BlackHole, use a Multi-Output Device that routes to both the speakers and B
 - Measure background noise: keep quiet for 2 seconds. The room's noise is recorded for noise reduction and the threshold is set just above it, so fans or hum do not trigger recognition.
 - Noise reduction: subtracts the measured background noise from the input before recognition. Available once the noise has been measured.
 - Recognition preview: listens with the current settings and shows the input level and recognized text without writing to the transcript. Useful for tuning the threshold.
+- Recognition prompt: words the recognizer should prefer, such as names, product names and technical terms it tends to get wrong. "Edit file" opens `~/.voiced/prompt.txt` in the default text editor; put one term per line, in the language you speak. Lines starting with `#` are ignored. The file is read at the start of each recording or preview. Whisper has no hard keyword list, so the prompt only tilts the model towards these spellings; it works best for a few dozen terms and the first 223 tokens are used.
 
 ## Data on disk
 
@@ -58,6 +59,7 @@ Everything Voiced stores lives under `~/.voiced`:
 ```
 ~/.voiced/
   settings.json             preferences
+  prompt.txt                recognition prompt: words the recognizer should prefer, one per line
   noise-profile.json        measured background noise, for noise reduction
   history/<unix time>/      one directory per history record, named after the time it was started
     transcript.json         the lines, plus one entry per recording session: start and end time,

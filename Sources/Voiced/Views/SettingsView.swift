@@ -138,6 +138,20 @@ struct SettingsView: View {
 
                 Divider()
 
+                SettingsRow(title: strings.recognitionPrompt, hint: strings.recognitionPromptHint) {
+                    Button {
+                        controller.openPromptFile()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.and.pencil")
+                            Text(strings.editPromptFile)
+                        }
+                    }
+                    .help(strings.editPromptFileHint)
+                }
+
+                Divider()
+
                 RecognitionPreviewSection(controller: controller, preview: controller.preview)
 
             }

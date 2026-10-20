@@ -24,7 +24,7 @@ The script reads `VERSION`, writes the new version to `VERSION` and `Support/Inf
 
 ## Tests
 
-Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the noise calibration and spectral denoiser, the hallucination filter, the history store, the session recorder (WAV output) and the migration into `~/.voiced`:
+Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the noise calibration and spectral denoiser, the hallucination filter, the recognition prompt, the history store, the session recorder (WAV output) and the migration into `~/.voiced`:
 
 ```sh
 swift test
@@ -49,6 +49,7 @@ swift run -c release VoicedSimulate sample.wav --lang ja
 | `--noise 0.02` | Add white noise of the given amplitude. |
 | `--denoise` | Run the audio through spectral subtraction first, with a profile from noise of the `--noise` amplitude. Compare runs with and without it. |
 | `--floor 0.01` | Energy threshold (default 0.02). |
+| `--prompt-file path` | Recognition prompt file in the `~/.voiced/prompt.txt` format; compare runs with and without it. |
 | `--energy` | Print only the energy values the VAD sees. |
 
 ## Model choice
@@ -71,6 +72,7 @@ Model variants are listed in `RecognitionEngine.swift`. Chinese and Japanese tra
 - Punctuation is normalized to the script of each line: Chinese text gets full-width marks with ，and 。, Japanese text gets 、and 。, and everything else gets ASCII marks followed by a space. The script is decided from the text itself (kana means Japanese, Han characters alone mean Japanese only when the language is set to 日本語), so English spoken in a Chinese session keeps half-width punctuation. See `PunctuationNormalizer.swift`.
 - The LIVE line shows the text the current decode is producing, token by token, including the first decode of each utterance. Results emptied by the hallucination filter are not shown.
 - Before a pause commits a sentence, any speech samples not yet decoded get one final decode so short words at the end are not lost.
+- The recognition prompt (`RecognitionPrompt.swift`) is the standard Whisper "initial prompt": the non-comment lines of `~/.voiced/prompt.txt` are joined with commas, tokenized with the model's tokenizer and passed as `promptTokens`, which WhisperKit places after `<|startofprev|>` ahead of every decode. The prompt is cut to its first 223 tokens (WhisperKit would otherwise keep the last ones). It is read when a recording or preview starts, so edits take effect at the next start. The prompt only biases the decoder; it is not a replacement list, and a very long or off-language prompt can make the model echo prompt words, so keep it short.
 
 ## Code layout
 
@@ -88,6 +90,7 @@ Sources/Voiced/
     SessionRecorder.swift      Saves a session's raw audio as <unix time>.wav in the record's directory, or appends to the record's file
     WAVWriter.swift            Streaming 16-bit PCM WAV writer; header kept valid after every write, can reopen its own files to append
     HallucinationFilter.swift  Known hallucinated phrases
+    RecognitionPrompt.swift    Reads ~/.voiced/prompt.txt and turns it into Whisper prompt tokens
     SentenceAssembler.swift    Merges recognition segments into sentences (pure function, unit tested)
     RecordingSession.swift     Commit state for one recording
     RecognitionPreview.swift   Throwaway recognition run for the Settings sheet (input level and preview text)
