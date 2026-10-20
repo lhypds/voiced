@@ -71,7 +71,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, Theme.contentPadding)
         // Kept small so the list's scroll edge sits just under the header.
-        .padding(.bottom, 4)
+        .padding(.bottom, Self.headerBottomInset)
         .padding(.top, Self.headerTopInset)
     }
 
@@ -108,9 +108,10 @@ struct ContentView: View {
                         }
                     }
                     .padding(.horizontal, Theme.contentPadding)
-                    .padding(.top, 14)
-                    // Room to scroll the last row clear of the record button and the fade.
-                    .padding(.bottom, Self.fadeHeight + Self.hiddenHeight)
+                    .padding(.top, Self.rowEdgeGap)
+                    // Room to scroll the last row clear of the record button, leaving the same
+                    // gap above the button as between the header and the first row.
+                    .padding(.bottom, Self.listBottomInset)
                 }
                 .scrollIndicators(.hidden)
                 .modifier(ScrollOffsetReader(offset: $transcriptScrollOffset))
@@ -119,10 +120,10 @@ struct ContentView: View {
                         // The top fade only exists once rows have scrolled under the edge, growing
                         // with the scroll offset so the newest rows are not dimmed at rest.
                         LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                            .frame(height: min(max(transcriptScrollOffset, 0), Self.fadeHeight))
+                            .frame(height: min(max(transcriptScrollOffset, 0), Self.topFadeHeight))
                         Color.black
                         LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: Self.fadeHeight)
+                            .frame(height: Self.bottomFadeHeight)
                         Color.clear
                             .frame(height: Self.hiddenHeight)
                     }
@@ -132,10 +133,19 @@ struct ContentView: View {
         }
     }
 
-    /// Rows fade out over this strip at the top edge and above the record button's middle…
-    private static let fadeHeight: CGFloat = 120
-    /// …and are fully hidden across the lower half of the button area.
-    private static let hiddenHeight: CGFloat = edgeInset + 72 / 2
+    /// Gap between the list's edge and the nearest row: below the header at rest, and above the
+    /// record button when scrolled to the end.
+    private static let rowEdgeGap: CGFloat = 14
+    /// Rows fade out over this strip at the top edge once they scroll under the header.
+    private static let topFadeHeight: CGFloat = 120
+    /// Rows are fully hidden across the lower half of the button area…
+    private static let hiddenHeight: CGFloat = edgeInset + recordButtonSize / 2
+    /// …and fade out between the last row's resting place and that hidden strip.
+    private static let bottomFadeHeight: CGFloat = listBottomInset - hiddenHeight
+    /// The last row stops this far above the list's bottom edge: clear of the record button, with
+    /// nearly the same gap above it as the header leaves above the first row. The button's shadow
+    /// and round shape read as extra space, so the row sits a little closer than the top gap.
+    private static let listBottomInset: CGFloat = edgeInset + recordButtonSize + headerBottomInset + rowEdgeGap - 5
 
     private var timestampWidth: CGFloat {
         controller.timestampMode == .current && controller.showTimestampDate ? 78 : 66
@@ -192,8 +202,11 @@ struct ContentView: View {
 
     /// Gap between the window's top edge and the header.
     private static let headerTopInset: CGFloat = 8
+    /// Gap between the header and the list's top edge.
+    private static let headerBottomInset: CGFloat = 4
     /// Gap between the window's bottom edge and the record button.
     private static let edgeInset: CGFloat = 16
+    private static let recordButtonSize: CGFloat = 72
 
     private var bottomControl: some View {
         recordButton
@@ -222,7 +235,7 @@ struct ContentView: View {
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(.white)
             }
-            .frame(width: 72, height: 72)
+            .frame(width: Self.recordButtonSize, height: Self.recordButtonSize)
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
