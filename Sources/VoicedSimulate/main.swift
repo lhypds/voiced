@@ -3,7 +3,7 @@
 // and the raw audio handed to the session recorder is exactly what was fed in.
 //
 //   say -v Kyoko -o sample.wav --data-format=LEI16@16000 "こんにちは [[slnc 3000]] さようなら"
-//   swift run -c release VoicedSimulate sample.wav --lang ja [--noise 0.02] [--denoise] [--floor 0.01] [--energy]
+//   swift run -c release VoicedSimulate sample.wav --lang ja [--engine accurate] [--noise 0.02] [--denoise] [--floor 0.01] [--energy]
 import AVFoundation
 import CoreML
 import Foundation
@@ -115,8 +115,10 @@ if CommandLine.arguments.contains("--energy") {
 let started = Date()
 @Sendable func stamp() -> String { String(format: "%6.2fs", Date().timeIntervalSince(started)) }
 
-print("loading model...")
-guard let folder = WhisperModelStore.cachedModelFolder(for: .turbo) else { fatalError("turbo model not cached") }
+let engineIndex = CommandLine.arguments.firstIndex(of: "--engine")
+let engine = engineIndex.flatMap { RecognitionEngine(rawValue: CommandLine.arguments[$0 + 1]) } ?? .turbo
+print("loading \(engine.rawValue) model...")
+guard let folder = WhisperModelStore.cachedModelFolder(for: engine) else { fatalError("\(engine.rawValue) model not cached") }
 let whisperKit = try await WhisperModelStore.load(modelFolder: folder)
 let noiseIndex = CommandLine.arguments.firstIndex(of: "--noise")
 let noise = noiseIndex.flatMap { Float(CommandLine.arguments[$0 + 1]) } ?? 0
@@ -131,7 +133,7 @@ let promptIndex = CommandLine.arguments.firstIndex(of: "--prompt-file")
 let promptText = promptIndex.flatMap { RecognitionPrompt.load(from: URL(fileURLWithPath: CommandLine.arguments[$0 + 1])) }
 let promptTokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: promptText, tokenizer: $0) }
 if let promptText { print("prompt (\(promptTokens?.count ?? 0) tokens): \(promptText)") }
-let options = DecodingOptions(task: .transcribe, language: language, temperatureFallbackCount: 1, usePrefillPrompt: true, detectLanguage: false, skipSpecialTokens: true, withoutTimestamps: false, promptTokens: promptTokens, logProbThreshold: -0.8, noSpeechThreshold: 0.4)
+let options = DecodingOptions(task: .transcribe, language: language, temperatureFallbackCount: 1, usePrefillPrompt: true, detectLanguage: false, skipSpecialTokens: true, withoutTimestamps: false, wordTimestamps: true, promptTokens: promptTokens, logProbThreshold: -0.8, noSpeechThreshold: 0.4)
 let assembler = SentenceAssembler(languageCode: language)
 var session = RecordingSession(startedAt: started, baseLines: [])
 var liveText = ""

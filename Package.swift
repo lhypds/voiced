@@ -26,7 +26,10 @@ let package = Package(
         ),
         .testTarget(
             name: "VoicedTests",
-            dependencies: ["Voiced"]
+            dependencies: [
+                "Voiced",
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
+            ]
         ),
     ],
     swiftLanguageModes: [.v5]

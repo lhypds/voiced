@@ -6,14 +6,15 @@ Voiced is a native macOS app for local, real-time speech recognition. It listens
 
 ## Models
 
-Recognition runs on WhisperKit Core ML models. Two engines are available in Settings:
+Recognition runs on WhisperKit Core ML models. Three are available in Settings, listed by model name:
 
-| Engine | Model | Notes |
+| Model | Source | Notes |
 | --- | --- | --- |
-| Fast (default) | Whisper large-v3 Turbo (632 MB) | Faster responses, lower load. Suited to live captions and lower-end Macs. |
-| Accurate | Whisper large-v3 (626 MB) | Better Chinese, Japanese and English accuracy at the cost of speed. |
+| Whisper Large v3 Turbo (default) | OpenAI, 632 MB | Faster responses, lower load. Suited to live captions and lower-end Macs. |
+| Whisper Large v3 | OpenAI, 626 MB | Better accuracy across languages at the cost of speed. |
+| Belle Whisper Large v3 Turbo zh | BELLE-2, 1.5 GB | Turbo fine-tuned on Mandarin. Better Chinese vocabulary, weaker on English terms; Chinese only. |
 
-Each model is downloaded from Hugging Face the first time it is selected and cached locally afterwards.
+Each model is downloaded from Hugging Face the first time it is selected and cached locally afterwards. The OpenAI models come from [argmaxinc/whisperkit-coreml](https://huggingface.co/argmaxinc/whisperkit-coreml); the Belle model is a community Core ML conversion of [BELLE-2/Belle-whisper-large-v3-turbo-zh](https://huggingface.co/BELLE-2/Belle-whisper-large-v3-turbo-zh), hosted at [wolfofbackstreet/BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit](https://huggingface.co/wolfofbackstreet/BELLE-2_Belle-whisper-large-v3-turbo-zh-whisperkit-4bit). Pin the recognition language to Chinese when using it.
 
 Recognition languages: auto detect, Chinese, English, Japanese, Korean, Spanish, French, German, Portuguese, Russian.
 

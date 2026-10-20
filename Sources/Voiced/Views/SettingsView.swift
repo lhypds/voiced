@@ -69,11 +69,12 @@ struct SettingsView: View {
                             set: controller.selectEngine
                         )
                     ) {
-                        Text(strings.fastEngine).tag(RecognitionEngine.turbo)
-                        Text(strings.accurateEngine).tag(RecognitionEngine.accurate)
+                        ForEach(RecognitionEngine.allCases) { engine in
+                            Text(engine.displayName).tag(engine)
+                        }
                     }
                     .labelsHidden()
-                    .frame(maxWidth: 140, alignment: .trailing)
+                    .frame(maxWidth: 220, alignment: .trailing)
                     .disabled(controller.isRecording || controller.isPreparing || controller.preview.isActive)
                 }
 
@@ -427,14 +428,15 @@ private struct EngineHelpPopover: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(strings.engineHelp)
                 .font(.headline)
-            engineDescription(strings.fastEngine, strings.fastEngineDescription)
-            engineDescription(strings.accurateEngine, strings.accurateEngineDescription)
+            ForEach(RecognitionEngine.allCases) { engine in
+                engineDescription(engine.displayName, strings.engineDescription(engine))
+            }
             Text(strings.engineDownloadHint)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(16)
-        .frame(width: 280)
+        .frame(width: 320)
     }
 
     private func engineDescription(_ name: String, _ detail: String) -> some View {

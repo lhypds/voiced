@@ -69,10 +69,32 @@ struct RecordingSession {
     }
 
     private mutating func commit(_ lines: [TranscriptLine]) -> Bool {
-        guard let last = lines.last else { return false }
-        committedLines.append(contentsOf: lines)
-        committedEnd = last.end
-        return true
+        var added = false
+        for line in lines {
+            if isRepeatedTail(line) {
+                committedEnd = max(committedEnd, line.end)
+                continue
+            }
+            committedLines.append(line)
+            committedEnd = line.end
+            added = true
+        }
+        return added
+    }
+
+    /// Whether `line` is the end of the last committed line transcribed again. The audio cut after a
+    /// commit can leave the tail of the last word in the buffer when the boundary sat a little early,
+    /// and the next decode then returns that tail as a short line of its own. Such a line starts
+    /// before the committed end, inside the overlap tolerance; a genuine repetition starts after it.
+    private func isRepeatedTail(_ line: TranscriptLine) -> Bool {
+        guard line.start < committedEnd, let previous = committedLines.last else { return false }
+        let tail = Self.letters(of: line.text)
+        guard !tail.isEmpty else { return true }
+        return Self.letters(of: previous.text).hasSuffix(tail)
+    }
+
+    private static func letters(of text: String) -> String {
+        String(text.filter { $0.isLetter || $0.isNumber })
     }
 
     private func isBeyondCommitted(_ line: TranscriptLine) -> Bool {

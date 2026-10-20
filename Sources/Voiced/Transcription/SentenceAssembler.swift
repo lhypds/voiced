@@ -7,9 +7,12 @@ struct SentenceAssembler: Sendable {
     /// A silence of at least this many seconds between segments ends the current sentence
     /// even when it has no terminal punctuation.
     static let sentenceGap: Float = 0.6
-    /// A sentence that has grown this long without punctuation is closed when the next segment
-    /// arrives, so continuous speech still gets committed and the pending audio stays bounded.
-    static let maxSentenceSeconds: Float = 15
+    /// A sentence that has grown this long without terminal punctuation is closed at the next
+    /// segment boundary, so continuous speech still gets committed line by line and the pending
+    /// audio stays bounded. Whisper rarely closes Chinese or Japanese sentences with 。, so for
+    /// steady sources such as news this is the usual line length: around eight seconds is a clause
+    /// or two, which reads well and keeps each decode short.
+    static let maxSentenceSeconds: Float = 8
     private static let sentenceTerminators: Set<Character> = ["。", "！", "？", ".", "!", "?"]
     private static let cjkClausePunctuation: Set<Character> = ["、", "，", "。", "！", "？", "．", "：", "；"]
     private static let asciiClausePunctuation: Set<Character> = [",", ".", "!", "?", ":", ";"]

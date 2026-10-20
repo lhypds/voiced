@@ -3,13 +3,17 @@ import Foundation
 
 /// Finds, downloads and loads the Core ML model behind a `RecognitionEngine`.
 enum WhisperModelStore {
-    private static let cacheRoot = "huggingface/models/argmaxinc/whisperkit-coreml"
+    /// Where WhisperKit's downloader puts repositories, under the user's Documents folder.
+    private static let cacheRoot = "huggingface/models"
     /// Files that must all exist before a cached model is trusted. Guards against interrupted downloads.
+    /// Only the three Core ML bundles: community conversions do not always ship a `config.json`,
+    /// and WhisperKit reads the model's shape from the bundles themselves.
     private static let requiredFiles = [
-        "config.json",
         "AudioEncoder.mlmodelc/coremldata.bin",
+        "AudioEncoder.mlmodelc/weights/weight.bin",
         "MelSpectrogram.mlmodelc/coremldata.bin",
         "TextDecoder.mlmodelc/coremldata.bin",
+        "TextDecoder.mlmodelc/weights/weight.bin",
     ]
 
     /// The local folder of a fully downloaded model, or nil if it still has to be downloaded.
@@ -20,6 +24,7 @@ enum WhisperModelStore {
         }
         let folder = documents
             .appending(path: cacheRoot)
+            .appending(path: engine.repo)
             .appending(path: engine.modelFolderName)
         let isComplete = requiredFiles.allSatisfy {
             fileManager.fileExists(atPath: folder.appending(path: $0).path)
@@ -32,7 +37,7 @@ enum WhisperModelStore {
         _ engine: RecognitionEngine,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
-        try await WhisperKit.download(variant: engine.modelVariant) { report in
+        try await WhisperKit.download(variant: engine.modelVariant, from: engine.repo) { report in
             progress(min(max(report.fractionCompleted, 0), 1))
         }
     }

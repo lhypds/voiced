@@ -28,11 +28,17 @@ actor LiveTranscriber {
     private static let silenceTailSeconds: Float = 2
     /// Number of recent tokens checked for repetition loops, which abort a decode early.
     private static let compressionCheckWindow = 60
-    /// WhisperKit's segment boundary tends to sit at the onset of the next sentence, clipping its first
-    /// word. When discarding committed audio the cut is therefore moved back to the start of the pause
-    /// that leads into the boundary, searching up to this far before it.
+    /// The committed boundary is never exact: WhisperKit's segment timestamp tends to sit at the
+    /// onset of the next sentence, clipping its first word, while a word timing ends a little before
+    /// the word's sound fades. When discarding committed audio the cut is therefore moved to the
+    /// start of the nearest pause, searched up to this far before the boundary...
     static let cutSearchBefore: Float = 0.5
-    private static let cutSearchAfter: Float = 0.1
+    /// ...and this far after it, so a pause that begins just after the last committed word is used
+    /// and that word's tail is not transcribed again as a line of its own.
+    private static let cutSearchAfter: Float = 0.5
+    /// Without a pause, the cut falls on the quietest frame up to this far after the boundary; any
+    /// later and it could land inside the next word.
+    private static let cutFallbackAfter: Float = 0.1
     private static let cutFrameSeconds: Float = 0.02
     /// A quiet stretch must be at least this long to count as the pause between sentences; shorter
     /// gaps are between words of the committed sentence and must not be used, or its last word
@@ -55,9 +61,22 @@ actor LiveTranscriber {
     /// Segments whose average token log probability is below this are noise WhisperKit guessed at.
     /// Real speech scores around -0.1; hallucinations over noise have been observed near -9.
     private static let minimumAverageLogProb: Float = -1.5
+    /// A decode of at least this much speech that yields no usable segment means Whisper cannot make
+    /// sense of the window, usually because it opens on a clipped word; it would fail the same way
+    /// on every later decode while the buffer grows, so the buffer is resynced instead.
+    private static let resyncSpeechSeconds: Float = 5
+    /// How far into the failed window the resync looks for a quiet frame to restart from. Whatever
+    /// speech lies before that frame is lost, but a word is a far smaller loss than the whole window.
+    private static let resyncSkipSeconds: Float = 1
+    private static let resyncSearchSeconds: Float = 2
     /// Audio kept after the last frame of speech when preparing a decode. Whisper tends to
     /// hallucinate closing phrases over trailing room noise, so the tail is not sent to it.
     private static let decodeTailSeconds: Float = 0.5
+    /// Audio kept before the first frame of speech when preparing a decode. The buffer can hold
+    /// several seconds of room noise ahead of an utterance (the silence tail kept by trimming, or
+    /// the lead-in before the first words); Whisper guesses text over that noise, scores it badly
+    /// and the real speech behind it suffers, so the lead-in is not sent to it either.
+    private static let decodeLeadSeconds: Float = 0.5
 
     private let whisperKit: WhisperKit
     private let audioProcessor: any AudioProcessing
@@ -218,16 +237,18 @@ actor LiveTranscriber {
         decodedSampleCount = buffer.count
         decodeCount += 1
         let decodeID = decodeCount
-        let base = discardedSeconds
         let options = options
         let log = log
         let delegate = delegate
         let liveText = LiveTextAccumulator()
         let floor = speechEnergyFloor
-        let samples = Self.droppingTrailingNoise(buffer, floor: floor)
+        let (samples, lead) = Self.decodeInput(buffer, floor: floor)
         if samples.count < buffer.count {
-            log?("decode input trimmed to \(Float(samples.count) / Self.sampleRate)s of \(Float(buffer.count) / Self.sampleRate)s")
+            log?("decode input trimmed to \(bufferSpan(from: lead, count: samples.count)) of \(bufferSpan(buffer.count))")
         }
+        let base = discardedSeconds + lead
+        let discardedBefore = discardedSampleCount
+        let speechInInput = Self.speechSeconds(samples, from: 0, to: samples.count, floor: floor)
         let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: options) { [weak self] progress in
             let text = liveText.text(adding: progress)
             if let self, let delegate {
@@ -235,7 +256,7 @@ actor LiveTranscriber {
             }
             let stop = Self.shouldStopEarly(progress: progress, options: options)
             if stop == false {
-                log?("decode aborted early after \(progress.tokens.count) tokens, avgLogprob \(progress.avgLogprob ?? 0)")
+                log?("decode aborted early after \(progress.tokens.count) tokens: repetition loop")
             }
             return stop
         }
@@ -246,8 +267,9 @@ actor LiveTranscriber {
                 log?("dropped hallucinated segment over quiet audio: \(segment.text.trimmingCharacters(in: .whitespaces))")
                 return nil
             }
-            guard segment.avgLogprob >= Self.minimumAverageLogProb else {
-                log?("dropped low-confidence segment (avgLogprob \(segment.avgLogprob)): \(segment.text.trimmingCharacters(in: .whitespaces))")
+            let confidence = Self.averageLogProb(of: segment)
+            guard confidence >= Self.minimumAverageLogProb else {
+                log?("dropped low-confidence segment (avgLogprob \(confidence)): \(segment.text.trimmingCharacters(in: .whitespaces))")
                 return nil
             }
             let text = HallucinationFilter.strip(Self.droppingPartialCharacters(segment.text))
@@ -259,12 +281,114 @@ actor LiveTranscriber {
             shifted.start += base
             shifted.end += base
             shifted.text = text
+            shifted.words = segment.words?.map { word in
+                var word = word
+                word.start += base
+                word.end += base
+                return word
+            }
             return shifted
-        }
+        }.flatMap(Self.splitAtPunctuation)
         awaitingPause = true
         log?("decode end: \(segments.count) segments, buffer now \(bufferSpan(audioProcessor.audioSamples.count))")
         guard isRunning, let delegate else { return }
         discardCommittedAudio(before: await delegate.transcriber(self, didDecode: segments, decode: decodeID))
+        if segments.isEmpty, speechInInput >= Self.resyncSpeechSeconds {
+            // The committed cut above may have moved the buffer's front since the input was taken.
+            let inputStart = Int(lead * Self.sampleRate) - (discardedSampleCount - discardedBefore)
+            resync(inputStart: inputStart, input: samples, floor: floor)
+        }
+    }
+
+    /// Restarts the buffer at a quiet frame shortly into a window Whisper could not transcribe.
+    ///
+    /// Committed audio is cut at Whisper's segment boundary, which can fall inside the first word of
+    /// the next sentence. Whisper then opens on a clipped word and tends to produce nonsense for the
+    /// whole window, every decode scores too low to keep anything, nothing gets committed, and the
+    /// buffer grows until WhisperKit's 30 s window moves past the bad start on its own: by then half
+    /// a minute of speech is gone. Skipping a second to the next quiet frame loses a word at most.
+    private func resync(inputStart: Int, input: [Float], floor: Float) {
+        let frame = Int(Self.speechFrameSeconds * Self.sampleRate)
+        let from = Int(Self.resyncSkipSeconds * Self.sampleRate)
+        let to = min(input.count, from + Int(Self.resyncSearchSeconds * Self.sampleRate))
+        guard to - from >= frame else { return }
+        var quietest = from
+        var quietestLevel = Float.infinity
+        var start = from
+        while start + frame <= to {
+            let level = Self.rms(input[start..<(start + frame)])
+            if level < floor {
+                quietest = start
+                break
+            }
+            if level < quietestLevel {
+                quietestLevel = level
+                quietest = start
+            }
+            start += frame
+        }
+        let cut = inputStart + quietest
+        guard cut > 0 else { return }
+        trimBuffer(keepingLast: audioProcessor.audioSamples.count - cut, reason: "resync")
+    }
+
+    /// Clause and sentence marks a word can end with; a segment is split after each of them.
+    private static let splitPunctuation: Set<Character> = ["。", "！", "？", "，", "、", "；", "：", ".", "!", "?", ",", ";", ":"]
+
+    /// The segment cut into pieces after every word that ends with punctuation, using WhisperKit's
+    /// word timings, so the sentence assembler can close a sentence inside a Whisper segment.
+    ///
+    /// Whisper's own segments end where it emits a timestamp token, which for a model fine-tuned
+    /// on Chinese, or any model given a prompt, is often only once per window: one segment holding
+    /// several punctuated sentences. Without a cut inside it, such a segment becomes one long line
+    /// and keeps the buffer growing. Splitting after clause marks as well as sentence marks costs
+    /// nothing, because the assembler joins pieces that end with punctuation back without adding
+    /// any. A segment without word timings, or whose timings are not in order, is returned whole.
+    static func splitAtPunctuation(_ segment: TranscriptionSegment) -> [TranscriptionSegment] {
+        guard let words = segment.words, words.count > 1 else { return [segment] }
+        var pieces: [TranscriptionSegment] = []
+        var text = ""
+        var tokens: [Int] = []
+        var start: Float?
+        var end: Float = segment.start
+        for word in words {
+            guard word.start >= end - 0.01, word.end >= word.start else { return [segment] }
+            if start == nil { start = word.start }
+            text += word.word
+            tokens += word.tokens
+            end = word.end
+            if let last = text.last, Self.splitPunctuation.contains(last) {
+                pieces.append(piece(of: segment, text: text, tokens: tokens, start: start ?? segment.start, end: end))
+                text = ""
+                tokens = []
+                start = nil
+            }
+        }
+        if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+            pieces.append(piece(of: segment, text: text, tokens: tokens, start: start ?? segment.start, end: end))
+        }
+        let kept = pieces.filter { !$0.text.isEmpty }
+        return kept.count > 1 ? kept : [segment]
+    }
+
+    private static func piece(of segment: TranscriptionSegment, text: String, tokens: [Int], start: Float, end: Float) -> TranscriptionSegment {
+        var piece = segment
+        piece.text = text.trimmingCharacters(in: .whitespaces)
+        piece.tokens = tokens
+        piece.tokenLogProbs = []
+        piece.start = max(segment.start, start)
+        piece.end = min(segment.end, max(end, piece.start))
+        piece.words = nil
+        return piece
+    }
+
+    /// Mean log probability of the segment's own tokens. WhisperKit stamps every segment of a window
+    /// with the window's average, which lets a hallucinated opening drag down the real speech after
+    /// it, and a good window carry a hallucinated segment; the per-segment value judges each alone.
+    private static func averageLogProb(of segment: TranscriptionSegment) -> Float {
+        let values = segment.tokenLogProbs.flatMap(\.values)
+        guard !values.isEmpty else { return segment.avgLogprob }
+        return values.reduce(0, +) / Float(values.count)
     }
 
     // MARK: - Buffer management
@@ -281,9 +405,13 @@ actor LiveTranscriber {
         trimBuffer(keepingLast: samples.count - cut, reason: "discard")
     }
 
-    /// Start of the pause that leads into `target`, or `target` itself when the boundary is not
-    /// preceded by a pause of at least `minimumPauseSeconds`.
-    private static func quietestCut(in samples: ContiguousArray<Float>, around target: Int) -> Int {
+    /// Start of the pause (a quiet stretch of at least `minimumPauseSeconds`) nearest to `target`,
+    /// within `cutSearchBefore` before it and `cutSearchAfter` after it. Without one, the quietest
+    /// frame between `cutSearchBefore` before the boundary and `cutFallbackAfter` after it:
+    /// continuous speech such as a news broadcast has no pauses between sentences, and cutting
+    /// exactly at the boundary can clip the first word of the next sentence; the dip between two
+    /// syllables is a safer cut.
+    static func quietestCut(in samples: ContiguousArray<Float>, around target: Int) -> Int {
         let frame = Int(cutFrameSeconds * sampleRate)
         let lower = max(0, target - Int(cutSearchBefore * sampleRate))
         let upper = min(samples.count, target + Int(cutSearchAfter * sampleRate))
@@ -302,18 +430,31 @@ actor LiveTranscriber {
         }
         guard let loudest = levels.max(), loudest > 0 else { return clampedTarget }
         let quiet = levels.map { $0 <= loudest * dipRatio }
+        let boundaryFrame = (clampedTarget - lower) / frame
+        let minimumPauseFrames = Int((minimumPauseSeconds / cutFrameSeconds).rounded(.up))
 
-        // Walk back from the boundary through quiet frames; that stretch is the pause before the next sentence.
-        let boundaryFrame = min(levels.count - 1, max(0, (clampedTarget - lower) / frame))
-        var pauseStart = boundaryFrame
-        var pauseEnd = boundaryFrame
-        // Allow the boundary itself to sit on the first sound of the next word.
-        while pauseStart > 0, !quiet[pauseStart] { pauseStart -= 1; pauseEnd = pauseStart; if boundaryFrame - pauseStart > 2 { return clampedTarget } }
-        while pauseStart > 0, quiet[pauseStart - 1] { pauseStart -= 1 }
-        guard quiet[pauseEnd], Float(pauseEnd - pauseStart + 1) * cutFrameSeconds >= minimumPauseSeconds else {
-            return clampedTarget
+        // Every quiet run long enough to be a pause, by the start frame nearest the boundary.
+        var nearestPauseStart: Int?
+        var runStart: Int?
+        for index in 0...levels.count {
+            let isQuiet = index < levels.count && quiet[index]
+            if isQuiet {
+                if runStart == nil { runStart = index }
+            } else if let begin = runStart {
+                runStart = nil
+                guard index - begin >= minimumPauseFrames else { continue }
+                if let nearest = nearestPauseStart, abs(nearest - boundaryFrame) <= abs(begin - boundaryFrame) { continue }
+                nearestPauseStart = begin
+            }
         }
-        return lower + pauseStart * frame
+        if let nearestPauseStart {
+            return lower + nearestPauseStart * frame
+        }
+
+        let fallbackFrames = min(levels.count, boundaryFrame + Int(cutFallbackAfter / cutFrameSeconds) + 1)
+        guard fallbackFrames > 0 else { return clampedTarget }
+        let quietestFrame = (0..<fallbackFrames).min { levels[$0] < levels[$1] } ?? 0
+        return lower + quietestFrame * frame
     }
 
     /// Whisper's tokenizer is byte-level, so a multi-byte character can be split across tokens or
@@ -369,13 +510,17 @@ actor LiveTranscriber {
             && Float(speech) / Float(frames.count) >= minimumSpeechFraction
     }
 
-    /// The buffer cut shortly after its last frame of speech energy.
-    private static func droppingTrailingNoise(_ buffer: ContiguousArray<Float>, floor: Float) -> [Float] {
+    /// The buffer cut to shortly before its first frame of speech energy and shortly after its last,
+    /// with the number of seconds removed from the front. A buffer without speech is returned whole.
+    static func decodeInput(_ buffer: ContiguousArray<Float>, floor: Float) -> (samples: [Float], leadSeconds: Float) {
         let frames = speechFrames(buffer, from: 0, to: buffer.count, floor: floor)
-        guard let lastSpeech = frames.lastIndex(of: true) else { return Array(buffer) }
+        guard let firstSpeech = frames.firstIndex(of: true), let lastSpeech = frames.lastIndex(of: true) else {
+            return (Array(buffer), 0)
+        }
         let frame = Int(speechFrameSeconds * sampleRate)
-        let keep = min(buffer.count, (lastSpeech + 1) * frame + Int(decodeTailSeconds * sampleRate))
-        return Array(buffer.prefix(keep))
+        let start = max(0, firstSpeech * frame - Int(decodeLeadSeconds * sampleRate))
+        let end = min(buffer.count, (lastSpeech + 1) * frame + Int(decodeTailSeconds * sampleRate))
+        return (Array(buffer[start..<end]), Float(start) / sampleRate)
     }
 
     private func trimBuffer(keepingLast keep: Int, reason: String) {
@@ -404,19 +549,29 @@ actor LiveTranscriber {
     }
 
     private func bufferSpan(_ count: Int) -> String {
-        String(format: "%.2f-%.2f", discardedSeconds, discardedSeconds + Float(count) / Self.sampleRate)
+        bufferSpan(from: 0, count: count)
     }
 
-    /// Mirrors WhisperKit's streaming heuristic: abort a decode that is looping or has low confidence.
+    /// The span of `count` samples starting `offset` seconds into the buffer, in seconds since `start()`.
+    private func bufferSpan(from offset: Float, count: Int) -> String {
+        let start = discardedSeconds + offset
+        return String(format: "%.2f-%.2f", start, start + Float(count) / Self.sampleRate)
+    }
+
+    /// Aborts a decode whose recent tokens repeat, which is Whisper stuck in a loop.
+    ///
+    /// WhisperKit's streaming example also aborts as soon as the average log probability drops below
+    /// `logProbThreshold`, but that is judged on the few tokens decoded so far: a window that opens on
+    /// a breath or a half word scores badly on its first tokens and the whole window, including the
+    /// speech after them, is thrown away. With a steady source such as a news broadcast the same
+    /// window opens the same way on every decode, and whole sentences are lost. Confidence is
+    /// judged per segment after the decode instead (`minimumAverageLogProb`).
     private static func shouldStopEarly(progress: TranscriptionProgress, options: DecodingOptions) -> Bool? {
         if progress.tokens.count > compressionCheckWindow {
             let recent: [Int] = progress.tokens.suffix(compressionCheckWindow)
             if TextUtilities.compressionRatio(of: recent) > options.compressionRatioThreshold ?? 0 {
                 return false
             }
-        }
-        if let avgLogprob = progress.avgLogprob, let threshold = options.logProbThreshold, avgLogprob < threshold {
-            return false
         }
         return nil
     }

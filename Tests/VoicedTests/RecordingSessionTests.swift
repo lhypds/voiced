@@ -94,3 +94,42 @@ final class RecordingSessionTests: XCTestCase {
         TranscriptLine(id: id, start: start, end: end, recordedAt: Date(timeIntervalSince1970: 0), text: text)
     }
 }
+
+final class RecordingSessionRepeatedTailTests: XCTestCase {
+    func testTailOfThePreviousLineTranscribedAgainIsDropped() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let first = line("a", 0, 5.0, "还有施工标志等等。")
+        _ = session.update(latest: [first], completed: [first])
+
+        // The cut left the end of 等等 in the buffer; it came back starting before the committed end.
+        let tail = line("b", 4.7, 5.3, "等等。")
+        XCTAssertFalse(session.update(latest: [first, tail], completed: [first, tail]))
+
+        XCTAssertEqual(session.transcript.map(\.text), ["还有施工标志等等。"])
+        XCTAssertEqual(session.committedEnd, 5.3, "the repeated tail still advances the cut")
+    }
+
+    func testGenuineRepetitionAfterTheCommittedEndIsKept() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let first = line("a", 0, 2, "好。")
+        _ = session.update(latest: [first], completed: [first])
+
+        let again = line("b", 2.5, 3, "好。")
+        XCTAssertTrue(session.update(latest: [first, again], completed: [first, again]))
+        XCTAssertEqual(session.transcript.map(\.text), ["好。", "好。"])
+    }
+
+    func testDifferentTextStartingInsideTheToleranceIsKept() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let first = line("a", 0, 5, "那不仅代码量会非常大。")
+        _ = session.update(latest: [first], completed: [first])
+
+        let next = line("b", 4.8, 7, "车载的算力也不够用。")
+        XCTAssertTrue(session.update(latest: [first, next], completed: [first, next]))
+        XCTAssertEqual(session.transcript.count, 2)
+    }
+
+    private func line(_ id: String, _ start: Float, _ end: Float, _ text: String) -> TranscriptLine {
+        TranscriptLine(id: id, start: start, end: end, recordedAt: Date(timeIntervalSince1970: 0), text: text)
+    }
+}

@@ -548,6 +548,10 @@ final class TranscriptionController: ObservableObject {
             detectLanguage: language.isAutomatic,
             skipSpecialTokens: true,
             withoutTimestamps: false,
+            // Word timings let sentences be cut inside a Whisper segment, at punctuation. Models
+            // fine-tuned on Chinese, and any model given a prompt, tend to return one long
+            // punctuated segment per window instead of one segment per clause.
+            wordTimestamps: true,
             promptTokens: promptTokens,
             logProbThreshold: -0.8,
             noSpeechThreshold: 0.4
