@@ -25,6 +25,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.recognitionEngine, .turbo)
         XCTAssertEqual(settings.timestampMode, .current)
         XCTAssertFalse(settings.showTimestampDate)
+        XCTAssertTrue(settings.noiseReduction)
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
@@ -64,8 +65,10 @@ final class AppSettingsTests: XCTestCase {
         settings.recognitionEngine = .accurate
         settings.timestampMode = .relative
         settings.showTimestampDate = true
+        settings.noiseReduction = false
 
         XCTAssertEqual(try storedValue("appLanguage") as? String, "english")
+        XCTAssertEqual(try storedValue("noiseReduction") as? Bool, false)
         XCTAssertEqual(try storedValue("recognitionLanguage") as? String, "zh")
         XCTAssertEqual(try storedValue("recognitionEngine") as? String, "accurate")
         XCTAssertEqual(try storedValue("timestampMode") as? String, "relative")

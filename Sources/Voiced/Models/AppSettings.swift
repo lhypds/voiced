@@ -12,6 +12,7 @@ struct AppSettings {
         case showTimestampDate
         case recognitionEngine
         case speechEnergyFloor
+        case noiseReduction
     }
 
     private let file: SettingsFile
@@ -45,6 +46,12 @@ struct AppSettings {
     var showTimestampDate: Bool {
         get { file[Key.showTimestampDate.rawValue] as? Bool ?? false }
         nonmutating set { set(newValue, for: .showTimestampDate) }
+    }
+
+    /// Whether captured audio goes through spectral subtraction. Only effective once a noise profile exists.
+    var noiseReduction: Bool {
+        get { file[Key.noiseReduction.rawValue] as? Bool ?? true }
+        nonmutating set { set(newValue, for: .noiseReduction) }
     }
 
     /// Minimum frame RMS the voice detector treats as speech. Clamped to the transcriber's range.

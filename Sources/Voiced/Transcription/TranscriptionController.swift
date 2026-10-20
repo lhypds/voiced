@@ -62,6 +62,16 @@ final class TranscriptionController: ObservableObject {
     }
     /// Trial recognition shown in the settings sheet so the user can tune the threshold.
     let preview = RecognitionPreview()
+    /// Whether captured audio is denoised; takes effect at the next recording or preview.
+    @Published var noiseReductionEnabled: Bool {
+        didSet { settings.noiseReduction = noiseReductionEnabled }
+    }
+    /// Background noise measured by `calibrateNoise`, used by the denoiser. Nil until measured.
+    @Published private(set) var noiseProfile: NoiseProfile?
+    /// True while the input is being sampled to measure the background noise.
+    @Published private(set) var isCalibratingNoise = false
+    /// Why the last noise calibration did not set a floor; cleared when the next one starts.
+    @Published private(set) var noiseCalibrationError: String?
 
     /// Files of the running recording session, separate from the transcript state in `session`.
     private struct ActiveRecording {
@@ -73,6 +83,7 @@ final class TranscriptionController: ObservableObject {
 
     private let settings: AppSettings
     private let historyStore: TranscriptHistoryStore
+    private let noiseProfileURL: URL
     private var whisperKit: WhisperKit?
     private var transcriber: LiveTranscriber?
     private var startTask: Task<Void, Never>?
@@ -90,6 +101,8 @@ final class TranscriptionController: ObservableObject {
     var isRecording: Bool { phase == .recording }
     var canRecord: Bool { phase == .ready || phase == .recording }
     var canPreview: Bool { phase == .ready && selectedDeviceID != nil }
+    var canCalibrateNoise: Bool { canPreview && !preview.isActive && !isCalibratingNoise }
+    var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
     var isPreparing: Bool {
         switch phase {
         case .downloading, .loading: true
@@ -117,9 +130,16 @@ final class TranscriptionController: ObservableObject {
         audioDevices.first(where: { $0.id == selectedDeviceID })?.name ?? strings.noInput
     }
 
-    init(settings: AppSettings = AppSettings(), historyStore: TranscriptHistoryStore = TranscriptHistoryStore()) {
+    init(
+        settings: AppSettings = AppSettings(),
+        historyStore: TranscriptHistoryStore = TranscriptHistoryStore(),
+        noiseProfileURL: URL = VoicedDirectory.noiseProfileFile
+    ) {
         self.settings = settings
         self.historyStore = historyStore
+        self.noiseProfileURL = noiseProfileURL
+        noiseReductionEnabled = settings.noiseReduction
+        noiseProfile = NoiseProfile.load(from: noiseProfileURL)
         history = historyStore.load()
         appLanguage = settings.appLanguage
         selectedLanguage = settings.recognitionLanguage
@@ -224,6 +244,7 @@ final class TranscriptionController: ObservableObject {
             silenceDelay: Self.silenceCommitDelay,
             speechEnergyFloor: speechEnergyFloor,
             delegate: self,
+            audioProcessor: makeAudioSource(),
             audioSink: recorder.map { recorder in { samples in recorder.append(samples) } }
         )
         self.transcriber = transcriber
@@ -254,12 +275,57 @@ final class TranscriptionController: ObservableObject {
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
             speechEnergyFloor: speechEnergyFloor,
-            assembler: assembler
+            assembler: assembler,
+            audioProcessor: makeAudioSource()
         )
     }
 
     func stopPreview() {
         preview.stop()
+    }
+
+    // MARK: - Noise calibration
+
+    /// Capture source for recordings and previews: the denoising wrapper when noise reduction is
+    /// on and a profile exists, otherwise nil for the model's own processor.
+    private func makeAudioSource() -> (any AudioProcessing)? {
+        guard noiseReductionEnabled, let noiseProfile else { return nil }
+        return DenoisingAudioSource(profile: noiseProfile)
+    }
+
+    /// Samples the background noise for a moment, keeps its spectrum as the noise profile and sets
+    /// the energy floor just above what the pipeline hears of that noise, denoised when noise
+    /// reduction is on. The user should keep quiet meanwhile; speech during the measurement only
+    /// makes the profile stronger and pushes the floor up, within its range.
+    func calibrateNoise() {
+        guard canCalibrateNoise, let selectedDeviceID else { return }
+        isCalibratingNoise = true
+        noiseCalibrationError = nil
+        Task { [weak self] in
+            defer { self?.isCalibratingNoise = false }
+            do {
+                guard await AudioProcessor.requestRecordPermission() else {
+                    throw MicrophoneAccessDenied()
+                }
+                let samples = try await NoiseFloorCalibration.measure(inputDeviceID: selectedDeviceID)
+                guard let self else { return }
+                guard let profile = NoiseProfile(noise: samples) else {
+                    throw NoInputCaptured()
+                }
+                try profile.save(to: noiseProfileURL)
+                noiseProfile = profile
+                let heard = noiseReductionEnabled ? SpectralDenoiser.denoise(samples, profile: profile) : samples
+                if let floor = NoiseFloorCalibration.floor(forNoise: heard) {
+                    speechEnergyFloor = floor
+                }
+            } catch {
+                self?.noiseCalibrationError = error.localizedDescription
+            }
+        }
+    }
+
+    private struct NoInputCaptured: LocalizedError {
+        var errorDescription: String? { "No audio was captured from the input device." }
     }
 
     func stopRecording() {
@@ -346,6 +412,11 @@ final class TranscriptionController: ObservableObject {
         lines = record.lines
         liveText = ""
         currentRecordID = record.id
+    }
+
+    /// Shows the record's directory, with its transcript and audio files, in Finder.
+    func openRecordFolder(_ record: TranscriptRecord) {
+        NSWorkspace.shared.open(historyStore.recordDirectory(id: record.id))
     }
 
     func deleteRecord(_ record: TranscriptRecord) {

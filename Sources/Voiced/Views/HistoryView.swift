@@ -36,6 +36,7 @@ struct HistoryView: View {
                                     controller.resume(record)
                                     isPresented = false
                                 },
+                                openFolder: { controller.openRecordFolder(record) },
                                 delete: { controller.deleteRecord(record) }
                             )
                         }
@@ -54,6 +55,7 @@ private struct HistoryRow: View {
     let isCurrent: Bool
     let strings: AppStrings
     let select: () -> Void
+    let openFolder: () -> Void
     let delete: () -> Void
 
     @State private var isHovered = false
@@ -67,7 +69,7 @@ private struct HistoryRow: View {
 
     var body: some View {
         Button(action: select) {
-            // Centre alignment keeps the delete button vertically centred on the row.
+            // Centre alignment keeps the action buttons vertically centred on the row.
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
@@ -92,15 +94,10 @@ private struct HistoryRow: View {
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Button(action: delete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    rowAction("folder", help: strings.openFolder, action: openFolder)
+                    rowAction("trash", help: strings.delete, action: delete)
                 }
-                .buttonStyle(.plain)
-                .help(strings.delete)
                 .opacity(isHovered ? 1 : 0)
             }
             .padding(.horizontal, 16)
@@ -111,7 +108,20 @@ private struct HistoryRow: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .contextMenu {
+            Button(strings.openFolder, action: openFolder)
             Button(strings.delete, role: .destructive, action: delete)
         }
+    }
+
+    private func rowAction(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }

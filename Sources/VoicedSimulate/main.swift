@@ -3,7 +3,7 @@
 // and the raw audio handed to the session recorder is exactly what was fed in.
 //
 //   say -v Kyoko -o sample.wav --data-format=LEI16@16000 "こんにちは [[slnc 3000]] さようなら"
-//   swift run -c release VoicedSimulate sample.wav --lang ja [--noise 0.02] [--floor 0.01] [--energy]
+//   swift run -c release VoicedSimulate sample.wav --lang ja [--noise 0.02] [--denoise] [--floor 0.01] [--energy]
 import AVFoundation
 import CoreML
 import Foundation
@@ -36,11 +36,18 @@ final class FileAudioSource: AudioProcessing, @unchecked Sendable {
     var relativeEnergyWindow: Int = 20
     private(set) var fedSeconds: Float = 0
 
-    init(file: String, noise: Float) throws {
+    /// `denoise` runs the file through spectral subtraction first, with a profile measured from
+    /// 2 seconds of fresh noise at the same amplitude, the way the app measures the room.
+    init(file: String, noise: Float, denoise: Bool) throws {
         let buffer = try AudioProcessor.loadAudio(fromPath: file)
         var samples = AudioProcessor.convertBufferToArray(buffer: buffer)
         if noise > 0 {
             for i in samples.indices { samples[i] = max(-1, min(1, samples[i] + Float.random(in: -noise...noise))) }
+        }
+        if denoise {
+            let room = (0..<32_000).map { _ in Float.random(in: -noise...noise) }
+            guard let profile = NoiseProfile(noise: room) else { fatalError("could not build noise profile") }
+            samples = SpectralDenoiser.denoise(samples, profile: profile)
         }
         source = samples
     }
@@ -113,7 +120,7 @@ guard let folder = WhisperModelStore.cachedModelFolder(for: .turbo) else { fatal
 let whisperKit = try await WhisperModelStore.load(modelFolder: folder)
 let noiseIndex = CommandLine.arguments.firstIndex(of: "--noise")
 let noise = noiseIndex.flatMap { Float(CommandLine.arguments[$0 + 1]) } ?? 0
-let audio = try FileAudioSource(file: file, noise: noise)
+let audio = try FileAudioSource(file: file, noise: noise, denoise: CommandLine.arguments.contains("--denoise"))
 print("model ready; feeding \(audio.sourceSeconds)s of audio")
 
 let langIndex = CommandLine.arguments.firstIndex(of: "--lang")

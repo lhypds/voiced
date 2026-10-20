@@ -46,6 +46,8 @@ With BlackHole, use a Multi-Output Device that routes to both the speakers and B
 - Recognition engine, recognition language and interface language.
 - Timestamp: relative time or clock time, with an optional date.
 - Energy threshold: sound below it is ignored. Lower it for quiet sources such as speakers picked up by a microphone.
+- Measure background noise: keep quiet for 2 seconds. The room's noise is recorded for noise reduction and the threshold is set just above it, so fans or hum do not trigger recognition.
+- Noise reduction: subtracts the measured background noise from the input before recognition. Available once the noise has been measured.
 - Recognition preview: listens with the current settings and shows the input level and recognized text without writing to the transcript. Useful for tuning the threshold.
 
 ## Data on disk
@@ -55,6 +57,7 @@ Everything Voiced stores lives under `~/.voiced`:
 ```
 ~/.voiced/
   settings.json             preferences
+  noise-profile.json        measured background noise, for noise reduction
   history/<unix time>/      one directory per history record, named after the time it was started
     transcript.json         the lines, plus one entry per recording session: start and end time,
                             input device, language, engine and the name of its audio file

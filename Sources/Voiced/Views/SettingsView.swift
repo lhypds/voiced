@@ -94,17 +94,38 @@ struct SettingsView: View {
                 Divider()
 
                 SettingsRow(title: strings.energyThreshold, hint: strings.energyThresholdHint, accessory: resetThresholdButton) {
-                    HStack(spacing: 8) {
-                        Slider(
-                            value: $controller.speechEnergyFloor,
-                            in: LiveTranscriber.speechEnergyFloorRange
-                        )
-                        .frame(width: 110)
-                        Text(String(format: "%.3f", controller.speechEnergyFloor))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 38, alignment: .trailing)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: $controller.speechEnergyFloor,
+                                in: LiveTranscriber.speechEnergyFloorRange
+                            )
+                            .frame(width: 110)
+                            Text(String(format: "%.3f", controller.speechEnergyFloor))
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 38, alignment: .trailing)
+                        }
+                        calibrateNoiseButton
                     }
+                }
+                if let error = controller.noiseCalibrationError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.bottom, 10)
+                }
+
+                Divider()
+
+                SettingsRow(
+                    title: strings.noiseReduction,
+                    hint: controller.noiseProfile == nil ? strings.noiseReductionNeedsProfile : strings.noiseReductionHint
+                ) {
+                    Toggle(strings.noiseReduction, isOn: $controller.noiseReductionEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(controller.noiseProfile == nil || controller.isRecording || controller.preview.isActive)
                 }
 
                 Divider()
@@ -149,6 +170,30 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(Theme.accent)
         }
+    }
+
+    /// Sets the threshold from a short recording of the room. Shows a reminder to keep quiet
+    /// while the measurement runs.
+    private var calibrateNoiseButton: some View {
+        Button {
+            controller.calibrateNoise()
+        } label: {
+            HStack(spacing: 4) {
+                if controller.isCalibratingNoise {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text(strings.calibratingNoise)
+                } else {
+                    Image(systemName: "waveform.badge.minus")
+                    Text(strings.calibrateNoise)
+                }
+            }
+            .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(controller.canCalibrateNoise ? Theme.accent : Color.secondary)
+        .disabled(!controller.canCalibrateNoise)
+        .help(strings.calibrateNoiseHint)
     }
 
     private var engineHelpButton: some View {

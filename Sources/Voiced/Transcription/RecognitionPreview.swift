@@ -32,7 +32,8 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         silenceThreshold: Float,
         silenceDelay: TimeInterval,
         speechEnergyFloor: Float,
-        assembler: SentenceAssembler
+        assembler: SentenceAssembler,
+        audioProcessor: (any AudioProcessing)? = nil
     ) {
         stop()
         self.assembler = assembler
@@ -51,6 +52,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
             silenceDelay: silenceDelay,
             speechEnergyFloor: speechEnergyFloor,
             delegate: self,
+            audioProcessor: audioProcessor,
             levelHandler: { [weak self] level in
                 Task { @MainActor in self?.level = level }
             }

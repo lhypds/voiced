@@ -5,6 +5,7 @@ import Foundation
 /// ```
 /// ~/.voiced/
 ///   settings.json             user preferences
+///   noise-profile.json        background noise spectrum for noise reduction
 ///   history/<unix time>/      one directory per record (see `TranscriptHistoryStore`)
 ///     transcript.json         lines and recording sessions
 ///     <unix time>.wav         raw audio of each session
@@ -13,6 +14,7 @@ enum VoicedDirectory {
     static let root = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".voiced", isDirectory: true)
     static let settingsFile = root.appendingPathComponent("settings.json")
+    static let noiseProfileFile = root.appendingPathComponent("noise-profile.json")
     static let historyDirectory = root.appendingPathComponent("history", isDirectory: true)
 
     /// Where versions before `~/.voiced` kept the history.

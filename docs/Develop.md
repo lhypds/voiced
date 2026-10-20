@@ -24,7 +24,7 @@ The script reads `VERSION`, writes the new version to `VERSION` and `Support/Inf
 
 ## Tests
 
-Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the hallucination filter, the history store, the session recorder (WAV output) and the migration into `~/.voiced`:
+Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the noise calibration and spectral denoiser, the hallucination filter, the history store, the session recorder (WAV output) and the migration into `~/.voiced`:
 
 ```sh
 swift test
@@ -47,6 +47,7 @@ swift run -c release VoicedSimulate sample.wav --lang ja
 | --- | --- |
 | `--lang <code>` | Recognition language (default `en`). |
 | `--noise 0.02` | Add white noise of the given amplitude. |
+| `--denoise` | Run the audio through spectral subtraction first, with a profile from noise of the `--noise` amplitude. Compare runs with and without it. |
 | `--floor 0.01` | Energy threshold (default 0.02). |
 | `--energy` | Print only the energy values the VAD sees. |
 
@@ -64,7 +65,8 @@ Model variants are listed in `RecognitionEngine.swift`. Chinese and Japanese tra
 - After roughly 2 seconds of silence, whatever is in LIVE gets a closing period and is committed.
 - Audio belonging to committed sentences is dropped from the buffer immediately, so later decodes can never rewrite them. The cut point is the quietest spot within 0.5 seconds before the Whisper sentence boundary, to avoid clipping the start of the next word.
 - Continuous speech without punctuation is force-split after 15 seconds, so steady sources such as radio still commit sentence by sentence.
-- A decode only runs when at least one frame of new audio reaches the energy threshold (default 0.02, WhisperKit's energy VAD default; adjustable in Settings between 0.002 and 0.05, effective immediately while recording). Audio sent to Whisper is trimmed 0.5 seconds after the last speech frame so the model does not see a tail of background noise.
+- A decode only runs when at least one frame of new audio reaches the energy threshold (default 0.02, WhisperKit's energy VAD default; adjustable in Settings between 0.002 and 0.05, effective immediately while recording). "Measure background noise" in Settings records 2 seconds from the input and sets the threshold to 1.5 times the loudest 100 ms frame, clamped to the same range, so steady room noise stays below it (`NoiseFloorCalibration.swift`). The same recording yields a noise profile, the average magnitude of each frequency bin (`NoiseProfile`, saved to `~/.voiced/noise-profile.json`).
+- Noise reduction, on by default once a profile exists, is spectral subtraction (`SpectralDenoiser.swift`): 512-sample frames with 50% overlap and square-root Hann windows on both sides, twice the profile subtracted from each bin's magnitude, a gain floor of 0.1 and gain smoothing across frames to keep "musical noise" down. `DenoisingAudioSource` wraps WhisperKit's `AudioProcessor` and feeds the cleaned audio to the transcriber, so the voice detector, the level meter and the saved WAV all see the denoised signal. The threshold calibration then measures the denoised noise. Latency is 16 to 32 ms. Audio sent to Whisper is trimmed 0.5 seconds after the last speech frame so the model does not see a tail of background noise.
 - A decoded segment is treated as a hallucination and discarded when the audio above the energy threshold lasts less than 0.2 seconds or less than 20% of the segment, when the average token log probability is below -1.5, or when the text matches a known hallucinated phrase (for example "ご視聴ありがとうございました" or "Thank you for watching"). WhisperKit does not implement `noSpeechProb`, so these heuristics are the only defence. The phrase list lives in `HallucinationFilter.swift`.
 - Punctuation is normalized to the script of each line: Chinese text gets full-width marks with ，and 。, Japanese text gets 、and 。, and everything else gets ASCII marks followed by a space. The script is decided from the text itself (kana means Japanese, Han characters alone mean Japanese only when the language is set to 日本語), so English spoken in a Chinese session keeps half-width punctuation. See `PunctuationNormalizer.swift`.
 - The LIVE line shows the text the current decode is producing, token by token, including the first decode of each utterance. Results emptied by the hallucination filter are not shown.
@@ -89,6 +91,9 @@ Sources/Voiced/
     SentenceAssembler.swift    Merges recognition segments into sentences (pure function, unit tested)
     RecordingSession.swift     Commit state for one recording
     RecognitionPreview.swift   Throwaway recognition run for the Settings sheet (input level and preview text)
+    NoiseFloorCalibration.swift Sets the energy threshold from a short recording of the background noise
+    SpectralDenoiser.swift     Noise profile and streaming spectral subtraction (Accelerate FFT)
+    DenoisingAudioSource.swift Microphone capture that runs the denoiser before the transcriber sees the audio
     WhisperModelStore.swift    Model cache check, download and loading
     TranscriptHistoryStore.swift  Reads and writes history (~/.voiced/history/<unix time>/transcript.json, one directory per record)
     TranscriptionController.swift  Connects recognition events to the UI
