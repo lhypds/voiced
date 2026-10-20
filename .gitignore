@@ -1,0 +1,54 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+*.xcodeproj
+*.xcworkspace
+!*.xcworkspace/contents.xcworkspacedata
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+Timeline.xctimeline
+playground.xcworkspace
+
+# Build / test output
+*.o
+*.xcresult
+*.profraw
+*.profdata
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Icon?
+.Spotlight-V100
+.Trashes
+
+# Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Local environment / secrets
+.env
+.env.*
+*.local
+
+# Logs and temp files
+*.log
+*.tmp
