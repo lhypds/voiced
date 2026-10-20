@@ -51,6 +51,12 @@ struct ContentView: View {
             if case .failed = controller.phase {
                 ToolbarIconButton(systemName: "arrow.clockwise", help: strings.retry, action: controller.retryPreparation)
             }
+            ToolbarIconButton(systemName: "plus", help: strings.newRecord, action: controller.startNewRecord)
+            ToolbarIconButton(systemName: "doc.on.doc", help: strings.copyAll) {
+                controller.copyTranscript()
+                showCopiedToast()
+            }
+            .disabled(controller.lines.isEmpty)
             ToolbarIconButton(systemName: "clock.arrow.circlepath", help: strings.history) {
                 isHistoryPresented = true
             }
@@ -58,13 +64,6 @@ struct ContentView: View {
             .popover(isPresented: $isHistoryPresented, arrowEdge: .bottom) {
                 HistoryView(controller: controller, isPresented: $isHistoryPresented)
             }
-            ToolbarIconButton(systemName: "doc.on.doc", help: strings.copyAll) {
-                controller.copyTranscript()
-                showCopiedToast()
-            }
-            .disabled(controller.lines.isEmpty)
-            ToolbarIconButton(systemName: "trash", help: strings.clear, action: controller.clear)
-                .disabled(isTranscriptEmpty)
             ToolbarIconButton(systemName: "gearshape", help: strings.settings) {
                 isSettingsPresented = true
             }

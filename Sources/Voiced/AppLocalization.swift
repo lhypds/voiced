@@ -72,7 +72,7 @@ struct AppStrings: Sendable {
     var results: String { "Voiced" }
     var copyAll: String { value("复制全部", "すべてコピー", "Copy all", "Tout copier", "Copiar todo", "Alles kopieren") }
     var copied: String { value("已复制", "コピーしました", "Copied", "Copié", "Copiado", "Kopiert") }
-    var clear: String { value("清空", "消去", "Clear", "Effacer", "Borrar", "Leeren") }
+    var newRecord: String { value("新建", "新規", "New", "Nouveau", "Nuevo", "Neu") }
     var history: String { value("历史记录", "履歴", "History", "Historique", "Historial", "Verlauf") }
     var historyHint: String { value("选择一条记录后继续识别", "履歴を選ぶと続きから認識します", "Pick a transcript to keep recognizing into it", "Choisissez une transcription pour continuer à y reconnaître", "Elige una transcripción para seguir reconociendo en ella", "Transkript wählen, um darin weiter zu erkennen") }
     var historyEmpty: String { value("暂无历史记录", "履歴はまだありません", "No history yet", "Aucun historique", "Sin historial", "Noch kein Verlauf") }

@@ -70,7 +70,7 @@ Settings and history written by earlier versions (in `UserDefaults` and `~/Libra
 
 ## History
 
-Every time a sentence is committed, the current transcript is saved automatically to `~/.voiced/history/`. The history button in the top right lists past records; selecting one puts it back on screen, and starting recognition again appends new sentences after it. Clear only empties the screen and keeps the saved records. To delete a record, click the trash icon in the list.
+Every time a sentence is committed, the current transcript is saved automatically to `~/.voiced/history/`. The history button in the top right lists past records; selecting one puts it back on screen, and starting recognition again appends new sentences after it. The new button (plus icon) empties the screen and starts a new record; the saved records are kept. To delete a record, click the trash icon in the list.
 
 ## Development
 

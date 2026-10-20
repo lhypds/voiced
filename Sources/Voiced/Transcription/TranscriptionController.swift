@@ -77,6 +77,8 @@ final class TranscriptionController: ObservableObject {
     private struct ActiveRecording {
         /// The record directory the audio is written to.
         let recordID: String
+        /// Start time of the record, used when the session has to create it.
+        let recordCreatedAt: Date
         let recorder: SessionRecorder?
         var info: TranscriptRecord.Session
     }
@@ -91,9 +93,9 @@ final class TranscriptionController: ObservableObject {
     private var session: RecordingSession?
     /// Present only while recording.
     private var activeRecording: ActiveRecording?
-    /// Identity and start time reserved for the record the next committed line creates, when the
-    /// session started without a current record. Cleared by `clear()`, after which the next line
-    /// starts a record of its own.
+    /// Identity and start time reserved for the record the next committed line creates, when there is
+    /// no current record. Set by `startNewRecord()` to the moment the button was pressed, or by
+    /// `startRecording()` to the recording's start when nothing was reserved.
     private var pendingRecord: (id: String, createdAt: Date)?
     /// Progress updates from decodes up to this one are stale and ignored.
     private var lastFinishedDecode = 0
@@ -216,17 +218,21 @@ final class TranscriptionController: ObservableObject {
         session = RecordingSession(startedAt: startedAt, baseLines: lines)
         lastFinishedDecode = 0
 
-        // The audio goes into the current record's directory, or into a new one reserved for this session.
+        // The audio goes into the current record's directory, or into the one reserved by the new
+        // button, or into a new one reserved for this session.
         let recordID: String
+        let recordCreatedAt: Date
         if let currentRecordID {
             recordID = currentRecordID
+            recordCreatedAt = history.first(where: { $0.id == currentRecordID })?.createdAt ?? startedAt
         } else {
-            recordID = historyStore.unusedID(startedAt: startedAt)
-            pendingRecord = (recordID, startedAt)
+            (recordID, recordCreatedAt) = pendingRecord ?? (historyStore.unusedID(startedAt: startedAt), startedAt)
+            pendingRecord = (recordID, recordCreatedAt)
         }
         let recorder = makeRecorder(recordID: recordID, startedAt: startedAt)
         activeRecording = ActiveRecording(
             recordID: recordID,
+            recordCreatedAt: recordCreatedAt,
             recorder: recorder,
             info: TranscriptRecord.Session(
                 startedAt: startedAt,
@@ -246,7 +252,7 @@ final class TranscriptionController: ObservableObject {
             speechEnergyFloor: speechEnergyFloor,
             delegate: self,
             audioProcessor: makeAudioSource(),
-            audioSink: recorder.map { recorder in { samples in recorder.append(samples) } }
+            audioSink: recorder.map { recorder in { @Sendable samples in recorder.append(samples) } }
         )
         self.transcriber = transcriber
         phase = .recording
@@ -369,7 +375,7 @@ final class TranscriptionController: ObservableObject {
             if !hasAudio {
                 active.info.audioFile = nil
             }
-            attach(active.info, to: active.recordID)
+            attach(active.info, to: active.recordID, createdAt: active.recordCreatedAt)
         }
     }
 
@@ -384,13 +390,15 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - Transcript
 
-    /// Empties the screen. The saved record stays in the history; the next committed line starts a new one.
-    func clear() {
+    /// Starts a new record: empties the screen and detaches from the current record, which stays in the
+    /// history. The new record is named by the time of the press; the next committed line is saved into it.
+    func startNewRecord() {
         session?.clearTranscript()
         lines = []
         liveText = ""
         currentRecordID = nil
-        pendingRecord = nil
+        let now = Date()
+        pendingRecord = (historyStore.unusedID(startedAt: now), now)
     }
 
     func copyTranscript() {
@@ -467,7 +475,7 @@ final class TranscriptionController: ObservableObject {
     /// Adds a finished session to its record. A record that does not exist yet is created when the
     /// session left audio behind, so the recording is kept even though nothing was recognized;
     /// otherwise the empty directory is removed.
-    private func attach(_ info: TranscriptRecord.Session, to recordID: String) {
+    private func attach(_ info: TranscriptRecord.Session, to recordID: String, createdAt: Date) {
         var info = info
         if let audioFile = info.audioFile,
            !FileManager.default.fileExists(atPath: historyStore.recordDirectory(id: recordID).appendingPathComponent(audioFile).path) {
@@ -477,7 +485,7 @@ final class TranscriptionController: ObservableObject {
         if let existing = history.first(where: { $0.id == recordID }) {
             record = existing
         } else if info.audioFile != nil {
-            record = TranscriptRecord(id: recordID, createdAt: info.startedAt, lines: [])
+            record = TranscriptRecord(id: recordID, createdAt: createdAt, lines: [])
         } else {
             historyStore.deleteIfEmpty(id: recordID)
             return
