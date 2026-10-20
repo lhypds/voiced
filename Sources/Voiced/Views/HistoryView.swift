@@ -69,36 +69,36 @@ private struct HistoryRow: View {
 
     var body: some View {
         Button(action: select) {
-            // Centre alignment keeps the action buttons vertically centred on the row.
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(Self.dateFormatter.string(from: record.updatedAt))
-                            .font(.system(.caption, design: .monospaced).weight(.medium))
-                            .foregroundStyle(Theme.accent)
-                        Text(strings.lineCount(record.lines.count))
-                            .font(.caption)
-                            .foregroundStyle(Theme.accent)
-                        if isCurrent {
-                            Text(strings.currentRecord)
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(Theme.accent.opacity(0.18), in: Capsule())
-                        }
-                        Spacer()
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(Self.dateFormatter.string(from: record.updatedAt))
+                        .font(.system(.caption, design: .monospaced).weight(.medium))
+                        .foregroundStyle(Theme.accent)
+                    Text(strings.lineCount(record.lines.count))
+                        .font(.caption)
+                        .foregroundStyle(Theme.accent)
+                    if isCurrent {
+                        Text(strings.currentRecord)
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Theme.accent.opacity(0.18), in: Capsule())
                     }
-                    Text(record.preview)
-                        .font(.system(size: 14))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer()
+                    // Small actions sit on the timestamp line, shown only while the pointer is
+                    // over the row, so the preview below keeps the full width.
+                    HStack(spacing: 6) {
+                        rowAction("folder", help: strings.openFolder, action: openFolder)
+                        rowAction("trash", help: strings.delete, action: delete)
+                    }
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
                 }
-                HStack(spacing: 4) {
-                    rowAction("folder", help: strings.openFolder, action: openFolder)
-                    rowAction("trash", help: strings.delete, action: delete)
-                }
-                .opacity(isHovered ? 1 : 0)
+                Text(record.preview)
+                    .font(.system(size: 14))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -116,9 +116,9 @@ private struct HistoryRow: View {
     private func rowAction(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .frame(width: 24, height: 24)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 16, height: 16)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
