@@ -66,7 +66,7 @@ Model variants are listed in `RecognitionEngine.swift`. Chinese and Japanese tra
 - Continuous speech without punctuation is force-split after 15 seconds, so steady sources such as radio still commit sentence by sentence.
 - A decode only runs when at least one frame of new audio reaches the energy threshold (default 0.02, WhisperKit's energy VAD default; adjustable in Settings between 0.002 and 0.05, effective immediately while recording). Audio sent to Whisper is trimmed 0.5 seconds after the last speech frame so the model does not see a tail of background noise.
 - A decoded segment is treated as a hallucination and discarded when the audio above the energy threshold lasts less than 0.2 seconds or less than 20% of the segment, when the average token log probability is below -1.5, or when the text matches a known hallucinated phrase (for example "ご視聴ありがとうございました" or "Thank you for watching"). WhisperKit does not implement `noSpeechProb`, so these heuristics are the only defence. The phrase list lives in `HallucinationFilter.swift`.
-- The LIVE line is updated once per finished decode, so each result appears all at once rather than token by token. Results emptied by the hallucination filter are not shown.
+- The LIVE line shows the text the current decode is producing, token by token, including the first decode of each utterance. Results emptied by the hallucination filter are not shown.
 - Before a pause commits a sentence, any speech samples not yet decoded get one final decode so short words at the end are not lost.
 
 ## Code layout

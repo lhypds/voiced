@@ -19,6 +19,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
     private var transcriber: LiveTranscriber?
     private var session: RecordingSession?
     private var assembler = SentenceAssembler(languageCode: nil)
+    private var lastFinishedDecode = 0
     private var startTask: Task<Void, Never>?
 
     nonisolated init() {}
@@ -39,6 +40,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         liveText = ""
         level = 0
         errorMessage = nil
+        lastFinishedDecode = 0
 
         let transcriber = LiveTranscriber(
             whisperKit: whisperKit,
@@ -97,7 +99,16 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
 
     // MARK: - LiveTranscriberDelegate
 
-    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment]) -> Float {
+    func transcriber(_ transcriber: LiveTranscriber, didUpdateLiveText text: String, decode: Int) {
+        guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil else { return }
+        let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            liveText = trimmed
+        }
+    }
+
+    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) -> Float {
+        lastFinishedDecode = max(lastFinishedDecode, decode)
         guard self.transcriber === transcriber, var session else { return 0 }
         let segmentLines = TranscriptionController.transcriptLines(from: segments, recordingStartedAt: session.startedAt)
         _ = session.update(

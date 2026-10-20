@@ -4,9 +4,11 @@ import Foundation
 /// Receives the results of a `LiveTranscriber`. All methods are awaited by the transcriber, so the
 /// decode loop does not continue until the delegate has handled each decode or pause.
 protocol LiveTranscriberDelegate: AnyObject, Sendable {
+    /// Partial text of the decode in flight. `decode` identifies the decode so stale updates can be ignored.
+    func transcriber(_ transcriber: LiveTranscriber, didUpdateLiveText text: String, decode: Int) async
     /// A finished decode of all audio still in the buffer, with times in seconds since `start()`.
     /// Returns the end time of the last committed sentence; audio before it is dropped.
-    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment]) async -> Float
+    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) async -> Float
     /// The speaker paused after the last decode. Returns the end time of the last committed sentence.
     func transcriberDidDetectPause(_ transcriber: LiveTranscriber) async -> Float
     func transcriber(_ transcriber: LiveTranscriber, didFailWith error: Error) async
@@ -79,6 +81,7 @@ actor LiveTranscriber {
     private var lastVoiceAt = Date()
     /// True after a decode, until the pause that follows has been reported.
     private var awaitingPause = false
+    private var decodeCount = 0
     private var lastCommittedEnd: Float = 0
 
     /// - Parameter audioProcessor: capture source; defaults to the model's own processor.
@@ -200,17 +203,23 @@ actor LiveTranscriber {
 
     private func decode(_ buffer: ContiguousArray<Float>) async throws {
         decodedSampleCount = buffer.count
+        decodeCount += 1
+        let decodeID = decodeCount
         let base = discardedSeconds
         let options = options
         let log = log
+        let delegate = delegate
+        let liveText = LiveTextAccumulator()
         let floor = speechEnergyFloor
         let samples = Self.droppingTrailingNoise(buffer, floor: floor)
         if samples.count < buffer.count {
             log?("decode input trimmed to \(Float(samples.count) / Self.sampleRate)s of \(Float(buffer.count) / Self.sampleRate)s")
         }
-        // Partial text is not forwarded while decoding; the LIVE row is updated once per finished
-        // decode so recognized text appears all at once instead of token by token.
-        let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: options) { progress in
+        let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: options) { [weak self] progress in
+            let text = liveText.text(adding: progress)
+            if let self, let delegate {
+                Task { await delegate.transcriber(self, didUpdateLiveText: text, decode: decodeID) }
+            }
             let stop = Self.shouldStopEarly(progress: progress, options: options)
             if stop == false {
                 log?("decode aborted early after \(progress.tokens.count) tokens, avgLogprob \(progress.avgLogprob ?? 0)")
@@ -242,7 +251,7 @@ actor LiveTranscriber {
         awaitingPause = true
         log?("decode end: \(segments.count) segments, buffer now \(bufferSpan(audioProcessor.audioSamples.count))")
         guard isRunning, let delegate else { return }
-        discardCommittedAudio(before: await delegate.transcriber(self, didDecode: segments))
+        discardCommittedAudio(before: await delegate.transcriber(self, didDecode: segments, decode: decodeID))
     }
 
     // MARK: - Buffer management
@@ -382,5 +391,33 @@ actor LiveTranscriber {
             return false
         }
         return nil
+    }
+}
+
+/// Rebuilds the full in-flight text of one decode from WhisperKit's progress callbacks.
+///
+/// `TranscriptionProgress.text` only covers the decoding window currently being worked on and
+/// restarts for each new 30 s window. Earlier windows are kept so the live row shows everything.
+/// A restart caused by a temperature fallback re-decodes the same window, so it replaces the
+/// current piece instead of adding one.
+private final class LiveTextAccumulator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finishedWindows: [String] = []
+    private var current = ""
+    private var fallbacks = 0
+
+    func text(adding progress: TranscriptionProgress) -> String {
+        lock.withLock {
+            let fallbacksNow = Int(progress.timings.totalDecodingFallbacks)
+            if progress.text.count < current.count, fallbacksNow == fallbacks {
+                finishedWindows.append(current)
+            }
+            fallbacks = fallbacksNow
+            current = progress.text
+            return (finishedWindows + [current])
+                .map { LiveTranscriber.droppingPartialCharacters($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+        }
     }
 }

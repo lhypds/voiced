@@ -122,6 +122,7 @@ var liveText = ""
 var transcriptHistory: [[String]] = []
 var silenceCommits = 0
 var failures: [String] = []
+var lastFinishedDecode = 0
 var replacementCharacterHits = 0
 
 func lines(from segments: [TranscriptionSegment]) -> [TranscriptLine] {
@@ -141,7 +142,17 @@ func lines(from segments: [TranscriptionSegment]) -> [TranscriptLine] {
 }
 
 @MainActor final class Driver: LiveTranscriberDelegate {
-    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment]) -> Float {
+    func transcriber(_ transcriber: LiveTranscriber, didUpdateLiveText text: String, decode: Int) {
+        guard decode > lastFinishedDecode, !session.pendingLines.isEmpty else { return }
+        if text.contains("\u{FFFD}") {
+            replacementCharacterHits += 1
+            if replacementCharacterHits <= 3 { print("\(stamp()) live text with U+FFFD: \"\(text.suffix(30))\"") }
+        }
+        let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { liveText = trimmed }
+    }
+    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) -> Float {
+        lastFinishedDecode = decode
         for segment in segments where segment.text.contains("\u{FFFD}") {
             replacementCharacterHits += 1
             print("\(stamp()) segment with U+FFFD: \"\(segment.text)\"")

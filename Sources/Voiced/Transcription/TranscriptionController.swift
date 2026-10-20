@@ -70,6 +70,8 @@ final class TranscriptionController: ObservableObject {
     private var startTask: Task<Void, Never>?
     /// Present only while recording.
     private var session: RecordingSession?
+    /// Progress updates from decodes up to this one are stale and ignored.
+    private var lastFinishedDecode = 0
 
     var isRecording: Bool { phase == .recording }
     var canRecord: Bool { phase == .ready || phase == .recording }
@@ -177,6 +179,7 @@ final class TranscriptionController: ObservableObject {
         preview.stop()
 
         session = RecordingSession(startedAt: Date(), baseLines: lines)
+        lastFinishedDecode = 0
         let transcriber = LiveTranscriber(
             whisperKit: whisperKit,
             options: Self.decodingOptions(for: selectedLanguage),
@@ -368,8 +371,19 @@ final class TranscriptionController: ObservableObject {
 // MARK: - LiveTranscriberDelegate
 
 extension TranscriptionController: LiveTranscriberDelegate {
-    /// Replaces the LIVE row with the finished decode's text in one step.
-    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment]) -> Float {
+    /// Shows the in-flight text of the current decode as WhisperKit produces it, so the LIVE row
+    /// tracks recognition token by token. Updates from a decode that already finished are ignored
+    /// because `didDecode` has replaced the preview with the real segments by then.
+    func transcriber(_ transcriber: LiveTranscriber, didUpdateLiveText text: String, decode: Int) {
+        guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil else { return }
+        let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            liveText = trimmed
+        }
+    }
+
+    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) -> Float {
+        lastFinishedDecode = max(lastFinishedDecode, decode)
         guard self.transcriber === transcriber, var session else { return 0 }
         let assembler = assembler
         let segmentLines = Self.transcriptLines(from: segments, recordingStartedAt: session.startedAt)
