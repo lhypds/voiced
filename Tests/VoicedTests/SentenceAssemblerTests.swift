@@ -70,7 +70,7 @@ final class SentenceAssemblerTests: XCTestCase {
         XCTAssertEqual(cjk.joiningSeparator(after: "word"), " ")
         XCTAssertEqual(cjk.joiningSeparator(after: "中文"), "，")
         XCTAssertEqual(japanese.joiningSeparator(after: "日本語"), "、")
-        XCTAssertEqual(latin.joiningSeparator(after: "中文"), " ")
+        XCTAssertEqual(latin.joiningSeparator(after: "中文"), "，")
         XCTAssertEqual(latin.joiningSeparator(after: ""), "")
     }
 

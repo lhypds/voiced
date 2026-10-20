@@ -199,36 +199,34 @@ private struct RecognitionPreviewSection: View {
         .padding(.bottom, preview.isActive || preview.errorMessage != nil ? 14 : 0)
     }
 
-    /// Height of the text box: room for five lines of callout text plus the padding.
-    /// The box never changes size while the preview runs. A sheet only grows reliably when its
-    /// content changes in one step, not on the stream of live updates, so a box that grew with
-    /// its text got squeezed and SwiftUI truncated the older lines with an ellipsis.
+    /// Height of the text box: room for one sentence wrapped onto three lines of callout text plus
+    /// the padding. The box never changes size while the preview runs. A sheet only grows reliably
+    /// when its content changes in one step, not on the stream of live updates, so a box that grew
+    /// with its text got squeezed and SwiftUI truncated it with an ellipsis.
     private static let textBoxHeight: CGFloat = {
         let font = NSFont.preferredFont(forTextStyle: .callout)
         let line = ceil(font.ascender - font.descender + font.leading)
-        return line * 5 + 4 * 4 + 20
+        return line * 3 + 20
     }()
 
+    /// One sentence only: the text being recognized, or the last finished sentence while nothing is in flight.
     private var previewText: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(preview.lines.enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.callout)
-                }
+            Group {
                 if !preview.liveText.isEmpty {
                     Text(preview.liveText)
-                        .font(.callout)
                         .foregroundStyle(.secondary)
-                } else if preview.lines.isEmpty {
+                } else if let last = preview.lines.last {
+                    Text(last)
+                } else {
                     Text(strings.previewListening)
-                        .font(.callout)
                         .foregroundStyle(.tertiary)
                 }
             }
+            .font(.callout)
             .padding(10)
             // Fills the box so short text sits at the top; the bottom anchor only matters once
-            // the text overflows, when it keeps the newest line in view like a chat log.
+            // the text overflows, when it keeps the newest words in view.
             .frame(maxWidth: .infinity, minHeight: Self.textBoxHeight, alignment: .topLeading)
         }
         .defaultScrollAnchor(.bottom)

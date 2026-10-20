@@ -378,7 +378,7 @@ extension TranscriptionController: LiveTranscriberDelegate {
         guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil else { return }
         let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            liveText = trimmed
+            liveText = assembler.normalized(trimmed)
         }
     }
 

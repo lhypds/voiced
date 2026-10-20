@@ -151,7 +151,7 @@ struct ContentView: View {
 
     // MARK: - Copied toast
 
-    /// A small pill that drops in just under the header after a copy and fades out on its own.
+    /// A small pill that fades in just under the header after a copy and fades out on its own.
     private var copiedToast: some View {
         Label(strings.copied, systemImage: "checkmark")
             .font(.callout.weight(.medium))
@@ -170,7 +170,7 @@ struct ContentView: View {
                     .shadow(color: Theme.accentDark.opacity(0.25), radius: 6, x: 0, y: 3)
             )
             .padding(.top, Self.toastTopInset)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .transition(.opacity)
             .allowsHitTesting(false)
     }
 
@@ -178,7 +178,7 @@ struct ContentView: View {
     private static let toastTopInset: CGFloat = headerTopInset + 36 + 12
 
     private func showCopiedToast() {
-        withAnimation(.spring(duration: 0.3)) { showsCopiedToast = true }
+        withAnimation(.easeOut(duration: 0.2)) { showsCopiedToast = true }
         copiedToastResetTask?.cancel()
         copiedToastResetTask = Task {
             try? await Task.sleep(for: .seconds(1.2))

@@ -6,8 +6,9 @@ import WhisperKit
 /// Nothing it recognizes reaches the transcript or the history.
 @MainActor
 final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
-    /// Committed sentences kept on screen.
-    private static let visibleLines = 3
+    /// Committed sentences kept on screen: only the latest one, since the preview exists to check
+    /// that speech is picked up, not to read a transcript.
+    private static let visibleLines = 1
 
     @Published private(set) var isActive = false
     /// RMS of the newest 100 ms of input.
@@ -103,7 +104,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil else { return }
         let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
-            liveText = trimmed
+            liveText = assembler.normalized(trimmed)
         }
     }
 

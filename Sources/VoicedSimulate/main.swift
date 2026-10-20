@@ -149,7 +149,7 @@ func lines(from segments: [TranscriptionSegment]) -> [TranscriptLine] {
             if replacementCharacterHits <= 3 { print("\(stamp()) live text with U+FFFD: \"\(text.suffix(30))\"") }
         }
         let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { liveText = trimmed }
+        if !trimmed.isEmpty { liveText = assembler.normalized(trimmed) }
     }
     func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) -> Float {
         lastFinishedDecode = decode

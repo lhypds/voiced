@@ -21,9 +21,16 @@ struct SentenceAssembler: Sendable {
         self.languageCode = languageCode
     }
 
-    /// Whether to join and terminate with full-width (Chinese/Japanese) punctuation.
-    var usesCJKPunctuation: Bool {
-        languageCode == "zh" || languageCode == "ja"
+    /// Script the punctuation of `text` should follow. Decided from the text itself so English in a
+    /// Chinese session still gets ASCII marks; the language code only settles kanji-only text.
+    func script(of text: String) -> PunctuationNormalizer.Script {
+        PunctuationNormalizer.script(of: text, languageCode: languageCode)
+    }
+
+    /// Rewrites the punctuation of `text` to match its script: full width for Chinese (，。) and
+    /// Japanese (、。), half width for everything else.
+    func normalized(_ text: String) -> String {
+        PunctuationNormalizer.normalize(text, languageCode: languageCode)
     }
 
     /// Merges consecutive segments until one ends with terminal punctuation or a long pause follows.
@@ -35,7 +42,8 @@ struct SentenceAssembler: Sendable {
         var sentences: [TranscriptLine] = []
         var pending: TranscriptLine?
 
-        for segment in segments {
+        for raw in segments {
+            let segment = raw.replacingText(normalized(raw.text))
             if let current = pending {
                 let pauseBefore = segment.start - current.end >= Self.sentenceGap
                 let tooLong = segment.end - current.start > Self.maxSentenceSeconds
@@ -69,14 +77,14 @@ struct SentenceAssembler: Sendable {
     /// Builds the live preview text from the recognizer's not-yet-confirmed fragments.
     func draft(from parts: [String]) -> String {
         let cleaned = parts
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map { normalized($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
             .filter { !$0.isEmpty }
         return cleaned.joined(separator: joiningSeparator(after: cleaned.first ?? ""))
     }
 
     /// Appends a sentence terminator unless the line already ends with one.
     func terminated(_ line: TranscriptLine) -> TranscriptLine {
-        endsSentence(line.text) ? line : line.replacingText(line.text + terminator)
+        endsSentence(line.text) ? line : line.replacingText(line.text + terminator(for: line.text))
     }
 
     func endsSentence(_ text: String) -> Bool {
@@ -94,14 +102,14 @@ struct SentenceAssembler: Sendable {
         if Self.asciiClausePunctuation.contains(last) || (last.isASCII && (last.isLetter || last.isNumber)) {
             return " "
         }
-        return usesCJKPunctuation ? clauseComma : " "
+        switch script(of: text) {
+        case .chinese: return "，"
+        case .japanese: return "、"
+        case .latin: return " "
+        }
     }
 
-    private var terminator: String {
-        usesCJKPunctuation ? "。" : "."
-    }
-
-    private var clauseComma: String {
-        languageCode == "ja" ? "、" : "，"
+    private func terminator(for text: String) -> String {
+        script(of: text) == .latin ? "." : "。"
     }
 }
