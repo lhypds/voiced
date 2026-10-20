@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreAudio
 import Foundation
 @preconcurrency import WhisperKit
 
@@ -198,11 +199,28 @@ final class TranscriptionController: ObservableObject {
         Task { await prepare() }
     }
 
+    /// Keeps the user's choice while it is still attached; otherwise falls back to the system's
+    /// default input, and to the first listed device when there is no default.
     private func refreshAudioDevices() {
         audioDevices = AudioProcessor.getAudioDevices()
         if !audioDevices.contains(where: { $0.id == selectedDeviceID }) {
-            selectedDeviceID = audioDevices.first?.id
+            let systemDefault = Self.systemDefaultInputDeviceID()
+            selectedDeviceID = audioDevices.first(where: { $0.id == systemDefault })?.id ?? audioDevices.first?.id
         }
+    }
+
+    /// The input device selected in System Settings > Sound, or nil when there is none.
+    private static func systemDefaultInputDeviceID() -> DeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID)
+        guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
+        return deviceID
     }
 
     // MARK: - Recording

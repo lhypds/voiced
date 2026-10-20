@@ -11,6 +11,35 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    /// ISO 639-1 code of the language, used to match the system's preferred languages.
+    var code: String {
+        switch self {
+        case .english: "en"
+        case .chinese: "zh"
+        case .japanese: "ja"
+        case .french: "fr"
+        case .spanish: "es"
+        case .german: "de"
+        }
+    }
+
+    /// The interface language used until the user picks one: the first of the system's preferred
+    /// languages the app is translated into, or English when none of them is.
+    static var systemDefault: AppLanguage {
+        matching(preferredLanguages: Locale.preferredLanguages)
+    }
+
+    /// `preferredLanguages` holds BCP 47 tags in the user's order of preference, such as `zh-Hans-CN`.
+    static func matching(preferredLanguages: [String]) -> AppLanguage {
+        for tag in preferredLanguages {
+            let code = tag.split(separator: "-").first.map { $0.lowercased() }
+            if let language = allCases.first(where: { $0.code == code }) {
+                return language
+            }
+        }
+        return .english
+    }
+
     var nativeName: String {
         switch self {
         case .english: "English"

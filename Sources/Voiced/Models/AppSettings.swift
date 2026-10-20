@@ -25,7 +25,7 @@ struct AppSettings {
     var fileURL: URL { file.url }
 
     var appLanguage: AppLanguage {
-        get { rawValue(.appLanguage) ?? .chinese }
+        get { rawValue(.appLanguage) ?? AppLanguage.systemDefault }
         nonmutating set { set(newValue.rawValue, for: .appLanguage) }
     }
 
@@ -45,7 +45,7 @@ struct AppSettings {
     }
 
     var showTimestampDate: Bool {
-        get { file[Key.showTimestampDate.rawValue] as? Bool ?? false }
+        get { file[Key.showTimestampDate.rawValue] as? Bool ?? true }
         nonmutating set { set(newValue, for: .showTimestampDate) }
     }
 
@@ -57,7 +57,7 @@ struct AppSettings {
 
     /// Whether the main window floats above other apps' windows.
     var keepWindowOnTop: Bool {
-        get { file[Key.keepWindowOnTop.rawValue] as? Bool ?? false }
+        get { file[Key.keepWindowOnTop.rawValue] as? Bool ?? true }
         nonmutating set { set(newValue, for: .keepWindowOnTop) }
     }
 

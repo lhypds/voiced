@@ -20,13 +20,13 @@ final class AppSettingsTests: XCTestCase {
     func testDefaultsWhenNothingIsStored() {
         let settings = AppSettings(fileURL: fileURL)
 
-        XCTAssertEqual(settings.appLanguage, .chinese)
+        XCTAssertEqual(settings.appLanguage, AppLanguage.systemDefault)
         XCTAssertEqual(settings.recognitionLanguage, .automatic)
         XCTAssertEqual(settings.recognitionEngine, .turbo)
         XCTAssertEqual(settings.timestampMode, .current)
-        XCTAssertFalse(settings.showTimestampDate)
+        XCTAssertTrue(settings.showTimestampDate)
         XCTAssertTrue(settings.noiseReduction)
-        XCTAssertFalse(settings.keepWindowOnTop)
+        XCTAssertTrue(settings.keepWindowOnTop)
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
@@ -49,16 +49,16 @@ final class AppSettingsTests: XCTestCase {
         settings.recognitionLanguage = RecognitionLanguage.choice(id: "ja")
         settings.recognitionEngine = .accurate
         settings.timestampMode = .relative
-        settings.showTimestampDate = true
-        settings.keepWindowOnTop = true
+        settings.showTimestampDate = false
+        settings.keepWindowOnTop = false
 
         let reloaded = AppSettings(fileURL: fileURL)
         XCTAssertEqual(reloaded.appLanguage, .japanese)
         XCTAssertEqual(reloaded.recognitionLanguage.code, "ja")
         XCTAssertEqual(reloaded.recognitionEngine, .accurate)
         XCTAssertEqual(reloaded.timestampMode, .relative)
-        XCTAssertTrue(reloaded.showTimestampDate)
-        XCTAssertTrue(reloaded.keepWindowOnTop)
+        XCTAssertFalse(reloaded.showTimestampDate)
+        XCTAssertFalse(reloaded.keepWindowOnTop)
     }
 
     func testStorageKeysAreStable() throws {
@@ -85,7 +85,7 @@ final class AppSettingsTests: XCTestCase {
         try Data(#"{"appLanguage": "klingon", "recognitionLanguage": "xx"}"#.utf8).write(to: fileURL)
 
         let settings = AppSettings(fileURL: fileURL)
-        XCTAssertEqual(settings.appLanguage, .chinese)
+        XCTAssertEqual(settings.appLanguage, AppLanguage.systemDefault)
         XCTAssertEqual(settings.recognitionLanguage, .automatic)
     }
 

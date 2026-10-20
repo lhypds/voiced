@@ -17,7 +17,7 @@ Each model is downloaded from Hugging Face the first time it is selected and cac
 
 Recognition languages: auto detect, Chinese, English, Japanese, Korean, Spanish, French, German, Portuguese, Russian.
 
-Interface languages: English, Chinese, Japanese, French, Spanish, German.
+Interface languages: English, Chinese, Japanese, French, Spanish, German. The system language is used by default, or English when it is not one of these.
 
 ## Build and run
 
