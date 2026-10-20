@@ -57,6 +57,8 @@ struct AppStrings: Sendable {
 
     var subtitle: String { value("本地实时转写", "ローカルリアルタイム文字起こし", "Local live transcription", "Transcription locale en direct", "Transcripción local en directo", "Lokale Live-Transkription") }
     var input: String { value("输入", "入力", "Input", "Entrée", "Entrada", "Eingang") }
+    var inputLevel: String { value("当前输入的音量", "現在の入力の音量", "Current input level", "Niveau d'entrée actuel", "Nivel de entrada actual", "Aktueller Eingangspegel") }
+    var denoisedLevel: String { value("降噪后的音量", "ノイズ除去後の音量", "Level after noise reduction", "Niveau après réduction du bruit", "Nivel tras la reducción de ruido", "Pegel nach Rauschunterdrückung") }
     var inputHint: String { value("可选择 Loopback、BlackHole 或麦克风", "Loopback、BlackHole、マイクに対応", "Use Loopback, BlackHole, or a microphone", "Loopback, BlackHole ou micro", "Loopback, BlackHole o micrófono", "Loopback, BlackHole oder Mikrofon") }
     var recognitionLanguage: String { value("识别语言", "認識言語", "Recognition language", "Langue de reconnaissance", "Idioma de reconocimiento", "Erkennungssprache") }
     var recognitionLanguageHint: String { value("选定语言可提高识别精度", "言語を指定すると認識精度が上がります", "Picking a language improves accuracy", "Choisir une langue améliore la précision", "Elegir un idioma mejora la precisión", "Eine feste Sprache verbessert die Genauigkeit") }

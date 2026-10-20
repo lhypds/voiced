@@ -1,14 +1,12 @@
 import Foundation
 import WhisperKit
 
-/// A throwaway recognition run for the settings sheet: shows the input level against the energy
-/// floor and what the recognizer makes of it, so the threshold can be tuned by ear and eye.
-/// Nothing it recognizes reaches the transcript or the history.
+/// A throwaway recognition run for the settings sheet: shows what the recognizer makes of the
+/// input with the current settings, so the threshold can be tuned by ear and eye. Nothing it
+/// recognizes reaches the transcript or the history.
 @MainActor
 final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
     @Published private(set) var isActive = false
-    /// RMS of the newest 100 ms of input.
-    @Published private(set) var level: Float = 0
     /// The one sentence on screen: the text being recognized, or the last finished sentence while
     /// nothing is in flight. The preview exists to check that speech is picked up, not to read a
     /// transcript, so finished sentences are shown the same way as in-flight text.
@@ -37,7 +35,6 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         self.assembler = assembler
         session = RecordingSession(startedAt: Date(), baseLines: [])
         liveText = ""
-        level = 0
         errorMessage = nil
         lastFinishedDecode = 0
 
@@ -49,10 +46,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
             silenceDelay: silenceDelay,
             speechEnergyFloor: speechEnergyFloor,
             delegate: self,
-            audioProcessor: audioProcessor,
-            levelHandler: { [weak self] level in
-                Task { @MainActor in self?.level = level }
-            }
+            audioProcessor: audioProcessor
         )
         self.transcriber = transcriber
         isActive = true
@@ -79,7 +73,6 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         transcriber = nil
         session = nil
         isActive = false
-        level = 0
         liveText = ""
     }
 

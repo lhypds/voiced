@@ -3,6 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject var controller: TranscriptionController
     @State private var isSettingsPresented = false
+    /// Counts clicks on the settings button, so a click while settings are already open still
+    /// brings their window to the front.
+    @State private var settingsFocusRequest = 0
     @State private var isHistoryPresented = false
     /// How far the transcript list has been scrolled down from its top.
     @State private var transcriptScrollOffset: CGFloat = 0
@@ -36,9 +39,14 @@ struct ContentView: View {
         .background(Theme.background)
         .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
         .preferredColorScheme(.light)
-        // Not a sheet: a sheet hangs from the title bar, this panel is centered on the window.
+        // Not a sheet: a sheet hangs from the title bar and blocks the window. This is a separate
+        // window centered on this one; both stay focusable.
         .background(
-            SettingsWindowPresenter(isPresented: isSettingsPresented) {
+            SettingsWindowPresenter(
+                isPresented: isSettingsPresented,
+                focusRequest: settingsFocusRequest,
+                isFloating: controller.keepWindowOnTop
+            ) {
                 SettingsView(controller: controller, isPresented: $isSettingsPresented)
             }
         )
@@ -72,6 +80,7 @@ struct ContentView: View {
             }
             ToolbarIconButton(systemName: "gearshape", help: strings.settings) {
                 isSettingsPresented = true
+                settingsFocusRequest += 1
             }
         }
         .padding(.horizontal, Theme.contentPadding)

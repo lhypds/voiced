@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WhisperKit
 
 /// The settings sheet: input device, recognition engine and language, timestamps, UI language.
 struct SettingsView: View {
@@ -34,15 +35,95 @@ struct SettingsView: View {
 
                 Divider()
 
-                SettingsRow(title: strings.input, hint: strings.inputHint) {
-                    Picker(strings.input, selection: $controller.selectedDeviceID) {
-                        ForEach(controller.audioDevices) { device in
-                            Text(device.name).tag(Optional(device.id))
+                SettingsRow(title: strings.timestamp) {
+                    HStack(spacing: 12) {
+                        RadioChoice(strings.relativeTime, selected: controller.timestampMode == .relative) {
+                            controller.timestampMode = .relative
+                        }
+                        RadioChoice(strings.currentTime, selected: controller.timestampMode == .current) {
+                            controller.timestampMode = .current
                         }
                     }
-                    .labelsHidden()
+                }
+
+                Divider()
+
+                SettingsRow(title: strings.showDate) {
+                    Toggle(strings.showDate, isOn: $controller.showTimestampDate)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(controller.timestampMode == .relative)
+                }
+
+                Divider()
+
+                SettingsRow(title: strings.input, hint: strings.inputHint) {
+                    InputDevicePopUp(
+                        devices: controller.audioDevices,
+                        selection: $controller.selectedDeviceID,
+                        refresh: {
+                            // A device plugged in after the sheet opened is listed without reopening it.
+                            controller.refreshAudioDevices()
+                            return controller.audioDevices
+                        }
+                    )
                     .frame(maxWidth: 150, alignment: .trailing)
                     .disabled(controller.isRecording || controller.preview.isActive)
+                }
+                InputLevelBar(
+                    monitor: controller.inputLevelMonitor,
+                    source: .input,
+                    threshold: controller.speechEnergyFloor,
+                    help: strings.inputLevel
+                )
+                .padding(.bottom, 14)
+
+                Divider()
+
+                SettingsRow(title: strings.energyThreshold, hint: strings.energyThresholdHint, accessory: resetThresholdButton) {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: $controller.speechEnergyFloor,
+                                in: LiveTranscriber.speechEnergyFloorRange
+                            )
+                            .frame(width: 110)
+                            Text(String(format: "%.3f", controller.speechEnergyFloor))
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 38, alignment: .trailing)
+                        }
+                        calibrateNoiseButton
+                    }
+                }
+                if let error = controller.noiseCalibrationError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.bottom, 10)
+                }
+
+                Divider()
+
+                SettingsRow(
+                    title: strings.noiseReduction,
+                    hint: controller.noiseProfile == nil ? strings.noiseReductionNeedsProfile : strings.noiseReductionHint
+                ) {
+                    Toggle(strings.noiseReduction, isOn: $controller.noiseReductionEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(controller.noiseProfile == nil || controller.isRecording || controller.preview.isActive)
+                }
+                // What the input looks like after subtracting the measured noise, whether or not
+                // noise reduction is on, so the user can see what turning it on would do.
+                if controller.noiseProfile != nil {
+                    InputLevelBar(
+                        monitor: controller.inputLevelMonitor,
+                        source: .denoised,
+                        threshold: controller.speechEnergyFloor,
+                        help: strings.denoisedLevel
+                    )
+                    .padding(.bottom, 14)
                 }
 
                 Divider()
@@ -95,65 +176,6 @@ struct SettingsView: View {
 
                 Divider()
 
-                SettingsRow(title: strings.timestamp) {
-                    HStack(spacing: 12) {
-                        RadioChoice(strings.relativeTime, selected: controller.timestampMode == .relative) {
-                            controller.timestampMode = .relative
-                        }
-                        RadioChoice(strings.currentTime, selected: controller.timestampMode == .current) {
-                            controller.timestampMode = .current
-                        }
-                    }
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.showDate) {
-                    Toggle(strings.showDate, isOn: $controller.showTimestampDate)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(controller.timestampMode == .relative)
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.energyThreshold, hint: strings.energyThresholdHint, accessory: resetThresholdButton) {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Slider(
-                                value: $controller.speechEnergyFloor,
-                                in: LiveTranscriber.speechEnergyFloorRange
-                            )
-                            .frame(width: 110)
-                            Text(String(format: "%.3f", controller.speechEnergyFloor))
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 38, alignment: .trailing)
-                        }
-                        calibrateNoiseButton
-                    }
-                }
-                if let error = controller.noiseCalibrationError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.bottom, 10)
-                }
-
-                Divider()
-
-                SettingsRow(
-                    title: strings.noiseReduction,
-                    hint: controller.noiseProfile == nil ? strings.noiseReductionNeedsProfile : strings.noiseReductionHint
-                ) {
-                    Toggle(strings.noiseReduction, isOn: $controller.noiseReductionEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(controller.noiseProfile == nil || controller.isRecording || controller.preview.isActive)
-                }
-
-                Divider()
-
                 SettingsRow(title: strings.recognitionPrompt, hint: strings.recognitionPromptHint) {
                     Button {
                         controller.openPromptFile()
@@ -177,7 +199,21 @@ struct SettingsView: View {
         .background(Theme.background)
         // Toggles, sliders, pickers and radio choices pick up the app's orange.
         .tint(Theme.accent)
-        .onDisappear { controller.stopPreview() }
+        // The level bars listen to the selected device for as long as the sheet is open.
+        .onAppear {
+            controller.inputLevelMonitor.setNoiseProfile(controller.noiseProfile)
+            controller.inputLevelMonitor.listen(to: controller.selectedDeviceID)
+        }
+        .onChange(of: controller.selectedDeviceID) { _, deviceID in
+            controller.inputLevelMonitor.listen(to: deviceID)
+        }
+        .onChange(of: controller.noiseProfile) { _, profile in
+            controller.inputLevelMonitor.setNoiseProfile(profile)
+        }
+        .onDisappear {
+            controller.stopPreview()
+            controller.inputLevelMonitor.stop()
+        }
     }
 
     private var titleBar: some View {
@@ -271,8 +307,8 @@ struct SettingsView: View {
 
 // MARK: - Recognition preview
 
-/// Start/stop control plus, while running, an input level meter against the energy floor and
-/// the text the recognizer produces with the current settings.
+/// Start/stop control plus, while running, the text the recognizer produces with the current
+/// settings. The input level is on the meter under the input picker above.
 private struct RecognitionPreviewSection: View {
     @ObservedObject var controller: TranscriptionController
     @ObservedObject var preview: RecognitionPreview
@@ -280,24 +316,25 @@ private struct RecognitionPreviewSection: View {
     private var strings: AppStrings { controller.strings }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             SettingsRow(title: strings.recognitionPreview, hint: strings.recognitionPreviewHint) {
                 Button(preview.isActive ? strings.stopPreview : strings.startPreview) {
                     preview.isActive ? controller.stopPreview() : controller.startPreview()
                 }
                 .disabled(!preview.isActive && !controller.canPreview)
             }
-            if preview.isActive {
-                LevelMeter(level: preview.level, threshold: controller.speechEnergyFloor)
-                    .frame(height: 8)
-                    // The threshold marker pokes below the bar, so leave extra room above the text.
-                    .padding(.bottom, 10)
-                previewText
-            } else if let error = preview.errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+            // The row ends with 14 points of padding; the box reaches up into it so only a
+            // small gap separates it from the label.
+            Group {
+                if preview.isActive {
+                    previewText
+                } else if let error = preview.errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
+            .padding(.top, -4)
         }
         .padding(.bottom, preview.isActive || preview.errorMessage != nil ? 14 : 0)
     }
@@ -341,11 +378,150 @@ private struct RecognitionPreviewSection: View {
     }
 }
 
-/// Input RMS on a log scale with a marker at the energy floor. Fills in the accent colour once
-/// the level clears the floor, so the user can see when audio would be decoded.
+// MARK: - Input level
+
+/// The selected device's level against the energy floor, so the user can see both that the
+/// device picks something up and whether it is loud enough to be decoded: the raw input under the
+/// input picker, and the input after noise reduction under the noise reduction toggle.
+private struct InputLevelBar: View {
+    enum Source {
+        case input
+        case denoised
+    }
+
+    @ObservedObject var monitor: InputLevelMonitor
+    let source: Source
+    let threshold: Float
+    let help: String
+
+    private var level: Float {
+        switch source {
+        case .input: monitor.level
+        case .denoised: monitor.denoisedLevel
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Sized by the glyph's own bounds rather than a text line, which has room under the
+            // baseline and would leave the symbol sitting above the bar's centre line.
+            Image(systemName: "mic.fill")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(height: Self.symbolHeight)
+                .foregroundStyle(.secondary)
+                // Nudged to where the symbol looks centred on the bar, which its bounds do not give.
+                .alignmentGuide(VerticalAlignment.center) { $0[VerticalAlignment.center] - Self.symbolShift }
+            LevelMeter(level: level, threshold: threshold)
+                .frame(height: Self.barHeight)
+        }
+        // The row's height is pinned. Left to the symbol next to a flexible meter, it changes
+        // between layout passes while the settings window is sized to its content, and AppKit
+        // aborts the app once the window has asked for too many layout passes in a row.
+        .frame(height: Self.height)
+        .help(help)
+    }
+
+    /// Room for the symbol; the bar and its marker are far shorter.
+    private static let height: CGFloat = 14
+    /// About the size of a caption-font symbol.
+    private static let symbolHeight: CGFloat = 11
+    private static let barHeight: CGFloat = 6
+    /// Vertical nudge of the symbol from bounds-centred; positive moves it down.
+    private static let symbolShift: CGFloat = 0
+}
+
+/// The input picker as an `NSPopUpButton`, which SwiftUI's picker wraps anyway, so the device
+/// list can be refreshed the moment the menu is about to open.
+private struct InputDevicePopUp: NSViewRepresentable {
+    let devices: [AudioDevice]
+    @Binding var selection: DeviceID?
+    /// Called as the menu is about to open; returns the devices to list.
+    let refresh: () -> [AudioDevice]
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.didSelect(_:))
+        // Long device names are cut rather than widening the row past its 150 pt limit.
+        button.lineBreakMode = .byTruncatingTail
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        context.coordinator.observeMenuOpening(of: button)
+        Coordinator.populate(button, devices: devices, selection: selection)
+        return button
+    }
+
+    /// Touches the button only where something changed. Every change to its items, title or
+    /// state invalidates its intrinsic size, which asks the window for another constraints pass;
+    /// the pass resizes the hosting view, SwiftUI updates this view again, and an unconditional
+    /// update here would keep the window in that loop until AppKit aborts it.
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.parent = self
+        Coordinator.populate(button, devices: devices, selection: selection)
+        if button.isEnabled != context.environment.isEnabled {
+            button.isEnabled = context.environment.isEnabled
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject {
+        var parent: InputDevicePopUp
+        private var observation: (any NSObjectProtocol)?
+
+        init(parent: InputDevicePopUp) {
+            self.parent = parent
+        }
+
+        deinit {
+            if let observation {
+                NotificationCenter.default.removeObserver(observation)
+            }
+        }
+
+        func observeMenuOpening(of button: NSPopUpButton) {
+            observation = NotificationCenter.default.addObserver(
+                forName: NSPopUpButton.willPopUpNotification, object: button, queue: .main
+            ) { [weak self, weak button] _ in
+                guard let self, let button else { return }
+                // The binding reads the live selection, which the refresh may have moved.
+                let devices = parent.refresh()
+                Self.populate(button, devices: devices, selection: parent.selection)
+            }
+        }
+
+        /// Brings the items and the selection in line with `devices` and `selection`, changing
+        /// nothing that already matches: see `updateNSView`, and the menu may be open.
+        static func populate(_ button: NSPopUpButton, devices: [AudioDevice], selection: DeviceID?) {
+            let listed = button.itemArray.map { AudioDevice(id: $0.representedObject as? DeviceID ?? 0, name: $0.title) }
+            if listed != devices {
+                button.removeAllItems()
+                for device in devices {
+                    button.addItem(withTitle: device.name)
+                    button.lastItem?.representedObject = device.id
+                }
+            }
+            let index = devices.firstIndex(where: { $0.id == selection }) ?? -1
+            if button.indexOfSelectedItem != index {
+                button.selectItem(at: index)
+            }
+        }
+
+        @objc func didSelect(_ button: NSPopUpButton) {
+            guard let id = button.selectedItem?.representedObject as? DeviceID else { return }
+            parent.selection = id
+        }
+    }
+}
+
+/// Input RMS on a log scale. With a threshold, a marker sits at the energy floor and the bar fills
+/// in the accent colour only once the level clears it, so the user can see when audio would be
+/// decoded; without one, the bar is always in the accent colour.
 private struct LevelMeter: View {
     let level: Float
-    let threshold: Float
+    var threshold: Float?
 
     private static let floor: Float = 0.001
     private static let ceiling: Float = 0.5
@@ -354,18 +530,25 @@ private struct LevelMeter: View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let levelX = width * CGFloat(Self.position(of: level))
-            let thresholdX = width * CGFloat(Self.position(of: threshold))
+            let clearsThreshold = threshold.map { level >= $0 } ?? true
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Theme.accent.opacity(Theme.rowFillOpacity))
                 Capsule()
-                    .fill(level >= threshold ? Theme.accent : Color.secondary.opacity(0.5))
+                    .fill(clearsThreshold ? Theme.accent : Color.secondary.opacity(0.5))
                     .frame(width: max(0, levelX))
                     .animation(.linear(duration: 0.1), value: level)
-                Rectangle()
-                    .fill(Theme.accentDark)
-                    .frame(width: 2, height: geometry.size.height + 6)
-                    .offset(x: thresholdX - 1)
+            }
+            // The marker pokes past the bar on each side so it reads as a line across it rather
+            // than a notch in it. As an overlay it leaves the bar's layout size alone; as a stack
+            // child it would stretch the stack to its own height and push the bar off centre.
+            .overlay(alignment: .leading) {
+                if let threshold {
+                    Rectangle()
+                        .fill(Theme.accentDark)
+                        .frame(width: 2, height: geometry.size.height + 4)
+                        .offset(x: width * CGFloat(Self.position(of: threshold)) - 1)
+                }
             }
         }
     }

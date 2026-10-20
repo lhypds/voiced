@@ -71,6 +71,8 @@ final class TranscriptionController: ObservableObject {
     }
     /// Trial recognition shown in the settings sheet so the user can tune the threshold.
     let preview = RecognitionPreview()
+    /// Level of the selected input, shown under the input picker while the settings sheet is open.
+    let inputLevelMonitor = InputLevelMonitor()
     /// Whether captured audio is denoised; takes effect at the next recording or preview.
     @Published var noiseReductionEnabled: Bool {
         didSet { settings.noiseReduction = noiseReductionEnabled }
@@ -109,6 +111,9 @@ final class TranscriptionController: ObservableObject {
     private var pendingRecord: (id: String, createdAt: Date)?
     /// Progress updates from decodes up to this one are stale and ignored.
     private var lastFinishedDecode = 0
+    /// Forwards the preview's changes as this object's own: views read `preview.isActive` through
+    /// the controller to enable their controls, so they must redraw when the preview stops.
+    private var previewForwarding: AnyCancellable?
 
     var isRecording: Bool { phase == .recording }
     var canRecord: Bool { phase == .ready || phase == .recording }
@@ -163,6 +168,9 @@ final class TranscriptionController: ObservableObject {
         selectedEngine = settings.recognitionEngine
         speechEnergyFloor = settings.speechEnergyFloor
         pinLanguageToEngine()
+        previewForwarding = preview.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         Task { await prepare() }
     }
 
@@ -223,10 +231,15 @@ final class TranscriptionController: ObservableObject {
         selectedLanguage = RecognitionLanguage.defaultChoice(for: selectedEngine)
     }
 
-    /// Keeps the user's choice while it is still attached; otherwise falls back to the system's
-    /// default input, and to the first listed device when there is no default.
-    private func refreshAudioDevices() {
-        audioDevices = AudioProcessor.getAudioDevices()
+    /// Rescans the attached input devices. Keeps the user's choice while it is still attached;
+    /// otherwise falls back to the system's default input, and to the first listed device when
+    /// there is no default.
+    func refreshAudioDevices() {
+        let devices = AudioProcessor.getAudioDevices()
+        // Called whenever the input menu opens; an unchanged list must not redraw the open menu.
+        if devices != audioDevices {
+            audioDevices = devices
+        }
         if !audioDevices.contains(where: { $0.id == selectedDeviceID }) {
             let systemDefault = Self.systemDefaultInputDeviceID()
             selectedDeviceID = audioDevices.first(where: { $0.id == systemDefault })?.id ?? audioDevices.first?.id
