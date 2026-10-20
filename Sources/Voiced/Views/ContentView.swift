@@ -6,6 +6,8 @@ struct ContentView: View {
     @State private var isHistoryPresented = false
     /// How far the transcript list has been scrolled down from its top.
     @State private var transcriptScrollOffset: CGFloat = 0
+    @State private var showsCopiedToast = false
+    @State private var copiedToastResetTask: Task<Void, Never>?
 
     private var strings: AppStrings { controller.strings }
 
@@ -22,6 +24,11 @@ struct ContentView: View {
         .overlay {
             if isTranscriptEmpty {
                 emptyState
+            }
+        }
+        .overlay(alignment: .top) {
+            if showsCopiedToast {
+                copiedToast
             }
         }
         .background(Theme.background)
@@ -51,8 +58,11 @@ struct ContentView: View {
             .popover(isPresented: $isHistoryPresented, arrowEdge: .bottom) {
                 HistoryView(controller: controller, isPresented: $isHistoryPresented)
             }
-            ToolbarIconButton(systemName: "doc.on.doc", help: strings.copyAll, action: controller.copyTranscript)
-                .disabled(controller.lines.isEmpty)
+            ToolbarIconButton(systemName: "doc.on.doc", help: strings.copyAll) {
+                controller.copyTranscript()
+                showCopiedToast()
+            }
+            .disabled(controller.lines.isEmpty)
             ToolbarIconButton(systemName: "trash", help: strings.clear, action: controller.clear)
                 .disabled(isTranscriptEmpty)
             ToolbarIconButton(systemName: "gearshape", help: strings.settings) {
@@ -90,8 +100,10 @@ struct ContentView: View {
                                 timestamp: controller.timestamp(for: line),
                                 text: line.text,
                                 timestampWidth: timestampWidth,
-                                copiedLabel: strings.copied,
-                                onCopy: { controller.copy(line) }
+                                onCopy: {
+                                    controller.copy(line)
+                                    showCopiedToast()
+                                }
                             )
                         }
                     }
@@ -135,6 +147,44 @@ struct ContentView: View {
             .foregroundStyle(Theme.accent)
             .padding(Theme.contentPadding)
             .allowsHitTesting(false)
+    }
+
+    // MARK: - Copied toast
+
+    /// A small pill that drops in just under the header after a copy and fades out on its own.
+    private var copiedToast: some View {
+        Label(strings.copied, systemImage: "checkmark")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [Theme.accent, Theme.accentDark.opacity(0.9)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .shadow(color: Theme.accentDark.opacity(0.25), radius: 6, x: 0, y: 3)
+            )
+            .padding(.top, Self.toastTopInset)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .allowsHitTesting(false)
+    }
+
+    /// Distance from the window's top edge to the toast: just below the header row.
+    private static let toastTopInset: CGFloat = headerTopInset + 36 + 12
+
+    private func showCopiedToast() {
+        withAnimation(.spring(duration: 0.3)) { showsCopiedToast = true }
+        copiedToastResetTask?.cancel()
+        copiedToastResetTask = Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.3)) { showsCopiedToast = false }
+        }
     }
 
     // MARK: - Bottom bar
@@ -242,12 +292,9 @@ private struct TranscriptRow: View {
     let timestamp: String
     let text: String
     let timestampWidth: CGFloat
-    let copiedLabel: String
     let onCopy: () -> Void
 
     @State private var isHovering = false
-    @State private var showsCopied = false
-    @State private var copiedResetTask: Task<Void, Never>?
 
     private var timestampPieces: [String] {
         timestamp.split(separator: " ").map(String.init)
@@ -269,12 +316,6 @@ private struct TranscriptRow: View {
             Text(text)
                 .font(.system(size: Theme.bodyFontSize))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if showsCopied {
-                Label(copiedLabel, systemImage: "checkmark")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Theme.accent)
-                    .transition(.opacity)
-            }
         }
         .padding(.vertical, 14)
         .padding(.horizontal, 8)
@@ -285,18 +326,7 @@ private struct TranscriptRow: View {
         .padding(.horizontal, -8)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .onTapGesture(perform: copy)
-    }
-
-    private func copy() {
-        onCopy()
-        withAnimation(.easeOut(duration: 0.15)) { showsCopied = true }
-        copiedResetTask?.cancel()
-        copiedResetTask = Task {
-            try? await Task.sleep(for: .seconds(1.2))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.3)) { showsCopied = false }
-        }
+        .onTapGesture(perform: onCopy)
     }
 }
 
