@@ -3,10 +3,11 @@ import CoreML
 import Foundation
 @preconcurrency import WhisperKit
 
-/// Microphone capture with spectral subtraction applied before anything downstream sees the audio:
-/// the recognizer, the voice detector, the level meter and the session recorder all get the cleaned
-/// signal. Wraps WhisperKit's own `AudioProcessor` for device handling and resampling.
-final class DenoisingAudioSource: AudioProcessing, @unchecked Sendable {
+/// Microphone capture for the recognizer, on the app's own `InputCapture` rather than WhisperKit's
+/// engine, which cannot start on a Bluetooth headset. With a noise profile the audio goes through
+/// spectral subtraction before anything downstream sees it: the recognizer, the voice detector,
+/// the level meter and the session recorder all get the cleaned signal.
+final class MicrophoneAudioSource: AudioProcessing, @unchecked Sendable {
     static func loadAudio(fromPath audioFilePath: String, channelMode: ChannelMode, startTime: Double?, endTime: Double?, maxReadFrameSize: AVAudioFrameCount?) throws -> AVAudioPCMBuffer {
         try AudioProcessor.loadAudio(fromPath: audioFilePath, channelMode: channelMode, startTime: startTime, endTime: endTime, maxReadFrameSize: maxReadFrameSize)
     }
@@ -24,20 +25,19 @@ final class DenoisingAudioSource: AudioProcessing, @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private let inner = AudioProcessor()
-    private let denoiser: SpectralDenoiser
+    private let capture = InputCapture()
+    /// Nil captures the input as it is.
+    private let denoiser: SpectralDenoiser?
     private var samples = ContiguousArray<Float>()
     private var energy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
     private var callback: (([Float]) -> Void)?
 
-    init(profile: NoiseProfile) {
-        denoiser = SpectralDenoiser(profile: profile)
+    init(profile: NoiseProfile?) {
+        denoiser = profile.map { SpectralDenoiser(profile: $0) }
     }
 
-    var relativeEnergyWindow: Int {
-        get { inner.relativeEnergyWindow }
-        set { inner.relativeEnergyWindow = newValue }
-    }
+    /// Same default as WhisperKit's processor, which this replaces.
+    var relativeEnergyWindow: Int = 20
 
     var audioSamples: ContiguousArray<Float> { lock.withLock { samples } }
     var relativeEnergy: [Float] { lock.withLock { energy.map(\.rel) } }
@@ -56,7 +56,7 @@ final class DenoisingAudioSource: AudioProcessing, @unchecked Sendable {
             energy = []
             self.callback = callback
         }
-        try inner.startRecordingLive(inputDeviceID: inputDeviceID) { [weak self] chunk in
+        try capture.start(deviceID: inputDeviceID) { [weak self] chunk in
             self?.ingest(chunk)
         }
     }
@@ -66,42 +66,40 @@ final class DenoisingAudioSource: AudioProcessing, @unchecked Sendable {
     }
 
     func pauseRecording() {
-        inner.pauseRecording()
+        capture.pause()
     }
 
     func resumeRecordingLive(inputDeviceID: DeviceID?, callback: (([Float]) -> Void)?) throws {
         if let callback {
             lock.withLock { self.callback = callback }
         }
-        try inner.resumeRecordingLive(inputDeviceID: inputDeviceID) { [weak self] chunk in
-            self?.ingest(chunk)
-        }
+        try capture.resume()
     }
 
     /// Stops the capture and emits the audio still inside the denoiser, so nothing is cut off.
     func stopRecording() {
-        inner.stopRecording()
-        append(lock.withLock { denoiser.flush() })
+        capture.stop()
+        if let rest = lock.withLock({ denoiser?.flush() }) {
+            append(rest)
+        }
     }
 
     /// Runs on the capture thread with each raw chunk.
     private func ingest(_ chunk: [Float]) {
-        // The inner processor keeps its own copy of everything it captures; nobody reads it.
-        inner.purgeAudioSamples(keepingLast: 0)
-        append(lock.withLock { denoiser.process(chunk) })
+        append(lock.withLock { denoiser?.process(chunk) ?? chunk })
     }
 
-    /// Stores cleaned audio and its energy, one entry per chunk like the processor it replaces.
-    private func append(_ cleaned: [Float]) {
-        guard !cleaned.isEmpty else { return }
+    /// Stores the audio and its energy, one entry per chunk like the processor this replaces.
+    private func append(_ chunk: [Float]) {
+        guard !chunk.isEmpty else { return }
         let callback: (([Float]) -> Void)? = lock.withLock {
-            samples.append(contentsOf: cleaned)
+            samples.append(contentsOf: chunk)
             let quietest = energy.suffix(relativeEnergyWindow).reduce(Float.infinity) { min($0, $1.avg) }
-            let relative = AudioProcessor.calculateRelativeEnergy(of: cleaned, relativeTo: quietest)
-            let signal = AudioProcessor.calculateEnergy(of: cleaned)
+            let relative = AudioProcessor.calculateRelativeEnergy(of: chunk, relativeTo: quietest)
+            let signal = AudioProcessor.calculateEnergy(of: chunk)
             energy.append((relative, signal.avg, signal.max, signal.min))
             return self.callback
         }
-        callback?(cleaned)
+        callback?(chunk)
     }
 }

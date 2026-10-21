@@ -18,6 +18,10 @@ enum Theme {
     /// Stronger fill while the pointer is over a row, so the click-to-copy target is clear.
     static let rowFillHoverOpacity: Double = 0.26
     static let bodyFontSize: CGFloat = 17
+    /// Size of the second text of a translated row, under the main one.
+    static let secondaryFontSize: CGFloat = 14
+    /// Gap between a row's main text and its second text.
+    static let secondaryTextGap: CGFloat = 4
     /// Height of one line of body text; the lower bound for the timestamp column height.
     static let bodyLineHeight: CGFloat = {
         let font = NSFont.systemFont(ofSize: bodyFontSize)

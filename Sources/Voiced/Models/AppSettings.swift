@@ -15,6 +15,9 @@ struct AppSettings {
         case noiseReduction
         case voiceFilter
         case keepWindowOnTop
+        case translation
+        case translationLanguage
+        case translationEmphasis
     }
 
     private let file: SettingsFile
@@ -67,6 +70,26 @@ struct AppSettings {
     var keepWindowOnTop: Bool {
         get { file[Key.keepWindowOnTop.rawValue] as? Bool ?? true }
         nonmutating set { set(newValue, for: .keepWindowOnTop) }
+    }
+
+    /// Whether committed lines are translated. Off by default: the system translation has to
+    /// download a language pack the first time, and most transcripts need no translation.
+    var translation: Bool {
+        get { file[Key.translation.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .translation) }
+    }
+
+    /// The language lines are translated into. Nil until the user picks one; the interface
+    /// language stands in until then.
+    var translationLanguage: AppLanguage? {
+        get { rawValue(.translationLanguage) }
+        nonmutating set { set(newValue?.rawValue, for: .translationLanguage) }
+    }
+
+    /// Which text of a translated line is shown at full size.
+    var translationEmphasis: TranslationEmphasis {
+        get { rawValue(.translationEmphasis) ?? .original }
+        nonmutating set { set(newValue.rawValue, for: .translationEmphasis) }
     }
 
     /// Minimum frame RMS the voice detector treats as speech. Clamped to the transcriber's range.

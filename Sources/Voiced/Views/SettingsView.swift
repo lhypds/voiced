@@ -194,6 +194,56 @@ struct SettingsView: View {
 
                 Divider()
 
+                SettingsRow(
+                    title: strings.translation,
+                    hint: controller.isTranslationAvailable ? strings.translationHint : strings.translationUnavailable
+                ) {
+                    Toggle(strings.translation, isOn: $controller.translationEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(!controller.isTranslationAvailable)
+                }
+                if let error = controller.translationError {
+                    Text(strings.translationFailed(error))
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.bottom, 10)
+                }
+
+                Divider()
+
+                // The target is offered in the languages the interface comes in. Translating
+                // into the language the speech is pinned to would show every sentence twice.
+                SettingsRow(
+                    title: strings.translationLanguage,
+                    hint: controller.translationEnabled && controller.isTranslationRedundant ? strings.translationRedundantHint : nil
+                ) {
+                    Picker(strings.translationLanguage, selection: $controller.translationLanguage) {
+                        ForEach(AppLanguage.allCases) { language in
+                            Text(language.nativeName).tag(language)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 140, alignment: .trailing)
+                    .disabled(!controller.translationEnabled)
+                }
+
+                Divider()
+
+                SettingsRow(title: strings.translationEmphasis, hint: strings.translationEmphasisHint) {
+                    HStack(spacing: 12) {
+                        RadioChoice(strings.originalText, selected: controller.translationEmphasis == .original) {
+                            controller.translationEmphasis = .original
+                        }
+                        RadioChoice(strings.translatedText, selected: controller.translationEmphasis == .translation) {
+                            controller.translationEmphasis = .translation
+                        }
+                    }
+                    .disabled(!controller.translationEnabled)
+                }
+
+                Divider()
+
                 SettingsRow(title: strings.recognitionPrompt, hint: strings.recognitionPromptHint) {
                     Button {
                         controller.openPromptFile()

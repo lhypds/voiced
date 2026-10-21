@@ -48,6 +48,7 @@ With BlackHole, use a Multi-Output Device that routes to both the speakers and B
 ## Settings
 
 - Recognition engine, recognition language and interface language.
+- Translation: each sentence is translated into a chosen language (the same six the interface comes in) and shown in the same bubble as the original. The original is the main text and the translation sits under it in smaller grey type; "Main text" swaps them. Translation runs on the Mac through the system's Translation framework (macOS 15 or later), so nothing leaves the machine; the first use of a language asks to download its language pack. Off by default. Translations are saved with the transcript.
 - Keep window on top: the window stays in front when you switch to other apps.
 - Timestamp: relative time or clock time, with an optional date.
 - Energy threshold: sound below it is ignored. Lower it for quiet sources such as speakers picked up by a microphone.

@@ -27,6 +27,9 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.showTimestampDate)
         XCTAssertTrue(settings.noiseReduction)
         XCTAssertTrue(settings.keepWindowOnTop)
+        XCTAssertFalse(settings.translation)
+        XCTAssertNil(settings.translationLanguage, "the interface language stands in until one is picked")
+        XCTAssertEqual(settings.translationEmphasis, .original)
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
@@ -51,6 +54,9 @@ final class AppSettingsTests: XCTestCase {
         settings.timestampMode = .relative
         settings.showTimestampDate = false
         settings.keepWindowOnTop = false
+        settings.translation = true
+        settings.translationLanguage = .german
+        settings.translationEmphasis = .translation
 
         let reloaded = AppSettings(fileURL: fileURL)
         XCTAssertEqual(reloaded.appLanguage, .japanese)
@@ -59,6 +65,9 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.timestampMode, .relative)
         XCTAssertFalse(reloaded.showTimestampDate)
         XCTAssertFalse(reloaded.keepWindowOnTop)
+        XCTAssertTrue(reloaded.translation)
+        XCTAssertEqual(reloaded.translationLanguage, .german)
+        XCTAssertEqual(reloaded.translationEmphasis, .translation)
     }
 
     func testStorageKeysAreStable() throws {
@@ -70,8 +79,14 @@ final class AppSettingsTests: XCTestCase {
         settings.showTimestampDate = true
         settings.noiseReduction = false
         settings.keepWindowOnTop = true
+        settings.translation = true
+        settings.translationLanguage = .chinese
+        settings.translationEmphasis = .translation
 
         XCTAssertEqual(try storedValue("appLanguage") as? String, "english")
+        XCTAssertEqual(try storedValue("translation") as? Bool, true)
+        XCTAssertEqual(try storedValue("translationLanguage") as? String, "chinese")
+        XCTAssertEqual(try storedValue("translationEmphasis") as? String, "translation")
         XCTAssertEqual(try storedValue("noiseReduction") as? Bool, false)
         XCTAssertEqual(try storedValue("recognitionLanguage") as? String, "zh")
         XCTAssertEqual(try storedValue("recognitionEngine") as? String, "accurate")
@@ -82,11 +97,13 @@ final class AppSettingsTests: XCTestCase {
 
     func testUnknownStoredValuesFallBackToDefaults() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data(#"{"appLanguage": "klingon", "recognitionLanguage": "xx"}"#.utf8).write(to: fileURL)
+        try Data(#"{"appLanguage": "klingon", "recognitionLanguage": "xx", "translationLanguage": "klingon", "translationEmphasis": "both"}"#.utf8).write(to: fileURL)
 
         let settings = AppSettings(fileURL: fileURL)
         XCTAssertEqual(settings.appLanguage, AppLanguage.systemDefault)
         XCTAssertEqual(settings.recognitionLanguage, .automatic)
+        XCTAssertNil(settings.translationLanguage)
+        XCTAssertEqual(settings.translationEmphasis, .original)
     }
 
     func testCorruptFileFallsBackToDefaults() throws {

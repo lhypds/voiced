@@ -34,10 +34,23 @@ enum NoiseFloorCalibration {
     /// Records `duration` seconds from the device and returns the 16 kHz mono samples.
     /// The caller is responsible for obtaining microphone permission first.
     static func measure(inputDeviceID: DeviceID) async throws -> [Float] {
-        let processor = AudioProcessor()
-        try processor.startRecordingLive(inputDeviceID: inputDeviceID, callback: nil)
-        defer { processor.stopRecording() }
+        let capture = InputCapture()
+        let recorded = Recorded()
+        try capture.start(deviceID: inputDeviceID) { chunk in recorded.append(chunk) }
+        defer { capture.stop() }
         try await Task.sleep(for: .seconds(duration))
-        return Array(processor.audioSamples)
+        return recorded.samples
+    }
+
+    /// Collects the chunks the capture thread delivers.
+    private final class Recorded: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [Float] = []
+
+        var samples: [Float] { lock.withLock { stored } }
+
+        func append(_ chunk: [Float]) {
+            lock.withLock { stored.append(contentsOf: chunk) }
+        }
     }
 }

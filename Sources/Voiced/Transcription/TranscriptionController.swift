@@ -40,7 +40,11 @@ final class TranscriptionController: ObservableObject {
     @Published private(set) var audioDevices: [AudioDevice] = []
     @Published var selectedDeviceID: DeviceID?
     @Published var selectedLanguage: RecognitionLanguage {
-        didSet { settings.recognitionLanguage = selectedLanguage }
+        didSet {
+            settings.recognitionLanguage = selectedLanguage
+            // The translator takes the pinned language as the source.
+            configureTranslator()
+        }
     }
     @Published var appLanguage: AppLanguage {
         didSet { settings.appLanguage = appLanguage }
@@ -58,6 +62,27 @@ final class TranscriptionController: ObservableObject {
     @Published private(set) var selectedEngine: RecognitionEngine {
         didSet { settings.recognitionEngine = selectedEngine }
     }
+    /// Whether committed lines are translated into `translationLanguage`.
+    @Published var translationEnabled: Bool {
+        didSet {
+            settings.translation = translationEnabled
+            configureTranslator()
+        }
+    }
+    @Published var translationLanguage: AppLanguage {
+        didSet {
+            settings.translationLanguage = translationLanguage
+            configureTranslator()
+        }
+    }
+    /// Which of a translated line's texts is shown at full size.
+    @Published var translationEmphasis: TranslationEmphasis {
+        didSet { settings.translationEmphasis = translationEmphasis }
+    }
+    /// Why the last translation failed; cleared when the translator is next configured.
+    @Published private(set) var translationError: String?
+    /// Translates lines on the device. Nil where the system offers no translation (macOS 14).
+    let translator: (any SentenceTranslating)?
     /// Voice-detection energy floor; takes effect immediately, even mid-recording.
     @Published var speechEnergyFloor: Float {
         didSet {
@@ -126,16 +151,38 @@ final class TranscriptionController: ObservableObject {
     private var pendingRecord: (id: String, createdAt: Date)?
     /// Progress updates from decodes up to this one are stale and ignored.
     private var lastFinishedDecode = 0
+    /// The translation in flight, at most one at a time.
+    private var translationTask: Task<Void, Never>?
+    /// Lines the translator rejected since it was last configured, skipped so one bad line does
+    /// not hold up the rest.
+    private var untranslatableLineIDs: Set<String> = []
     /// Forwards the preview's changes as this object's own: views read `preview.isActive` through
     /// the controller to enable their controls, so they must redraw when the preview stops.
     private var previewForwarding: AnyCancellable?
 
     var isRecording: Bool { phase == .recording }
-    var canRecord: Bool { phase == .ready || phase == .recording }
+    var canRecord: Bool {
+        switch phase {
+        case .ready, .recording: true
+        // A failed recording leaves the model loaded, so the next click simply tries again.
+        case .failed(.recognition), .failed(.noInput): whisperKit != nil
+        case .downloading, .loading, .failed(.model): false
+        }
+    }
     var canPreview: Bool { phase == .ready && selectedDeviceID != nil }
     var canCalibrateNoise: Bool { canPreview && !preview.isActive && !isCalibratingNoise }
     var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
     var isVoiceFilterActive: Bool { voiceFilterEnabled && voiceDetectorModelFolder != nil }
+    var isTranslationAvailable: Bool { translator != nil }
+    /// Whether the speech is pinned to the language it would be translated into, so translation
+    /// has nothing to do.
+    var isTranslationRedundant: Bool { selectedLanguage.code == translationLanguage.code }
+    /// Code of the language lines are translated into; nil when translation is off, unavailable
+    /// or redundant.
+    private var translationTarget: String? {
+        guard translationEnabled, translator != nil, !isTranslationRedundant else { return nil }
+        return translationLanguage.code
+    }
     var isPreparing: Bool {
         switch phase {
         case .downloading, .loading: true
@@ -167,12 +214,15 @@ final class TranscriptionController: ObservableObject {
         settings: AppSettings = AppSettings(),
         historyStore: TranscriptHistoryStore = TranscriptHistoryStore(),
         noiseProfileURL: URL = VoicedDirectory.noiseProfileFile,
-        promptFileURL: URL = VoicedDirectory.promptFile
+        promptFileURL: URL = VoicedDirectory.promptFile,
+        translator: (any SentenceTranslating)? = nil
     ) {
         self.settings = settings
         self.historyStore = historyStore
         self.noiseProfileURL = noiseProfileURL
         self.promptFileURL = promptFileURL
+        // A default argument is evaluated outside the main actor, which the system translator needs.
+        self.translator = translator ?? Self.systemTranslator()
         noiseReductionEnabled = settings.noiseReduction
         noiseProfile = NoiseProfile.load(from: noiseProfileURL)
         voiceFilterEnabled = settings.voiceFilter
@@ -185,7 +235,11 @@ final class TranscriptionController: ObservableObject {
         keepWindowOnTop = settings.keepWindowOnTop
         selectedEngine = settings.recognitionEngine
         speechEnergyFloor = settings.speechEnergyFloor
+        translationEnabled = settings.translation
+        translationLanguage = settings.translationLanguage ?? settings.appLanguage
+        translationEmphasis = settings.translationEmphasis
         pinLanguageToEngine()
+        configureTranslator()
         previewForwarding = preview.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -193,6 +247,14 @@ final class TranscriptionController: ObservableObject {
             prepareVoiceFilter()
         }
         Task { await prepare() }
+    }
+
+    /// The system's on-device translation, where the system has one.
+    private static func systemTranslator() -> (any SentenceTranslating)? {
+        if #available(macOS 15, *) {
+            return AppleTranslator()
+        }
+        return nil
     }
 
     // MARK: - Model lifecycle
@@ -414,9 +476,8 @@ final class TranscriptionController: ObservableObject {
 
     /// Capture source for recordings and previews: the denoising wrapper when noise reduction is
     /// on and a profile exists, otherwise nil for the model's own processor.
-    private func makeAudioSource() -> (any AudioProcessing)? {
-        guard noiseReductionEnabled, let noiseProfile else { return nil }
-        return DenoisingAudioSource(profile: noiseProfile)
+    private func makeAudioSource() -> any AudioProcessing {
+        MicrophoneAudioSource(profile: noiseReductionEnabled ? noiseProfile : nil)
     }
 
     // MARK: - Voice filter
@@ -497,12 +558,13 @@ final class TranscriptionController: ObservableObject {
 
         if var session {
             session.commitTrailing(finalize: assembler.terminated)
-            lines = session.transcript
+            lines = session.transcript.keepingTranslations(from: lines)
         }
         session = nil
         liveText = ""
         phase = .ready
         persistTranscript()
+        translateVisibleLines()
         pendingRecord = nil
 
         // The transcriber flushes its last samples into the recorder when it stops, so the file is
@@ -545,14 +607,20 @@ final class TranscriptionController: ObservableObject {
     }
 
     func copyTranscript() {
-        let text = lines.map { "[\(timestamp(for: $0))] \($0.text)" }.joined(separator: "\n")
+        let text = lines.map { line in
+            let texts = displayTexts(for: line)
+            let entry = "[\(timestamp(for: line))] \(texts.primary)"
+            return texts.secondary.map { entry + "\n" + $0 } ?? entry
+        }
+        .joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
 
     func copy(_ line: TranscriptLine) {
+        let texts = displayTexts(for: line)
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(line.text, forType: .string)
+        NSPasteboard.general.setString(texts.secondary.map { texts.primary + "\n" + $0 } ?? texts.primary, forType: .string)
     }
 
     func timestamp(for line: TranscriptLine) -> String {
@@ -562,10 +630,75 @@ final class TranscriptionController: ObservableObject {
     /// Stores the session and refreshes the visible lines.
     private func publish(_ session: RecordingSession) {
         self.session = session
-        if lines != session.transcript {
-            lines = session.transcript
+        let transcript = session.transcript.keepingTranslations(from: lines)
+        if lines != transcript {
+            lines = transcript
             persistTranscript()
+            translateVisibleLines()
         }
+    }
+
+    // MARK: - Translation
+
+    /// The texts a row shows for `line`: the sentence alone, or, with a translation, the main
+    /// text first and the other second.
+    func displayTexts(for line: TranscriptLine) -> (primary: String, secondary: String?) {
+        guard let translation = translation(for: line) else { return (line.text, nil) }
+        switch translationEmphasis {
+        case .original: return (line.text, translation)
+        case .translation: return (translation, line.text)
+        }
+    }
+
+    /// The translation shown with `line`: only while translation is on and it is in the language
+    /// currently chosen. A line already in that language shows none.
+    private func translation(for line: TranscriptLine) -> String? {
+        guard let target = translationTarget, let translation = line.translation, translation.language == target else { return nil }
+        return translation.displayText
+    }
+
+    /// Points the translator at the current languages, forgets earlier failures and translates
+    /// what is on screen.
+    private func configureTranslator() {
+        guard let translator else { return }
+        translationTask?.cancel()
+        translationTask = nil
+        translationError = nil
+        untranslatableLineIDs = []
+        translator.setLanguages(source: selectedLanguage.code, target: translationTarget)
+        translateVisibleLines()
+    }
+
+    /// Translates the visible lines that are not yet in the target language, newest first and
+    /// one at a time, so a sentence just committed is not queued behind an old transcript.
+    private func translateVisibleLines() {
+        guard let translator, let target = translationTarget, translationTask == nil else { return }
+        guard let line = lines.last(where: { $0.needsTranslation(into: target) && !untranslatableLineIDs.contains($0.id) }) else { return }
+        translationTask = Task { [weak self] in
+            var translation: TranslatedText?
+            do {
+                translation = try await translator.translate(line.text)
+            } catch is CancellationError {
+                // Translation was turned off or reconfigured; that call has already moved on.
+                return
+            } catch {
+                self?.translationError = error.localizedDescription
+                self?.untranslatableLineIDs.insert(line.id)
+            }
+            guard let self, !Task.isCancelled else { return }
+            translationTask = nil
+            if let translation {
+                apply(translation, to: line.id)
+            }
+            translateVisibleLines()
+        }
+    }
+
+    /// Attaches a finished translation to its line, if it is still on screen, and saves it.
+    private func apply(_ translation: TranslatedText, to lineID: String) {
+        guard let index = lines.firstIndex(where: { $0.id == lineID }) else { return }
+        lines[index] = lines[index].translated(translation)
+        persistTranscript()
     }
 
     // MARK: - History
@@ -576,6 +709,7 @@ final class TranscriptionController: ObservableObject {
         lines = record.lines
         liveText = ""
         currentRecordID = record.id
+        translateVisibleLines()
     }
 
     /// Shows the record's directory, with its transcript and audio files, in Finder.

@@ -15,7 +15,7 @@ final class InputLevelMonitor: ObservableObject {
 
     private let denoised = DenoisedWindow()
 
-    private var processor: AudioProcessor?
+    private var capture: InputCapture?
     /// The device being listened to, or asked for while permission and capture are pending.
     private var deviceID: DeviceID?
     private var startTask: Task<Void, Never>?
@@ -44,8 +44,8 @@ final class InputLevelMonitor: ObservableObject {
     func stop() {
         startTask?.cancel()
         startTask = nil
-        processor?.stopRecording()
-        processor = nil
+        capture?.stop()
+        capture = nil
         deviceID = nil
         level = 0
         denoisedLevel = 0
@@ -57,20 +57,17 @@ final class InputLevelMonitor: ObservableObject {
     }
 
     private func startCapture(from deviceID: DeviceID) {
-        let processor = AudioProcessor()
+        let capture = InputCapture()
         let window = Window()
         let denoised = denoised
         denoised.restart()
         do {
-            try processor.startRecordingLive(inputDeviceID: deviceID) { [weak self, weak processor] chunk in
-                // Runs on the capture thread, right after the chunk was appended to the processor's
-                // own buffer. Only the newest frame is ever needed, so that buffer is emptied here,
-                // on the same thread that fills it, and never grows with the session.
-                processor?.purgeAudioSamples(keepingLast: 0)
+            try capture.start(deviceID: deviceID) { [weak self, weak capture] chunk in
+                // Runs on the capture thread; only the newest frame is ever kept.
                 let level = window.append(chunk)
                 let denoisedLevel = denoised.append(chunk) ?? 0
                 Task { @MainActor in
-                    guard let self, self.processor === processor else { return }
+                    guard let self, self.capture === capture else { return }
                     self.level = level
                     self.denoisedLevel = denoisedLevel
                 }
@@ -79,7 +76,7 @@ final class InputLevelMonitor: ObservableObject {
             self.deviceID = nil
             return
         }
-        self.processor = processor
+        self.capture = capture
     }
 
     /// Runs the capture through spectral subtraction and keeps the newest frame of the result.

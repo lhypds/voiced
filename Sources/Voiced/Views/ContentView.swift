@@ -38,6 +38,7 @@ struct ContentView: View {
         }
         .background(Theme.background)
         .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
+        .modifier(TranslationHost(translator: controller.translator))
         .preferredColorScheme(.light)
         // Not a sheet: a sheet hangs from the title bar and blocks the window. This is a separate
         // window centered on this one; both stay focusable.
@@ -110,9 +111,11 @@ struct ContentView: View {
                             LiveRow(text: controller.liveText, timestampWidth: timestampWidth)
                         }
                         ForEach(controller.lines.reversed()) { line in
+                            let texts = controller.displayTexts(for: line)
                             TranscriptRow(
                                 timestamp: controller.timestamp(for: line),
-                                text: line.text,
+                                text: texts.primary,
+                                secondaryText: texts.secondary,
                                 timestampWidth: timestampWidth,
                                 onCopy: {
                                     controller.copy(line)
@@ -439,6 +442,8 @@ private struct ToolbarIconButton: View {
 private struct TranscriptRow: View {
     let timestamp: String
     let text: String
+    /// The sentence in the other language, shown small and grey under the main text.
+    let secondaryText: String?
     let timestampWidth: CGFloat
     let onCopy: () -> Void
 
@@ -461,9 +466,16 @@ private struct TranscriptRow: View {
             .font(.system(.caption, design: .monospaced).weight(.medium))
             .foregroundStyle(Theme.accent)
             .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
-            Text(text)
-                .font(.system(size: Theme.bodyFontSize))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: Theme.secondaryTextGap) {
+                Text(text)
+                    .font(.system(size: Theme.bodyFontSize))
+                if let secondaryText {
+                    Text(secondaryText)
+                        .font(.system(size: Theme.secondaryFontSize))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 14)
         .padding(.horizontal, 8)
