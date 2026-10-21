@@ -28,6 +28,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         silenceThreshold: Float,
         silenceDelay: TimeInterval,
         speechEnergyFloor: Float,
+        voiceDetector: SileroVoiceDetector? = nil,
         assembler: SentenceAssembler,
         audioProcessor: (any AudioProcessing)? = nil
     ) {
@@ -45,6 +46,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
             silenceThreshold: silenceThreshold,
             silenceDelay: silenceDelay,
             speechEnergyFloor: speechEnergyFloor,
+            voiceDetector: voiceDetector,
             delegate: self,
             audioProcessor: audioProcessor
         )

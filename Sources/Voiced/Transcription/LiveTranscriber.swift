@@ -86,6 +86,9 @@ actor LiveTranscriber {
     private let silenceDelay: TimeInterval
     /// Minimum frame RMS that counts as speech. Adjustable while running via `setSpeechEnergyFloor`.
     private var speechEnergyFloor: Float
+    /// Judges every captured chunk, so sound that is loud but not speech, such as music, is not
+    /// treated as speech by the energy gate. Nil leaves the gate to energy alone.
+    private let voiceDetector: SileroVoiceDetector?
     private weak var delegate: (any LiveTranscriberDelegate)?
     /// Optional diagnostics sink for buffer and decode activity.
     private let log: (@Sendable (String) -> Void)?
@@ -108,10 +111,15 @@ actor LiveTranscriber {
     private var awaitingPause = false
     private var decodeCount = 0
     private var lastCommittedEnd: Float = 0
+    /// The detector's verdicts so far, by capture index.
+    private var voiceActivity = VoiceActivity()
+    /// Set when the detector throws; the rest of the capture is then judged by energy alone.
+    private var voiceDetectorFailed = false
 
     /// - Parameters:
     ///   - audioProcessor: capture source; defaults to the model's own processor.
     ///     Injectable so the pipeline can be driven from a file in tests.
+    ///   - voiceDetector: filters the energy gate's verdicts; see `voiceDetector`.
     ///   - audioSink: receives the raw captured audio, for saving the session to disk.
     init(
         whisperKit: WhisperKit,
@@ -120,6 +128,7 @@ actor LiveTranscriber {
         silenceThreshold: Float,
         silenceDelay: TimeInterval,
         speechEnergyFloor: Float = LiveTranscriber.defaultSpeechEnergyFloor,
+        voiceDetector: SileroVoiceDetector? = nil,
         delegate: any LiveTranscriberDelegate,
         audioProcessor: (any AudioProcessing)? = nil,
         levelHandler: (@Sendable (Float) -> Void)? = nil,
@@ -133,6 +142,7 @@ actor LiveTranscriber {
         self.silenceThreshold = silenceThreshold
         self.silenceDelay = silenceDelay
         self.speechEnergyFloor = speechEnergyFloor
+        self.voiceDetector = voiceDetector
         self.delegate = delegate
         self.levelHandler = levelHandler
         self.audioSink = audioSink
@@ -147,6 +157,9 @@ actor LiveTranscriber {
     /// Starts capturing and decoding. The caller is responsible for obtaining microphone permission first.
     func start() throws {
         guard !isRunning else { return }
+        try voiceDetector?.reset()
+        voiceActivity = VoiceActivity()
+        voiceDetectorFailed = false
         try audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID, callback: nil)
         isRunning = true
         discardedSampleCount = 0
@@ -199,7 +212,7 @@ actor LiveTranscriber {
                 nextBufferInSeconds: newSeconds,
                 silenceThreshold: silenceThreshold
             )
-            && Self.speechSeconds(samples, from: decodedSampleCount, to: samples.count, floor: speechEnergyFloor) >= Self.minimumSpeechSeconds
+            && Self.speechSeconds(samples, from: decodedSampleCount, to: samples.count, floor: speechEnergyFloor, voice: voiceActivity, captureOffset: discardedSampleCount) >= Self.minimumSpeechSeconds
         if hasVoice {
             lastVoiceAt = now
         }
@@ -211,7 +224,7 @@ actor LiveTranscriber {
         }
         if awaitingPause, now.timeIntervalSince(lastVoiceAt) >= silenceDelay {
             awaitingPause = false
-            if Self.speechSeconds(samples, from: decodedSampleCount, to: samples.count, floor: speechEnergyFloor) > 0 {
+            if Self.speechSeconds(samples, from: decodedSampleCount, to: samples.count, floor: speechEnergyFloor, voice: voiceActivity, captureOffset: discardedSampleCount) > 0 {
                 // The tail of the last word arrived after the previous decode started but was too
                 // short to trigger another one. Decode it before the pause commits the sentence.
                 log?("final decode before pause: buffer \(bufferSpan(samples.count)), new \(newSeconds)s")
@@ -242,13 +255,16 @@ actor LiveTranscriber {
         let delegate = delegate
         let liveText = LiveTextAccumulator()
         let floor = speechEnergyFloor
-        let (samples, lead) = Self.decodeInput(buffer, floor: floor)
+        let voice = voiceActivity
+        let (samples, lead) = Self.decodeInput(buffer, floor: floor, voice: voice, captureOffset: discardedSampleCount)
         if samples.count < buffer.count {
             log?("decode input trimmed to \(bufferSpan(from: lead, count: samples.count)) of \(bufferSpan(buffer.count))")
         }
         let base = discardedSeconds + lead
         let discardedBefore = discardedSampleCount
-        let speechInInput = Self.speechSeconds(samples, from: 0, to: samples.count, floor: floor)
+        /// Capture index of the input's first sample, for looking up the detector's verdicts.
+        let inputCaptureStart = discardedSampleCount + Int((lead * Self.sampleRate).rounded())
+        let speechInInput = Self.speechSeconds(samples, from: 0, to: samples.count, floor: floor, voice: voice, captureOffset: inputCaptureStart)
         let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: options) { [weak self] progress in
             let text = liveText.text(adding: progress)
             if let self, let delegate {
@@ -263,7 +279,7 @@ actor LiveTranscriber {
         let segments = results.flatMap(\.segments).compactMap { segment -> TranscriptionSegment? in
             let from = Int(segment.start * Self.sampleRate)
             let to = Int(segment.end * Self.sampleRate)
-            guard Self.coversSpeech(samples, from: from, to: to, floor: floor) else {
+            guard Self.coversSpeech(samples, from: from, to: to, floor: floor, voice: voice, captureOffset: inputCaptureStart) else {
                 log?("dropped hallucinated segment over quiet audio: \(segment.text.trimmingCharacters(in: .whitespaces))")
                 return nil
             }
@@ -470,9 +486,11 @@ actor LiveTranscriber {
         return (sum / Float(samples.count)).squareRoot()
     }
 
-    /// Whether each 100 ms frame of `samples[from..<to]` reaches `floor`.
+    /// Whether each 100 ms frame of `samples[from..<to]` is speech: it reaches `floor`, and the
+    /// detector heard speech in it when there is one. `captureOffset` is the capture index of
+    /// `samples[0]`, which places the frames among the detector's verdicts.
     private static func speechFrames<C: RandomAccessCollection>(
-        _ samples: C, from: Int, to: Int, floor: Float
+        _ samples: C, from: Int, to: Int, floor: Float, voice: VoiceActivity?, captureOffset: Int
     ) -> [Bool] where C.Element == Float, C.Index == Int {
         let frame = Int(speechFrameSeconds * sampleRate)
         let lower = max(samples.startIndex, from)
@@ -486,34 +504,38 @@ actor LiveTranscriber {
             for value in samples[start..<end] {
                 sum += value * value
             }
-            flags.append((sum / Float(end - start)).squareRoot() >= floor)
+            let loud = (sum / Float(end - start)).squareRoot() >= floor
+            let offset = captureOffset - samples.startIndex
+            flags.append(loud && (voice?.containsSpeech(in: (start + offset)..<(end + offset)) ?? true))
             start = end
         }
         return flags
     }
 
-    /// Seconds of audio in the range whose 100 ms frames reach the floor; used to decide whether to decode.
+    /// Seconds of speech in the range, by 100 ms frames; used to decide whether to decode.
     private static func speechSeconds<C: RandomAccessCollection>(
-        _ samples: C, from: Int, to: Int, floor: Float
+        _ samples: C, from: Int, to: Int, floor: Float, voice: VoiceActivity? = nil, captureOffset: Int = 0
     ) -> Float where C.Element == Float, C.Index == Int {
-        Float(speechFrames(samples, from: from, to: to, floor: floor).filter { $0 }.count) * speechFrameSeconds
+        Float(speechFrames(samples, from: from, to: to, floor: floor, voice: voice, captureOffset: captureOffset).filter { $0 }.count) * speechFrameSeconds
     }
 
-    /// True when the range holds enough speech energy, in duration and in proportion, to be a real segment.
+    /// True when the range holds enough speech, in duration and in proportion, to be a real segment.
     private static func coversSpeech<C: RandomAccessCollection>(
-        _ samples: C, from: Int, to: Int, floor: Float
+        _ samples: C, from: Int, to: Int, floor: Float, voice: VoiceActivity? = nil, captureOffset: Int = 0
     ) -> Bool where C.Element == Float, C.Index == Int {
-        let frames = speechFrames(samples, from: from, to: to, floor: floor)
+        let frames = speechFrames(samples, from: from, to: to, floor: floor, voice: voice, captureOffset: captureOffset)
         let speech = frames.filter { $0 }.count
         guard !frames.isEmpty else { return false }
         return Float(speech) * speechFrameSeconds >= minimumSpeechSeconds
             && Float(speech) / Float(frames.count) >= minimumSpeechFraction
     }
 
-    /// The buffer cut to shortly before its first frame of speech energy and shortly after its last,
-    /// with the number of seconds removed from the front. A buffer without speech is returned whole.
-    static func decodeInput(_ buffer: ContiguousArray<Float>, floor: Float) -> (samples: [Float], leadSeconds: Float) {
-        let frames = speechFrames(buffer, from: 0, to: buffer.count, floor: floor)
+    /// The buffer cut to shortly before its first frame of speech and shortly after its last, with
+    /// the number of seconds removed from the front. A buffer without speech is returned whole.
+    static func decodeInput(
+        _ buffer: ContiguousArray<Float>, floor: Float, voice: VoiceActivity? = nil, captureOffset: Int = 0
+    ) -> (samples: [Float], leadSeconds: Float) {
+        let frames = speechFrames(buffer, from: 0, to: buffer.count, floor: floor, voice: voice, captureOffset: captureOffset)
         guard let firstSpeech = frames.firstIndex(of: true), let lastSpeech = frames.lastIndex(of: true) else {
             return (Array(buffer), 0)
         }
@@ -532,20 +554,30 @@ actor LiveTranscriber {
         guard removed > 0 else { return }
         audioProcessor.purgeAudioSamples(keepingLast: keep)
         discardedSampleCount += removed
+        voiceActivity.discard(before: discardedSampleCount)
         decodedSampleCount = max(0, decodedSampleCount - removed)
         log?("\(reason): dropped \(Float(removed) / Self.sampleRate)s, buffer \(bufferSpan(keep)), undecoded \(Float(keep - decodedSampleCount) / Self.sampleRate)s")
     }
 
-    /// Hands the sink the samples at the end of the buffer that it has not seen yet. The buffer's end
-    /// sits at `discardedSampleCount + samples.count` in the capture, so anything past the captured
-    /// count is new.
+    /// Hands the sink and the voice detector the samples at the end of the buffer that they have not
+    /// seen yet. The buffer's end sits at `discardedSampleCount + samples.count` in the capture, so
+    /// anything past the captured count is new.
     private func captureNewAudio(_ samples: ContiguousArray<Float>) {
-        guard let audioSink else { return }
+        guard audioSink != nil || voiceDetector != nil else { return }
         let captureEnd = discardedSampleCount + samples.count
         let new = captureEnd - capturedSampleCount
         guard new > 0 else { return }
-        audioSink(Array(samples.suffix(min(new, samples.count))))
+        let fresh = Array(samples.suffix(min(new, samples.count)))
         capturedSampleCount = captureEnd
+        audioSink?(fresh)
+        if let voiceDetector, !voiceDetectorFailed {
+            do {
+                voiceActivity.append(try voiceDetector.process(fresh).map { $0 >= SileroVoiceDetector.speechThreshold })
+            } catch {
+                voiceDetectorFailed = true
+                log?("voice detector failed, judging by energy alone from here: \(error)")
+            }
+        }
     }
 
     private func bufferSpan(_ count: Int) -> String {

@@ -24,7 +24,7 @@ The script reads `VERSION`, writes the new version to `VERSION` and `Support/Inf
 
 ## Tests
 
-Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the noise calibration and spectral denoiser, the hallucination filter, the recognition prompt, the history store, the session recorder (WAV output) and the migration into `~/.voiced`:
+Unit tests cover sentence assembly, session state, timestamp formatting, settings persistence, the noise calibration and spectral denoiser, the voice detector's bookkeeping (and the model itself when it is cached), the hallucination filter, the recognition prompt, the history store, the session recorder (WAV output) and the migration into `~/.voiced`:
 
 ```sh
 swift test
@@ -51,7 +51,8 @@ swift run -c release VoicedSimulate sample.wav --lang ja
 | `--denoise` | Run the audio through spectral subtraction first, with a profile from noise of the `--noise` amplitude. Compare runs with and without it. |
 | `--floor 0.01` | Energy threshold (default 0.02). |
 | `--prompt-file path` | Recognition prompt file in the `~/.voiced/prompt.txt` format; compare runs with and without it. |
-| `--energy` | Print only the energy values the VAD sees. |
+| `--vad` | Filter the energy gate with the Silero voice detector, as the voice filter setting does; downloads the model on first use. Compare runs with and without it. |
+| `--energy` | Print only the energy values the VAD sees, without loading the Whisper model. With `--vad`, also each 100 ms frame's highest speech probability. |
 
 ## Model choice
 
@@ -72,6 +73,7 @@ Model variants are listed in `RecognitionEngine.swift`, each with the Hugging Fa
 - Continuous speech without terminal punctuation is split at the next Whisper segment boundary once a sentence spans 8 seconds, so steady sources such as news or radio still commit line by line. Whisper rarely closes Chinese or Japanese sentences with 。, so for those this is the usual line length.
 - A decode only runs when at least one frame of new audio reaches the energy threshold (default 0.02, WhisperKit's energy VAD default; adjustable in Settings between 0.002 and 0.05, effective immediately while recording). "Measure background noise" in Settings records 2 seconds from the input and sets the threshold to 1.5 times the loudest 100 ms frame, clamped to the same range, so steady room noise stays below it (`NoiseFloorCalibration.swift`). The same recording yields a noise profile, the average magnitude of each frequency bin (`NoiseProfile`, saved to `~/.voiced/noise-profile.json`).
 - Noise reduction, on by default once a profile exists, is spectral subtraction (`SpectralDenoiser.swift`): 512-sample frames with 50% overlap and square-root Hann windows on both sides, twice the profile subtracted from each bin's magnitude, a gain floor of 0.1 and gain smoothing across frames to keep "musical noise" down. `DenoisingAudioSource` wraps WhisperKit's `AudioProcessor` and feeds the cleaned audio to the transcriber, so the voice detector, the level meter and the saved WAV all see the denoised signal. The threshold calibration then measures the denoised noise. Latency is 16 to 32 ms. Audio sent to Whisper is cut 0.5 seconds before the first speech frame and 0.5 seconds after the last, so the model sees neither the lead-in nor a tail of background noise; both make it guess text over the noise.
+- The voice filter, off by default, runs the Silero VAD model over every captured sample (`VoiceDetector.swift`; the Core ML build from FluidInference, which `VoiceDetectorModelStore` downloads to `~/Documents/huggingface/models/FluidInference/silero-vad-coreml`). The model judges 32 ms chunks on the CPU, carrying its recurrent state from one chunk to the next; 170 s of audio takes about 0.4 s. A 100 ms frame then counts as speech only when it reaches the energy floor *and* a chunk overlapping it scored at least 0.5, so the decode trigger, the pause, the hallucination check and the trimming of the decode input all ignore sound that is loud but not speech, such as music. The verdicts are kept by capture sample index (`VoiceActivity`), so they stay valid while the buffer's front moves; audio no chunk has judged yet is left to the energy gate. The model judges speech by its sound, not its level: a sentence at a peak of 0.03 is detected as well as one at 0.9, so the energy floor remains the only control over quiet sources. It hears what the transcriber hears, that is the denoised signal when noise reduction is on. Spectral subtraction cannot remove music: its profile is one fixed average spectrum, and music changes every beat.
 - A decode is aborted only when its recent tokens repeat (a decoding loop). WhisperKit's streaming example also aborts as soon as the average log probability falls below the threshold, but that verdict is made on the first few tokens: a window that opens on a breath or half a word would throw away all the speech behind it, and with a steady source the same window opens the same way on every decode, so whole sentences went missing. Confidence is checked per segment after the decode instead.
 - A decoded segment is treated as a hallucination and discarded when the audio above the energy threshold lasts less than 0.2 seconds or less than 20% of the segment, when the average token log probability is below -1.5, or when the text matches a known hallucinated phrase (for example "ご視聴ありがとうございました" or "Thank you for watching"). WhisperKit does not implement `noSpeechProb`, so these heuristics are the only defence. The phrase list lives in `HallucinationFilter.swift`.
 - Punctuation is normalized to the script of each line: Chinese text gets full-width marks with ，and 。, Japanese text gets 、and 。, and everything else gets ASCII marks followed by a space. The script is decided from the text itself (kana means Japanese, Han characters alone mean Japanese only when the language is set to 日本語), so English spoken in a Chinese session keeps half-width punctuation. See `PunctuationNormalizer.swift`.
@@ -102,6 +104,8 @@ Sources/Voiced/
     NoiseFloorCalibration.swift Sets the energy threshold from a short recording of the background noise
     SpectralDenoiser.swift     Noise profile and streaming spectral subtraction (Accelerate FFT)
     DenoisingAudioSource.swift Microphone capture that runs the denoiser before the transcriber sees the audio
+    VoiceDetector.swift        Silero VAD speech detection (Core ML) and the per-chunk verdicts the transcriber keeps
+    VoiceDetectorModelStore.swift  Cache check and download of the voice detector model
     WhisperModelStore.swift    Model cache check, download and loading
     TranscriptHistoryStore.swift  Reads and writes history (~/.voiced/history/<unix time>/transcript.json, one directory per record)
     TranscriptionController.swift  Connects recognition events to the UI

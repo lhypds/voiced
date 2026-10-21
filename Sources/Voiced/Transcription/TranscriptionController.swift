@@ -79,6 +79,21 @@ final class TranscriptionController: ObservableObject {
     }
     /// Background noise measured by `calibrateNoise`, used by the denoiser. Nil until measured.
     @Published private(set) var noiseProfile: NoiseProfile?
+    /// Whether the voice detector filters what the energy gate lets through, so music and other
+    /// non-speech sound is ignored; takes effect at the next recording or preview.
+    @Published var voiceFilterEnabled: Bool {
+        didSet {
+            settings.voiceFilter = voiceFilterEnabled
+            if voiceFilterEnabled {
+                prepareVoiceFilter()
+            }
+        }
+    }
+    /// Folder of the downloaded voice detector model. Nil until it is on disk.
+    @Published private(set) var voiceDetectorModelFolder: URL?
+    @Published private(set) var isDownloadingVoiceFilter = false
+    /// Why the voice filter cannot be used; cleared when the next download starts.
+    @Published private(set) var voiceFilterError: String?
     /// True while the input is being sampled to measure the background noise.
     @Published private(set) var isCalibratingNoise = false
     /// Why the last noise calibration did not set a floor; cleared when the next one starts.
@@ -120,6 +135,7 @@ final class TranscriptionController: ObservableObject {
     var canPreview: Bool { phase == .ready && selectedDeviceID != nil }
     var canCalibrateNoise: Bool { canPreview && !preview.isActive && !isCalibratingNoise }
     var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
+    var isVoiceFilterActive: Bool { voiceFilterEnabled && voiceDetectorModelFolder != nil }
     var isPreparing: Bool {
         switch phase {
         case .downloading, .loading: true
@@ -159,6 +175,8 @@ final class TranscriptionController: ObservableObject {
         self.promptFileURL = promptFileURL
         noiseReductionEnabled = settings.noiseReduction
         noiseProfile = NoiseProfile.load(from: noiseProfileURL)
+        voiceFilterEnabled = settings.voiceFilter
+        voiceDetectorModelFolder = VoiceDetectorModelStore.cachedModelFolder()
         history = historyStore.load()
         appLanguage = settings.appLanguage
         selectedLanguage = settings.recognitionLanguage
@@ -170,6 +188,9 @@ final class TranscriptionController: ObservableObject {
         pinLanguageToEngine()
         previewForwarding = preview.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
+        }
+        if voiceFilterEnabled {
+            prepareVoiceFilter()
         }
         Task { await prepare() }
     }
@@ -334,6 +355,7 @@ final class TranscriptionController: ObservableObject {
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
             speechEnergyFloor: speechEnergyFloor,
+            voiceDetector: makeVoiceDetector(),
             delegate: self,
             audioProcessor: makeAudioSource(),
             audioSink: recorder.map { recorder in { @Sendable samples in recorder.append(samples) } }
@@ -378,6 +400,7 @@ final class TranscriptionController: ObservableObject {
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
             speechEnergyFloor: speechEnergyFloor,
+            voiceDetector: makeVoiceDetector(),
             assembler: assembler,
             audioProcessor: makeAudioSource()
         )
@@ -394,6 +417,39 @@ final class TranscriptionController: ObservableObject {
     private func makeAudioSource() -> (any AudioProcessing)? {
         guard noiseReductionEnabled, let noiseProfile else { return nil }
         return DenoisingAudioSource(profile: noiseProfile)
+    }
+
+    // MARK: - Voice filter
+
+    /// The voice detector for a recording or preview: nil when the filter is off or its model is
+    /// not on disk, in which case speech is judged by energy alone.
+    private func makeVoiceDetector() -> SileroVoiceDetector? {
+        guard voiceFilterEnabled, let voiceDetectorModelFolder else { return nil }
+        do {
+            return try SileroVoiceDetector(modelFolder: voiceDetectorModelFolder)
+        } catch {
+            voiceFilterError = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Makes sure the voice detector's model is on disk, downloading it when it is not.
+    private func prepareVoiceFilter() {
+        if voiceDetectorModelFolder == nil {
+            voiceDetectorModelFolder = VoiceDetectorModelStore.cachedModelFolder()
+        }
+        guard voiceDetectorModelFolder == nil, !isDownloadingVoiceFilter else { return }
+        isDownloadingVoiceFilter = true
+        voiceFilterError = nil
+        Task { [weak self] in
+            defer { self?.isDownloadingVoiceFilter = false }
+            do {
+                let folder = try await VoiceDetectorModelStore.download()
+                self?.voiceDetectorModelFolder = folder
+            } catch {
+                self?.voiceFilterError = error.localizedDescription
+            }
+        }
     }
 
     /// Samples the background noise for a moment, keeps its spectrum as the noise profile and sets

@@ -3,7 +3,7 @@
 // and the raw audio handed to the session recorder is exactly what was fed in.
 //
 //   say -v Kyoko -o sample.wav --data-format=LEI16@16000 "こんにちは [[slnc 3000]] さようなら"
-//   swift run -c release VoicedSimulate sample.wav --lang ja [--engine accurate] [--noise 0.02] [--denoise] [--floor 0.01] [--energy]
+//   swift run -c release VoicedSimulate sample.wav --lang ja [--engine accurate] [--noise 0.02] [--denoise] [--floor 0.01] [--vad] [--energy]
 import AVFoundation
 import CoreML
 import Foundation
@@ -93,22 +93,47 @@ final class FileAudioSource: AudioProcessing, @unchecked Sendable {
 }
 
 let file = CommandLine.arguments.dropFirst().first ?? ""
-guard !file.isEmpty else { fatalError("usage: VoicedSimulate <speech.wav> [--energy]") }
+guard !file.isEmpty else { fatalError("usage: VoicedSimulate <speech.wav> [--vad] [--energy]") }
+
+/// The Silero voice detector when `--vad` is given, downloading its model on first use.
+func makeVoiceDetector() async throws -> SileroVoiceDetector? {
+    guard CommandLine.arguments.contains("--vad") else { return nil }
+    let folder: URL
+    if let cached = VoiceDetectorModelStore.cachedModelFolder() {
+        folder = cached
+    } else {
+        print("downloading voice detector model...")
+        folder = try await VoiceDetectorModelStore.download()
+    }
+    return try SileroVoiceDetector(modelFolder: folder)
+}
 
 if CommandLine.arguments.contains("--energy") {
-    // Dump the per-100 ms energy values the VAD sees, without loading the model.
+    // Dump the per-100 ms energy values the VAD sees, without loading the Whisper model. With
+    // --vad, also the highest speech probability the voice detector gave within each 100 ms.
     let buffer = try AudioProcessor.loadAudio(fromPath: file)
     let source = AudioProcessor.convertBufferToArray(buffer: buffer)
+    let detector = try await makeVoiceDetector()
     var history: [(rel: Float, avg: Float, max: Float, min: Float)] = []
     var index = 0
+    let detectionStarted = Date()
     while index < source.count {
         let chunk = Array(source[index..<min(index + 1600, source.count)])
         let minAvg = history.suffix(20).reduce(Float.infinity) { min($0, $1.avg) }
         let rel = AudioProcessor.calculateRelativeEnergy(of: chunk, relativeTo: minAvg)
         let e = AudioProcessor.calculateEnergy(of: chunk)
         history.append((rel, e.avg, e.max, e.min))
-        print(String(format: "%5.1fs rel=%.2f avg=%.5f max=%.3f %@", Float(index) / 16_000, rel, e.avg, e.max, rel > 0.12 ? "VOICE" : "-"))
+        var verdict = ""
+        if let detector {
+            let probabilities = try detector.process(chunk)
+            let speech = probabilities.max() ?? 0
+            verdict = String(format: " vad=%.2f %@", speech, speech >= SileroVoiceDetector.speechThreshold ? "SPEECH" : "-")
+        }
+        print(String(format: "%5.1fs rel=%.2f avg=%.5f max=%.3f %@%@", Float(index) / 16_000, rel, e.avg, e.max, rel > 0.12 ? "VOICE" : "-", verdict))
         index += 1600
+    }
+    if detector != nil {
+        print(String(format: "voice detector: %.1fs of audio judged in %.2fs", Float(source.count) / 16_000, Date().timeIntervalSince(detectionStarted)))
     }
     exit(0)
 }
@@ -208,7 +233,9 @@ final class CapturedAudio: @unchecked Sendable {
 let captured = CapturedAudio()
 
 let driver = Driver()
-let transcriber = LiveTranscriber(whisperKit: whisperKit, options: options, inputDeviceID: 0, silenceThreshold: 0.12, silenceDelay: 2, speechEnergyFloor: speechEnergyFloor, delegate: driver, audioProcessor: audio, audioSink: { captured.append($0) }, log: { message in
+let voiceDetector = try await makeVoiceDetector()
+if voiceDetector != nil { print("voice detector on") }
+let transcriber = LiveTranscriber(whisperKit: whisperKit, options: options, inputDeviceID: 0, silenceThreshold: 0.12, silenceDelay: 2, speechEnergyFloor: speechEnergyFloor, voiceDetector: voiceDetector, delegate: driver, audioProcessor: audio, audioSink: { captured.append($0) }, log: { message in
     print("\(stamp()) LT fed=\(String(format: "%.1f", audio.fedSeconds))s \(message)")
 })
 

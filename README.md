@@ -51,6 +51,7 @@ With BlackHole, use a Multi-Output Device that routes to both the speakers and B
 - Energy threshold: sound below it is ignored. Lower it for quiet sources such as speakers picked up by a microphone.
 - Measure background noise: keep quiet for 2 seconds. The room's noise is recorded for noise reduction and the threshold is set just above it, so fans or hum do not trigger recognition.
 - Noise reduction: subtracts the measured background noise from the input before recognition. Available once the noise has been measured.
+- Voice filter: runs a speech detection model (Silero VAD) over the input, so sound that is loud but not speech, such as background music, no longer triggers recognition or holds a sentence open. Off by default. The model (about 1 MB) is downloaded from Hugging Face when the filter is first turned on and cached next to the recognition models.
 - Recognition preview: listens with the current settings and shows the input level and recognized text without writing to the transcript. Useful for tuning the threshold.
 - Recognition prompt: words the recognizer should prefer, such as names, product names and technical terms it tends to get wrong. "Edit file" opens `~/.voiced/prompt.txt` in the default text editor; put one term per line, in the language you speak. Lines starting with `#` are ignored. The file is read at the start of each recording or preview. Whisper has no hard keyword list, so the prompt only tilts the model towards these spellings; it works best for a few dozen terms and the first 223 tokens are used.
 

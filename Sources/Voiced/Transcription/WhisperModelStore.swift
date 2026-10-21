@@ -13,6 +13,10 @@ enum ModelComponent: Int, CaseIterable, Sendable {
 enum WhisperModelStore {
     /// Where WhisperKit's downloader puts repositories, under the user's Documents folder.
     private static let cacheRoot = "huggingface/models"
+    /// The model cache: one folder per Hugging Face repository. Nil without a Documents folder.
+    static var cacheDirectory: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appending(path: cacheRoot)
+    }
     /// Files that must all exist before a cached model is trusted. Guards against interrupted downloads.
     /// Only the three Core ML bundles: community conversions do not always ship a `config.json`,
     /// and WhisperKit reads the model's shape from the bundles themselves.
@@ -27,11 +31,8 @@ enum WhisperModelStore {
     /// The local folder of a fully downloaded model, or nil if it still has to be downloaded.
     static func cachedModelFolder(for engine: RecognitionEngine) -> URL? {
         let fileManager = FileManager.default
-        guard let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let folder = documents
-            .appending(path: cacheRoot)
+        guard let cacheDirectory else { return nil }
+        let folder = cacheDirectory
             .appending(path: engine.repo)
             .appending(path: engine.modelFolderName)
         let isComplete = requiredFiles.allSatisfy {

@@ -13,6 +13,7 @@ struct AppSettings {
         case recognitionEngine
         case speechEnergyFloor
         case noiseReduction
+        case voiceFilter
         case keepWindowOnTop
     }
 
@@ -53,6 +54,13 @@ struct AppSettings {
     var noiseReduction: Bool {
         get { file[Key.noiseReduction.rawValue] as? Bool ?? true }
         nonmutating set { set(newValue, for: .noiseReduction) }
+    }
+
+    /// Whether the voice detector filters what the energy gate lets through. Off by default: it
+    /// needs a model download and judges speech more strictly than the energy gate.
+    var voiceFilter: Bool {
+        get { file[Key.voiceFilter.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .voiceFilter) }
     }
 
     /// Whether the main window floats above other apps' windows.

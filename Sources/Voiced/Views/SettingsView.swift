@@ -128,6 +128,24 @@ struct SettingsView: View {
 
                 Divider()
 
+                SettingsRow(
+                    title: strings.voiceFilter,
+                    hint: controller.isDownloadingVoiceFilter ? strings.voiceFilterDownloading : strings.voiceFilterHint
+                ) {
+                    Toggle(strings.voiceFilter, isOn: $controller.voiceFilterEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(controller.isRecording || controller.preview.isActive)
+                }
+                if let error = controller.voiceFilterError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.bottom, 10)
+                }
+
+                Divider()
+
                 SettingsRow(title: strings.recognitionEngine, accessory: engineHelpButton) {
                     VStack(alignment: .trailing, spacing: 6) {
                         // A pop-up button sizes itself to its widest item, which left a blank
@@ -195,7 +213,7 @@ struct SettingsView: View {
             }
         }
         .padding(Theme.contentPadding)
-        .frame(width: 390)
+        .frame(width: 460)
         .background(Theme.background)
         // Toggles, sliders, pickers and radio choices pick up the app's orange.
         .tint(Theme.accent)
