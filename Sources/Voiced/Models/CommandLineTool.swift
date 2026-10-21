@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
 
-/// The `voiced` shell command: a script under `/usr/local/bin` that opens this app bundle, the
-/// same one `install.sh` writes. Installed from the Voiced menu.
+/// The `voiced` shell command: a script under `/usr/local/bin` that starts, stops or restarts this
+/// app bundle, the same one `install.sh` writes. Installed from the Voiced menu.
 enum CommandLineTool {
     static let installPath = "/usr/local/bin/voiced"
 
@@ -14,11 +14,60 @@ enum CommandLineTool {
         case failed(String)
     }
 
+    /// The same script `install.sh` writes; keep the two in step.
     private static var launcher: String {
         """
         #!/bin/sh
-        # Opens Voiced. Installed from the Voiced menu; remove with uninstall.sh.
-        exec open "\(Bundle.main.bundleURL.path)"
+        # Starts, stops or restarts Voiced. Installed from the Voiced menu; remove with uninstall.sh.
+        #
+        # Usage: voiced [start|stop|restart]   (no argument means start)
+
+        APP="\(Bundle.main.bundleURL.path)"
+        EXECUTABLE="$APP/Contents/MacOS/Voiced"
+
+        running() {
+            pgrep -f -- "$EXECUTABLE" >/dev/null
+        }
+
+        start() {
+            if running; then
+                # open brings the running app to the front.
+                open "$APP"
+                echo "Voiced is already running."
+            else
+                open "$APP" && echo "Started Voiced."
+            fi
+        }
+
+        stop() {
+            if ! running; then
+                echo "Voiced is not running."
+                return 0
+            fi
+            pkill -f -- "$EXECUTABLE"
+            # Wait for the process to exit, so a following start opens a new one instead of
+            # activating the old one.
+            i=0
+            while running && [ "$i" -lt 50 ]; do
+                sleep 0.1
+                i=$((i + 1))
+            done
+            if running; then
+                echo "Voiced did not stop." >&2
+                return 1
+            fi
+            echo "Stopped Voiced."
+        }
+
+        case "${1:-start}" in
+            start) start ;;
+            stop) stop ;;
+            restart) stop && start ;;
+            *)
+                echo "Usage: voiced [start|stop|restart]" >&2
+                exit 2
+                ;;
+        esac
 
         """
     }

@@ -30,7 +30,7 @@ open .build/Voiced.app
 
 根目录的 `start.sh`、`stop.sh`、`restart.sh` 作用相同，并会在需要时自动重新构建。
 
-`./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令，在终端输入即可打开应用；`./uninstall.sh` 删除它。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
+`./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令：在终端输入 `voiced` 或 `voiced start` 打开应用，`voiced stop` 退出，`voiced restart` 重新启动；`./uninstall.sh` 删除该命令。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
 
 首次运行需要允许麦克风访问。即使选择的是虚拟音频设备，macOS 仍会把它归类为麦克风输入，因此没有物理麦克风时也需要这项权限。
 

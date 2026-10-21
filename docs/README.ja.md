@@ -30,7 +30,7 @@ open .build/Voiced.app
 
 リポジトリ直下の `start.sh`、`stop.sh`、`restart.sh` も同じことを行い、必要に応じて再ビルドします。
 
-`./install.sh` は `/usr/local/bin/voiced` に `voiced` コマンドをインストールし、ターミナルからアプリを開けるようにします。`./uninstall.sh` で削除できます。アプリの Voiced メニューにも同じ「voiced コマンドをインストール」があります。
+`./install.sh` は `/usr/local/bin/voiced` に `voiced` コマンドをインストールします。ターミナルで `voiced` または `voiced start` がアプリを開き、`voiced stop` が終了、`voiced restart` が再起動します。`./uninstall.sh` で削除できます。アプリの Voiced メニューにも同じ「voiced コマンドをインストール」があります。
 
 初回起動時にマイクへのアクセス許可を求められます。macOS は仮想オーディオデバイスもマイク入力として扱うため、物理マイクを使わない場合でもこの許可が必要です。
 

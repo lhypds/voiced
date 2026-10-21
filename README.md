@@ -32,7 +32,7 @@ open .build/Voiced.app
 
 `start.sh`, `stop.sh` and `restart.sh` in the repository root do the same and rebuild when needed.
 
-`./install.sh` installs a `voiced` command at `/usr/local/bin/voiced` that opens the app from a terminal; `./uninstall.sh` removes it. The same installer is in the app's Voiced menu as "Install 'voiced' Command".
+`./install.sh` installs a `voiced` command at `/usr/local/bin/voiced`: `voiced` or `voiced start` opens the app from a terminal, `voiced stop` quits it and `voiced restart` relaunches it. `./uninstall.sh` removes the command. The same installer is in the app's Voiced menu as "Install 'voiced' Command".
 
 The first launch asks for microphone access. macOS treats virtual audio devices as microphone input too, so the permission is needed even without a physical microphone.
 
