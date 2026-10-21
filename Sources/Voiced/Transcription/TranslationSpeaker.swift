@@ -14,8 +14,21 @@ struct SpeechVoice: Identifiable, Equatable, Sendable {
 /// Reads translations aloud with the system's speech voices, one after another in the order
 /// they are handed in.
 @MainActor
-final class TranslationSpeaker {
+final class TranslationSpeaker: NSObject, AVSpeechSynthesizerDelegate {
+    /// How long after the speech ends it still counts as playing, for the output's latency and
+    /// the room's echo to die down before the input is listened to again.
+    private static let echoTail: Duration = .milliseconds(300)
+
+    /// Called with true when speech starts playing and with false once it has stopped.
+    var onPlayingChange: ((Bool) -> Void)?
+    private(set) var isPlaying = false
     private let synthesizer = AVSpeechSynthesizer()
+    private var settleTask: Task<Void, Never>?
+
+    override init() {
+        super.init()
+        synthesizer.delegate = self
+    }
 
     /// Queues `text` to be spoken in the language with ISO 639-1 code `language`, by the voice
     /// `voiceID` names, or by the default voice for the language when that is nil or no longer
@@ -29,6 +42,40 @@ final class TranslationSpeaker {
     /// Drops what is being spoken and everything queued after it.
     func stop() {
         synthesizer.stopSpeaking(at: .immediate)
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.speechStarted() }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.speechEnded() }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in self.speechEnded() }
+    }
+
+    private func speechStarted() {
+        settleTask?.cancel()
+        settleTask = nil
+        setPlaying(true)
+    }
+
+    /// Reports the end only after `echoTail`, and only if no queued sentence has started since.
+    private func speechEnded() {
+        settleTask?.cancel()
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.echoTail)
+            guard let self, !Task.isCancelled, !synthesizer.isSpeaking else { return }
+            setPlaying(false)
+        }
+    }
+
+    private func setPlaying(_ playing: Bool) {
+        guard isPlaying != playing else { return }
+        isPlaying = playing
+        onPlayingChange?(playing)
     }
 
     /// The installed voices that speak `language`, by region and then name. Novelty voices such

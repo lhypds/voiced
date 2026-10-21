@@ -179,6 +179,8 @@ final class TranscriptionController: ObservableObject {
     /// already on screen before it, such as a resumed record's, are never read.
     private var unspokenLineIDs: Set<String> = []
     private let speaker = TranslationSpeaker()
+    /// Silences every capture while `speaker` plays, so the speech is not recognized as input.
+    private let inputMute = InputMute()
     /// Forwards the preview's changes as this object's own: views read `preview.isActive` through
     /// the controller to enable their controls, so they must redraw when the preview stops.
     private var previewForwarding: AnyCancellable?
@@ -264,6 +266,9 @@ final class TranscriptionController: ObservableObject {
         speakTranslation = settings.speakTranslation
         pinLanguageToEngine()
         configureTranslator()
+        speaker.onPlayingChange = { [inputMute] playing in
+            inputMute.isMuted = playing
+        }
         previewForwarding = preview.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -502,7 +507,7 @@ final class TranscriptionController: ObservableObject {
     /// Capture source for recordings and previews: the denoising wrapper when noise reduction is
     /// on and a profile exists, otherwise nil for the model's own processor.
     private func makeAudioSource() -> any AudioProcessing {
-        MicrophoneAudioSource(profile: noiseReductionEnabled ? noiseProfile : nil)
+        MicrophoneAudioSource(profile: noiseReductionEnabled ? noiseProfile : nil, mute: inputMute)
     }
 
     // MARK: - Voice filter

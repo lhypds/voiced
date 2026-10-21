@@ -32,8 +32,12 @@ final class MicrophoneAudioSource: AudioProcessing, @unchecked Sendable {
     private var energy: [(rel: Float, avg: Float, max: Float, min: Float)] = []
     private var callback: (([Float]) -> Void)?
 
-    init(profile: NoiseProfile?) {
+    /// While set, the input is stored as silence.
+    private let mute: InputMute?
+
+    init(profile: NoiseProfile?, mute: InputMute? = nil) {
         denoiser = profile.map { SpectralDenoiser(profile: $0) }
+        self.mute = mute
     }
 
     /// Same default as WhisperKit's processor, which this replaces.
@@ -86,7 +90,28 @@ final class MicrophoneAudioSource: AudioProcessing, @unchecked Sendable {
 
     /// Runs on the capture thread with each raw chunk.
     private func ingest(_ chunk: [Float]) {
-        append(lock.withLock { denoiser?.process(chunk) ?? chunk })
+        // The denoiser still sees the real input, so its state is current once the mute lifts.
+        let processed = lock.withLock { denoiser?.process(chunk) ?? chunk }
+        if mute?.isMuted == true {
+            appendSilence(count: processed.count)
+        } else {
+            append(processed)
+        }
+    }
+
+    /// Stores `count` samples of silence in place of muted input: the capture keeps its length,
+    /// so later timestamps stay right, and nothing in it is heard as speech.
+    private func appendSilence(count: Int) {
+        guard count > 0 else { return }
+        let chunk = [Float](repeating: 0, count: count)
+        let callback: (([Float]) -> Void)? = lock.withLock {
+            samples.append(contentsOf: chunk)
+            // An average of infinity keeps the silence out of the quietest level later chunks are
+            // measured against; at zero, every sound after the mute would count as loud.
+            energy.append((0, .infinity, 0, 0))
+            return self.callback
+        }
+        callback?(chunk)
     }
 
     /// Stores the audio and its energy, one entry per chunk like the processor this replaces.
@@ -101,5 +126,17 @@ final class MicrophoneAudioSource: AudioProcessing, @unchecked Sendable {
             return self.callback
         }
         callback?(chunk)
+    }
+}
+
+/// Whether the input is to be ignored, set while the app plays speech that the microphone, or a
+/// loopback of the system output, would otherwise pick up and recognize. Read on the capture thread.
+final class InputMute: @unchecked Sendable {
+    private let lock = NSLock()
+    private var muted = false
+
+    var isMuted: Bool {
+        get { lock.withLock { muted } }
+        set { lock.withLock { muted = newValue } }
     }
 }
