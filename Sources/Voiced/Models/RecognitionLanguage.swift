@@ -27,6 +27,9 @@ struct RecognitionLanguage: Identifiable, Hashable, Sendable {
         RecognitionLanguage(code: "ru", nativeName: "Русский"),
     ]
 
+    /// The languages automatic detection can be narrowed to: every choice but automatic itself.
+    static var detectable: [RecognitionLanguage] { choices.filter { !$0.isAutomatic } }
+
     /// The choices the picker offers with a model: only the fine-tuned language for a
     /// specialized one, which recognizes nothing else well; otherwise every language, plus
     /// automatic detection when the model can do it.

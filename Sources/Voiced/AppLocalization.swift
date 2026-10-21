@@ -147,6 +147,10 @@ struct AppStrings: Sendable {
         value("版本 \(number)", "バージョン \(number)", "Version \(number)", "Version \(number)", "Versión \(number)", "Version \(number)")
     }
     var languageChangeHint: String { value("选择会立即生效并自动保存。", "選択内容はすぐに反映され、自動的に保存されます。", "Changes apply immediately and are saved automatically.", "Les changements s'appliquent immédiatement et sont enregistrés.", "Los cambios se aplican de inmediato y se guardan automáticamente.", "Änderungen gelten sofort und werden automatisch gespeichert.") }
+    var detectionLanguages: String { value("检测范围", "検出対象", "Detect among", "Détecter parmi", "Detectar entre", "Erkennen unter") }
+    var detectionLanguagesHint: String { value("自动检测只在这些语言中选择", "自動検出はこの中から言語を選びます", "Auto detect only picks from these", "La détection auto ne choisit que parmi celles-ci", "La detección automática solo elige entre estos", "Die automatische Erkennung wählt nur unter diesen") }
+    var allLanguages: String { value("全部语言", "すべての言語", "All languages", "Toutes les langues", "Todos los idiomas", "Alle Sprachen") }
+    var addDetectionLanguage: String { value("添加语言", "言語を追加", "Add language", "Ajouter une langue", "Añadir idioma", "Sprache hinzufügen") }
     var automaticDetection: String { value("自动检测", "自動検出", "Auto detect", "Détection auto", "Detección automática", "Automatisch") }
     var stopRecognition: String { value("停止识别", "認識を停止", "Stop recognition", "Arrêter la reconnaissance", "Detener reconocimiento", "Erkennung beenden") }
     var startRecognition: String { value("开始识别", "認識を開始", "Start recognition", "Démarrer la reconnaissance", "Iniciar reconocimiento", "Erkennung starten") }
@@ -182,6 +186,11 @@ struct AppStrings: Sendable {
     var historyEmpty: String { value("暂无历史记录", "履歴はまだありません", "No history yet", "Aucun historique", "Sin historial", "Noch kein Verlauf") }
     var currentRecord: String { value("当前", "現在", "Current", "Actuel", "Actual", "Aktuell") }
     var openFolder: String { value("打开文件夹", "フォルダを開く", "Open folder", "Ouvrir le dossier", "Abrir carpeta", "Ordner öffnen") }
+    var resetAllSettings: String { value("重置所有设置", "すべての設定をリセット", "Reset all settings", "Réinitialiser tous les réglages", "Restablecer todos los ajustes", "Alle Einstellungen zurücksetzen") }
+    var resetAllSettingsHint: String { value("恢复为初次启动时的设置，历史记录和提示词文件不受影响", "初回起動時の設定に戻します。履歴とプロンプトファイルはそのままです", "Restores the first-launch settings; history and the prompt file are kept", "Rétablit les réglages du premier lancement ; l'historique et le fichier d'invite sont conservés", "Restaura los ajustes del primer inicio; el historial y el archivo de indicaciones se conservan", "Stellt die Einstellungen des ersten Starts wieder her; Verlauf und Prompt-Datei bleiben erhalten") }
+    var reset: String { value("重置", "リセット", "Reset", "Réinitialiser", "Restablecer", "Zurücksetzen") }
+    var resetAllSettingsConfirmation: String { value("重置所有设置？", "すべての設定をリセットしますか？", "Reset all settings?", "Réinitialiser tous les réglages ?", "¿Restablecer todos los ajustes?", "Alle Einstellungen zurücksetzen?") }
+    var cancel: String { value("取消", "キャンセル", "Cancel", "Annuler", "Cancelar", "Abbrechen") }
     var delete: String { value("删除", "削除", "Delete", "Supprimer", "Eliminar", "Löschen") }
     var emptyTitle: String { value("点击麦克风开始识别", "マイクをクリックして認識を開始", "Click the microphone to start", "Cliquez sur le micro pour commencer", "Haz clic en el micrófono para empezar", "Auf das Mikrofon klicken, um zu starten") }
     var noInput: String { value("未选择输入", "入力が未選択", "No input selected", "Aucune entrée sélectionnée", "Sin entrada seleccionada", "Kein Eingang gewählt") }

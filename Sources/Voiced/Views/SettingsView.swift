@@ -46,6 +46,7 @@ struct SettingsView: View {
     @ObservedObject var controller: TranscriptionController
     @Binding var isPresented: Bool
     @State private var section: SettingsSection = .general
+    @State private var isResetConfirmationPresented = false
     @State private var isEngineHelpPresented = false
 
     private var strings: AppStrings { controller.strings }
@@ -206,6 +207,22 @@ struct SettingsView: View {
                     .disabled(controller.timestampMode == .relative)
             }
         }
+
+        SettingsGroup {
+            SettingsRow(title: strings.resetAllSettings, hint: strings.resetAllSettingsHint) {
+                Button(strings.reset, role: .destructive) {
+                    isResetConfirmationPresented = true
+                }
+                .fixedSize()
+                .disabled(controller.isRecording || controller.preview.isActive)
+                .confirmationDialog(strings.resetAllSettingsConfirmation, isPresented: $isResetConfirmationPresented) {
+                    Button(strings.reset, role: .destructive) {
+                        controller.resetSettings()
+                    }
+                    Button(strings.cancel, role: .cancel) {}
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -349,6 +366,12 @@ struct SettingsView: View {
                 .disabled(controller.isRecording || controller.preview.isActive)
             }
 
+            if controller.selectedLanguage.isAutomatic {
+                Divider()
+
+                detectionLanguagesSection
+            }
+
             Divider()
 
             SettingsRow(title: strings.recognitionPrompt, hint: strings.recognitionPromptHint) {
@@ -486,6 +509,76 @@ struct SettingsView: View {
         }
         .padding(.bottom, 14)
         .disabled(!controller.translationEnabled)
+    }
+
+    /// The languages automatic detection picks from, one per line, laid out like the
+    /// translation rules. With none listed a single "all languages" line stands in; picking a
+    /// language there starts the list, and deleting the last line returns to it. Adding is
+    /// off on that line: every language is already included.
+    private var detectionLanguagesSection: some View {
+        let languages = controller.detectionLanguages
+        return VStack(alignment: .leading, spacing: 8) {
+            SettingsRow(title: strings.detectionLanguages, hint: strings.detectionLanguagesHint) {
+                Button(strings.addDetectionLanguage) {
+                    if let code = unlistedDetectionLanguages(besides: nil).first?.code {
+                        controller.detectionLanguages.append(code)
+                    }
+                }
+                .fixedSize()
+                .disabled(languages.isEmpty || unlistedDetectionLanguages(besides: nil).isEmpty)
+            }
+            .padding(.bottom, -6)
+            if languages.isEmpty {
+                detectionLanguageLine(Binding(
+                    get: { nil },
+                    set: { code in controller.detectionLanguages = code.map { [$0] } ?? [] }
+                ), offersAll: true, onDelete: nil)
+            } else {
+                ForEach(Array(languages.enumerated()), id: \.element) { index, code in
+                    detectionLanguageLine(Binding(
+                        get: { code },
+                        set: { if let code = $0 { controller.detectionLanguages[index] = code } }
+                    ), offersAll: false) {
+                        controller.detectionLanguages.removeAll { $0 == code }
+                    }
+                }
+            }
+        }
+        .padding(.bottom, 14)
+        .disabled(controller.isRecording || controller.preview.isActive)
+    }
+
+    /// One line of the detection list: a language picker (nil is "all languages") and, when
+    /// `onDelete` is given, a delete button.
+    private func detectionLanguageLine(_ code: Binding<String?>, offersAll: Bool, onDelete: (() -> Void)?) -> some View {
+        HStack(spacing: 8) {
+            // A language listed on another line is not offered again.
+            Picker(strings.detectionLanguages, selection: code) {
+                if offersAll {
+                    Text(strings.allLanguages).tag(String?.none)
+                }
+                ForEach(unlistedDetectionLanguages(besides: code.wrappedValue)) { language in
+                    Text(language.nativeName).tag(language.code)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 140)
+            if let onDelete {
+                Button(strings.delete, action: onDelete)
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.leading, 4)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(height: 28)
+    }
+
+    /// The detectable languages not yet listed, plus `code` itself so a line's picker keeps
+    /// its own choice.
+    private func unlistedDetectionLanguages(besides code: String?) -> [RecognitionLanguage] {
+        RecognitionLanguage.detectable.filter { $0.code == code || !controller.detectionLanguages.contains($0.code ?? "") }
     }
 
     /// A rule for the first language no rule has yet, or for any other language once every one

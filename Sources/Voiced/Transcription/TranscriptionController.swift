@@ -46,6 +46,11 @@ final class TranscriptionController: ObservableObject {
             configureTranslator()
         }
     }
+    /// Whisper codes automatic detection picks from, in the order Settings lists them; empty
+    /// for any language.
+    @Published var detectionLanguages: [String] {
+        didSet { settings.detectionLanguages = detectionLanguages }
+    }
     @Published var appLanguage: AppLanguage {
         didSet { settings.appLanguage = appLanguage }
     }
@@ -256,6 +261,7 @@ final class TranscriptionController: ObservableObject {
         history = historyStore.load()
         appLanguage = settings.appLanguage
         selectedLanguage = settings.recognitionLanguage
+        detectionLanguages = settings.detectionLanguages
         timestampMode = settings.timestampMode
         showTimestampDate = settings.showTimestampDate
         keepWindowOnTop = settings.keepWindowOnTop
@@ -337,6 +343,33 @@ final class TranscriptionController: ObservableObject {
         whisperKit = nil
         phase = .loading
         Task { await prepare() }
+    }
+
+    /// Puts every preference back to its default, as on a first launch, and applies it. The
+    /// history, the noise profile and the prompt file are not preferences and are kept. Reloads
+    /// the model when the default engine is not the one loaded.
+    func resetSettings() {
+        guard !isRecording, !preview.isActive else { return }
+        settings.reset()
+        appLanguage = settings.appLanguage
+        keepWindowOnTop = settings.keepWindowOnTop
+        timestampMode = settings.timestampMode
+        showTimestampDate = settings.showTimestampDate
+        speechEnergyFloor = settings.speechEnergyFloor
+        noiseReductionEnabled = settings.noiseReduction
+        voiceFilterEnabled = settings.voiceFilter
+        if settings.recognitionEngine != selectedEngine {
+            selectEngine(settings.recognitionEngine)
+        }
+        selectedLanguage = settings.recognitionLanguage
+        pinLanguageToEngine()
+        detectionLanguages = settings.detectionLanguages
+        translationEnabled = settings.translation
+        translationRules = [TranslationRule(source: nil, target: settings.appLanguage)]
+        translationEmphasis = settings.translationEmphasis
+        speakTranslation = settings.speakTranslation
+        // The assignments above wrote each default back; start the file over so it holds none.
+        settings.reset()
     }
 
     /// Keeps a saved language the model supports; a choice it cannot honour, such as one saved
@@ -904,6 +937,7 @@ final class TranscriptionController: ObservableObject {
     private func currentDecodingOptions(whisperKit: WhisperKit) -> DecodingOptions {
         let prompt = RecognitionPrompt.load(from: promptFileURL)
         let tokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
+        (whisperKit.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages = selectedLanguage.isAutomatic && !detectionLanguages.isEmpty ? Set(detectionLanguages) : nil
         return Self.decodingOptions(for: selectedLanguage, promptTokens: tokens)
     }
 

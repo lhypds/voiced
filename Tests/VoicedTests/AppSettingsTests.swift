@@ -37,6 +37,39 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
 
+    func testDetectionLanguagesDefaultToNoneAndDropUnknownCodes() throws {
+        let settings = AppSettings(fileURL: fileURL)
+        XCTAssertEqual(settings.detectionLanguages, [], "none listed means every language")
+
+        settings.detectionLanguages = ["zh", "en"]
+        XCTAssertEqual(AppSettings(fileURL: fileURL).detectionLanguages, ["zh", "en"], "the listed order is kept")
+
+        settings.detectionLanguages = ["ja", "xx", "ja"]
+        XCTAssertEqual(AppSettings(fileURL: fileURL).detectionLanguages, ["ja"])
+
+        settings.detectionLanguages = RecognitionLanguage.detectable.compactMap(\.code).reversed()
+        XCTAssertEqual(AppSettings(fileURL: fileURL).detectionLanguages, [], "listing every language is the same as none")
+
+        settings.detectionLanguages = []
+        XCTAssertNil(try storedValue("detectionLanguages"))
+    }
+
+    func testResetForgetsEveryPreference() throws {
+        let settings = AppSettings(fileURL: fileURL)
+        settings.keepWindowOnTop = false
+        settings.recognitionEngine = .accurate
+        settings.detectionLanguages = ["zh"]
+
+        settings.reset()
+
+        let reread = AppSettings(fileURL: fileURL)
+        XCTAssertTrue(reread.keepWindowOnTop)
+        XCTAssertEqual(reread.recognitionEngine, .turbo)
+        XCTAssertEqual(reread.detectionLanguages, [])
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        XCTAssertEqual(object?.isEmpty, true)
+    }
+
     func testSpeechEnergyFloorRoundTripsAndClamps() throws {
         let settings = AppSettings(fileURL: fileURL)
 

@@ -63,6 +63,7 @@ enum WhisperModelStore {
     ) async throws -> WhisperKit {
         let config = WhisperKitConfig(
             modelFolder: modelFolder.path,
+            textDecoder: LanguageLimitedDecoder(),
             verbose: onComponent != nil,
             logLevel: .debug,
             prewarm: false,

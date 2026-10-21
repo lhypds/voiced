@@ -8,6 +8,7 @@ struct AppSettings {
     private enum Key: String, CaseIterable {
         case appLanguage
         case recognitionLanguage
+        case detectionLanguages
         case timestampMode
         case showTimestampDate
         case recognitionEngine
@@ -39,6 +40,20 @@ struct AppSettings {
     var recognitionLanguage: RecognitionLanguage {
         get { RecognitionLanguage.choice(id: string(.recognitionLanguage)) }
         nonmutating set { set(newValue.id, for: .recognitionLanguage) }
+    }
+
+    /// Whisper codes of the languages automatic detection may pick, in the order listed in
+    /// Settings. Empty, the default, leaves every language to Whisper, as does a list naming
+    /// every one of `RecognitionLanguage.detectable`; unknown and repeated codes are dropped.
+    var detectionLanguages: [String] {
+        get {
+            let all = RecognitionLanguage.detectable.compactMap(\.code)
+            var seen = Set<String>()
+            let stored = (file[Key.detectionLanguages.rawValue] as? [String] ?? [])
+                .filter { all.contains($0) && seen.insert($0).inserted }
+            return stored.count == all.count ? [] : stored
+        }
+        nonmutating set { set(newValue.isEmpty ? nil : newValue, for: .detectionLanguages) }
     }
 
     var recognitionEngine: RecognitionEngine {
@@ -127,6 +142,11 @@ struct AppSettings {
         nonmutating set { set(Double(newValue.clamped(to: LiveTranscriber.speechEnergyFloorRange)), for: .speechEnergyFloor) }
     }
 
+    /// Forgets every stored preference, so each reads its default again.
+    func reset() {
+        file.removeAll()
+    }
+
     /// Copies preferences stored in `UserDefaults` by versions before the settings file existed.
     /// Does nothing once the file is present, so later changes to the defaults are ignored.
     static func importLegacyDefaults(_ defaults: UserDefaults, into fileURL: URL) {
@@ -172,6 +192,13 @@ private final class SettingsFile: @unchecked Sendable {
                 values[key] = newValue
                 save()
             }
+        }
+    }
+
+    func removeAll() {
+        lock.withLock {
+            values = [:]
+            save()
         }
     }
 

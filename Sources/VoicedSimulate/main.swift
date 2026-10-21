@@ -155,14 +155,19 @@ let audio = try FileAudioSource(file: file, noise: noise, denoise: CommandLine.a
 print("model ready; feeding \(audio.sourceSeconds)s of audio")
 
 let langIndex = CommandLine.arguments.firstIndex(of: "--lang")
-let language = langIndex.map { CommandLine.arguments[$0 + 1] } ?? "en"
+// "--lang auto" detects the language, among "--languages zh,en" when given.
+let langArgument = langIndex.map { CommandLine.arguments[$0 + 1] } ?? "en"
+let language: String? = langArgument == "auto" ? nil : langArgument
+let languagesIndex = CommandLine.arguments.firstIndex(of: "--languages")
+(whisperKit.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages =
+    languagesIndex.map { Set(CommandLine.arguments[$0 + 1].split(separator: ",").map(String.init)) }
 let floorIndex = CommandLine.arguments.firstIndex(of: "--floor")
 let speechEnergyFloor = floorIndex.flatMap { Float(CommandLine.arguments[$0 + 1]) } ?? LiveTranscriber.defaultSpeechEnergyFloor
 let promptIndex = CommandLine.arguments.firstIndex(of: "--prompt-file")
 let promptText = promptIndex.flatMap { RecognitionPrompt.load(from: URL(fileURLWithPath: CommandLine.arguments[$0 + 1])) }
 let promptTokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: promptText, tokenizer: $0) }
 if let promptText { print("prompt (\(promptTokens?.count ?? 0) tokens): \(promptText)") }
-let options = DecodingOptions(task: .transcribe, language: language, temperatureFallbackCount: 1, usePrefillPrompt: true, detectLanguage: false, skipSpecialTokens: true, withoutTimestamps: false, wordTimestamps: true, promptTokens: promptTokens, logProbThreshold: -0.8, noSpeechThreshold: 0.4)
+let options = DecodingOptions(task: .transcribe, language: language, temperatureFallbackCount: 1, usePrefillPrompt: true, detectLanguage: language == nil, skipSpecialTokens: true, withoutTimestamps: false, wordTimestamps: true, promptTokens: promptTokens, logProbThreshold: -0.8, noSpeechThreshold: 0.4)
 let assembler = SentenceAssembler(languageCode: language)
 var session = RecordingSession(startedAt: started, baseLines: [])
 var liveText = ""
