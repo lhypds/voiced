@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+/// Content size of the settings window: a fixed width, and a height the user drags.
+struct SettingsWindowSize {
+    let width: CGFloat
+    /// Lowest height the user can drag the window to.
+    let minHeight: CGFloat
+    /// Height of the first opening, before the user has resized the window.
+    let defaultHeight: CGFloat
+}
+
 /// Shows `content` in its own window, centered over the hosting window, while `isPresented` is true.
 ///
 /// A SwiftUI sheet on macOS hangs from the window's title bar, so a tall sheet over a tall window
@@ -9,8 +18,8 @@ import SwiftUI
 /// it is an independent window: both it and the hosting window can be focused, dragged and
 /// brought to the front, and neither blocks the other. (A modal session would block the hosting
 /// window, but SwiftUI stops updating its views inside the nested modal loop, so the close
-/// button's change to `isPresented` never arrived.) When its content grows, the window keeps
-/// its top edge and extends downwards, the way a sheet does.
+/// button's change to `isPresented` never arrived.) The window keeps `size.width`; its height is
+/// the user's to drag, from `size.minHeight` up, and it reopens at the last height.
 struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
     /// A plain value, not a binding: the presenting view reads it in its body, so a change
     /// re-evaluates that body and reaches `updateNSView`. A binding alone would not be read
@@ -22,6 +31,7 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
     /// Mirrors the hosting window's level so the settings window never drops behind it when
     /// "keep on top" is toggled while settings are open.
     let isFloating: Bool
+    let size: SettingsWindowSize
     @ViewBuilder let content: () -> Content
 
     func makeCoordinator() -> Coordinator {
@@ -42,7 +52,7 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
         DispatchQueue.main.async {
             if isPresented {
                 if coordinator.window == nil, let parent = view.window {
-                    coordinator.present(content, over: parent)
+                    coordinator.present(content, over: parent, size: size)
                 }
                 coordinator.window?.level = level
                 coordinator.bringToFront(for: focusRequest)
@@ -53,9 +63,11 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
     }
 
     final class Coordinator {
+        /// The content height the user last left the window at.
+        private static var heightKey: String { "SettingsWindowHeight" }
+
         private(set) var window: NSWindow?
         private weak var parent: NSWindow?
-        private var observers: [NSObjectProtocol] = []
         private var handledFocusRequest: Int?
 
         /// Puts the window in front of the hosting window and of every other app's windows,
@@ -68,13 +80,30 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
             window.orderFrontRegardless()
         }
 
-        func present<V: View>(_ content: V, over parent: NSWindow) {
-            let hosting = NSHostingController(rootView: content)
-            hosting.sizingOptions = .preferredContentSize
+        func present<V: View>(_ content: V, over parent: NSWindow, size: SettingsWindowSize) {
+            // The hosting view sits inside a plain container rather than being the window's
+            // content: as the content view (or a hosting controller's view) SwiftUI sizes the
+            // window itself, and with a full-size content view and flexible height every layout
+            // pass grew it by the title bar's height until it filled the screen.
+            let hosting = NSHostingView(rootView: content)
+            hosting.sizingOptions = []
+            hosting.autoresizingMask = [.width, .height]
             // The hidden title bar still counts as a safe area and would push the content down.
             hosting.safeAreaRegions = []
-            let window = NSWindow(contentViewController: hosting)
-            window.styleMask = [.titled, .fullSizeContentView]
+            let savedHeight = UserDefaults.standard.double(forKey: Self.heightKey)
+            let height = max(size.minHeight, savedHeight > 0 ? savedHeight : size.defaultHeight)
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: size.width, height: height),
+                styleMask: [.titled, .fullSizeContentView, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: size.width, height: height))
+            hosting.frame = container.bounds
+            container.addSubview(hosting)
+            window.contentView = container
+            window.contentMinSize = NSSize(width: size.width, height: size.minHeight)
+            window.contentMaxSize = NSSize(width: size.width, height: .greatestFiniteMagnitude)
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -87,33 +116,12 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
             window.level = parent.level
             window.hidesOnDeactivate = false
 
-            let size = hosting.view.fittingSize
-            window.setContentSize(size)
             // Centered on the window, unless this window is taller than it: then its top edge
             // sits on the hosting window's top edge rather than sticking out above it.
             let frame = window.frame
             let top = frame.height > parent.frame.height ? parent.frame.maxY : parent.frame.midY + frame.height / 2
             let origin = NSPoint(x: parent.frame.midX - frame.width / 2, y: top - frame.height)
             window.setFrameOrigin(origin)
-
-            // Content changes resize the window around its bottom-left corner; pin the top
-            // instead. The pinned top follows the window wherever the user drags it.
-            var pinnedTop = top
-            observers.append(NotificationCenter.default.addObserver(
-                forName: NSWindow.didMoveNotification, object: window, queue: .main
-            ) { [weak window] _ in
-                guard let window else { return }
-                pinnedTop = window.frame.maxY
-            })
-            observers.append(NotificationCenter.default.addObserver(
-                forName: NSWindow.didResizeNotification, object: window, queue: .main
-            ) { [weak window] _ in
-                guard let window else { return }
-                let wanted = NSPoint(x: window.frame.origin.x, y: pinnedTop - window.frame.height)
-                if abs(window.frame.origin.y - wanted.y) > 0.5 {
-                    window.setFrameOrigin(wanted)
-                }
-            })
 
             self.window = window
             self.parent = parent
@@ -124,12 +132,9 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
 
         func dismiss() {
             guard let window else { return }
-            for observer in observers {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            observers = []
+            UserDefaults.standard.set(Double(window.contentLayoutRect.height), forKey: Self.heightKey)
             window.orderOut(nil)
-            window.contentViewController = nil
+            window.contentView = nil
             self.window = nil
             handledFocusRequest = nil
             parent?.makeKeyAndOrderFront(nil)

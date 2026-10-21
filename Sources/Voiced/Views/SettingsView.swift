@@ -50,10 +50,12 @@ struct SettingsView: View {
 
     private var strings: AppStrings { controller.strings }
 
-    /// The window has a fixed size. Sized to its content, it would jump between pages, and a
-    /// content-sized window is where AppKit's update-constraints loop aborted the app before.
-    private static let windowSize = CGSize(width: 720, height: 560)
-    private static let sidebarWidth: CGFloat = 200
+    /// The width and sidebar of System Settings. The width is fixed; the height is the user's,
+    /// dragged between the minimum and the screen. The size never follows the content: sized to
+    /// its content, the window would jump between pages, and a content-sized window is where
+    /// AppKit's update-constraints loop aborted the app before.
+    static let windowSize = SettingsWindowSize(width: 715, minHeight: 420, defaultHeight: 560)
+    private static let sidebarWidth: CGFloat = 215
 
     var body: some View {
         HStack(spacing: 0) {
@@ -63,13 +65,13 @@ struct SettingsView: View {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .frame(width: Self.windowSize.width)
+        .frame(minHeight: Self.windowSize.minHeight, maxHeight: .infinity)
         .background(Theme.background)
         // Toggles, sliders, pickers and radio choices pick up the app's orange.
         .tint(Theme.accent)
         // The level bars listen to the selected device for as long as the window is open.
         .onAppear {
-            if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--section=") }), let i = Int(arg.dropFirst(10)) { section = SettingsSection.allCases[i] } // TEMP-HOOK
             controller.inputLevelMonitor.setNoiseProfile(controller.noiseProfile)
             controller.inputLevelMonitor.listen(to: controller.selectedDeviceID)
         }
@@ -298,7 +300,9 @@ struct SettingsView: View {
     @ViewBuilder
     private var recognitionPage: some View {
         SettingsGroup {
-            SettingsRow(title: strings.recognitionEngine, accessory: engineHelpButton) {
+            // The progress appears under the menu while a model loads; on the baseline the title
+            // stays level with the menu instead of re-centring on the taller column.
+            SettingsRow(title: strings.recognitionEngine, alignment: .firstTextBaseline, accessory: engineHelpButton) {
                 VStack(alignment: .trailing, spacing: 6) {
                     // A pop-up button sizes itself to its widest item, which left a blank
                     // stretch beside the shorter model names; a menu sizes to the chosen one.
@@ -328,7 +332,8 @@ struct SettingsView: View {
             Divider()
 
             // Under the model row: a specialized model offers only the language it was
-            // fine-tuned for, so the choices depend on the model picked above.
+            // fine-tuned for, so the choices depend on the model picked above. A single choice
+            // still shows as enabled; greyed out, it read as if the setting did not apply.
             SettingsRow(title: strings.recognitionLanguage, hint: strings.recognitionLanguageHint) {
                 Picker(strings.recognitionLanguage, selection: $controller.selectedLanguage) {
                     ForEach(RecognitionLanguage.choices(for: controller.selectedEngine)) { language in
@@ -338,10 +343,7 @@ struct SettingsView: View {
                 }
                 .labelsHidden()
                 .frame(maxWidth: 140, alignment: .trailing)
-                .disabled(
-                    controller.isRecording || controller.preview.isActive
-                        || RecognitionLanguage.choices(for: controller.selectedEngine).count < 2
-                )
+                .disabled(controller.isRecording || controller.preview.isActive)
             }
 
             Divider()
@@ -772,6 +774,9 @@ private struct SidebarItem: View {
                     .background(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(section.color)
+                            // A slight lift off the sidebar, on the square only so the symbol
+                            // does not get a second shadow of its own.
+                            .shadow(color: .black.opacity(0.18), radius: 1, y: 0.5)
                     )
                 Text(title)
                     .font(.body)
@@ -816,27 +821,37 @@ private struct SettingsGroup<Content: View>: View {
 private struct SettingsRow<Accessory: View, Control: View>: View {
     let title: String
     var hint: String?
+    /// Centred by default. A control that grows underneath, such as the engine menu with its
+    /// progress, aligns on the first text baseline instead so the title does not move.
+    var alignment: VerticalAlignment = .center
     let accessory: Accessory
     let control: Control
 
     init(
         title: String,
         hint: String? = nil,
+        alignment: VerticalAlignment = .center,
         accessory: Accessory,
         @ViewBuilder control: () -> Control
     ) {
         self.title = title
         self.hint = hint
+        self.alignment = alignment
         self.accessory = accessory
         self.control = control()
     }
 
-    init(title: String, hint: String? = nil, @ViewBuilder control: () -> Control) where Accessory == EmptyView {
-        self.init(title: title, hint: hint, accessory: EmptyView(), control: control)
+    init(
+        title: String,
+        hint: String? = nil,
+        alignment: VerticalAlignment = .center,
+        @ViewBuilder control: () -> Control
+    ) where Accessory == EmptyView {
+        self.init(title: title, hint: hint, alignment: alignment, accessory: EmptyView(), control: control)
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: alignment, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(title)

@@ -40,14 +40,14 @@ struct ContentView: View {
         .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
         .modifier(TranslationHost(translator: controller.translator))
         .preferredColorScheme(.light)
-        .task { if CommandLine.arguments.contains("--open-settings") { isSettingsPresented = true } } // TEMP-HOOK
         // Not a sheet: a sheet hangs from the title bar and blocks the window. This is a separate
         // window centered on this one; both stay focusable.
         .background(
             SettingsWindowPresenter(
                 isPresented: isSettingsPresented,
                 focusRequest: settingsFocusRequest,
-                isFloating: controller.keepWindowOnTop
+                isFloating: controller.keepWindowOnTop,
+                size: SettingsView.windowSize
             ) {
                 SettingsView(controller: controller, isPresented: $isSettingsPresented)
             }
