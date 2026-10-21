@@ -40,6 +40,7 @@ struct ContentView: View {
         .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
         .modifier(TranslationHost(translator: controller.translator))
         .preferredColorScheme(.light)
+        .task { if CommandLine.arguments.contains("--open-settings") { isSettingsPresented = true } } // TEMP-HOOK
         // Not a sheet: a sheet hangs from the title bar and blocks the window. This is a separate
         // window centered on this one; both stay focusable.
         .background(
@@ -105,8 +106,12 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 // The LIVE row leads the list and committed sentences follow newest first, so the
                 // newest text sits at the top without any scrolling.
+                // A plain VStack: a LazyVStack estimates the heights of rows it has not built, so its
+                // content size can flip between estimates. Together with the scroll offset reader that
+                // kept SwiftUI relaying out in a loop and hung the app. A session's few hundred rows
+                // lay out cheaply without laziness.
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Theme.rowGap) {
+                    VStack(alignment: .leading, spacing: Theme.rowGap) {
                         if controller.isRecording || !controller.liveText.isEmpty {
                             LiveRow(text: controller.liveText, timestampWidth: timestampWidth)
                         }
@@ -131,13 +136,13 @@ struct ContentView: View {
                     .padding(.bottom, Self.listBottomInset + bottomExtraInset)
                 }
                 .scrollIndicators(.hidden)
-                .modifier(ScrollOffsetReader(offset: $transcriptScrollOffset))
+                .modifier(ScrollOffsetReader(offset: $transcriptScrollOffset, limit: Self.topFadeHeight))
                 .mask(
                     VStack(spacing: 0) {
                         // The top fade only exists once rows have scrolled under the edge, growing
                         // with the scroll offset so the newest rows are not dimmed at rest.
                         LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                            .frame(height: min(max(transcriptScrollOffset, 0), Self.topFadeHeight))
+                            .frame(height: transcriptScrollOffset)
                         Color.black
                         LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                             .frame(height: Self.bottomFadeHeight)
@@ -517,15 +522,19 @@ private struct LiveRow: View {
     }
 }
 
-/// Reports how far a scroll view has scrolled down from its top. Needs macOS 15; on macOS 14 the
-/// offset stays at zero, which only disables the top fade.
+/// Reports how far a scroll view has scrolled down from its top, in whole points and clamped to
+/// `0...limit`. Needs macOS 15; on macOS 14 the offset stays at zero, which only disables the top fade.
+///
+/// Every new value is a state change that relays out the window, so the value only changes when the
+/// fade would visibly change: scrolling deep into the list or sub-point jitter writes nothing.
 private struct ScrollOffsetReader: ViewModifier {
     @Binding var offset: CGFloat
+    let limit: CGFloat
 
     func body(content: Content) -> some View {
         if #available(macOS 15, *) {
             content.onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentOffset.y + geometry.contentInsets.top
+                min(max(geometry.contentOffset.y + geometry.contentInsets.top, 0), limit).rounded()
             } action: { _, new in
                 offset = new
             }

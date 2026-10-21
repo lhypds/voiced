@@ -121,6 +121,9 @@ struct AppStrings: Sendable {
     var startPreview: String { value("开始预览", "プレビュー開始", "Start preview", "Lancer l'aperçu", "Iniciar vista previa", "Vorschau starten") }
     var stopPreview: String { value("停止预览", "プレビュー停止", "Stop preview", "Arrêter l'aperçu", "Detener vista previa", "Vorschau beenden") }
     var previewListening: String { value("正在聆听，请播放或说话…", "聞き取り中。音声を流すか話してください…", "Listening. Play audio or speak…", "À l'écoute. Lancez un son ou parlez…", "Escuchando. Reproduce audio o habla…", "Höre zu. Audio abspielen oder sprechen…") }
+    var general: String { value("通用", "一般", "General", "Général", "General", "Allgemein") }
+    var audioInput: String { value("音频输入", "オーディオ入力", "Audio Input", "Entrée audio", "Entrada de audio", "Audioeingang") }
+    var recognition: String { value("识别", "認識", "Recognition", "Reconnaissance", "Reconocimiento", "Erkennung") }
     var settings: String { value("设置", "設定", "Settings", "Réglages", "Ajustes", "Einstellungen") }
     var close: String { value("关闭", "閉じる", "Close", "Fermer", "Cerrar", "Schließen") }
     var installCommand: String { value("安装 voiced 命令…", "voiced コマンドをインストール…", "Install ‘voiced’ Command…", "Installer la commande « voiced »…", "Instalar el comando «voiced»…", "Befehl „voiced“ installieren…") }

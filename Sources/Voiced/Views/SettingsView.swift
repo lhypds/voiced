@@ -2,282 +2,74 @@ import AppKit
 import SwiftUI
 import WhisperKit
 
-/// The settings sheet: input device, recognition engine and language, timestamps, UI language.
+/// The pages of the settings window, listed in its sidebar.
+enum SettingsSection: CaseIterable, Identifiable {
+    case general
+    case audioInput
+    case recognition
+    case translation
+
+    var id: Self { self }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape.fill"
+        case .audioInput: "mic.fill"
+        case .recognition: "waveform"
+        case .translation: "translate"
+        }
+    }
+
+    /// Fill of the rounded square behind the symbol, the way System Settings colours its panes.
+    var color: Color {
+        switch self {
+        case .general: Color(red: 0.55, green: 0.55, blue: 0.58)
+        case .audioInput: Color(red: 0.94, green: 0.33, blue: 0.31)
+        case .recognition: Color(red: 0.25, green: 0.52, blue: 0.96)
+        case .translation: Color(red: 0.30, green: 0.72, blue: 0.42)
+        }
+    }
+
+    func title(_ strings: AppStrings) -> String {
+        switch self {
+        case .general: strings.general
+        case .audioInput: strings.audioInput
+        case .recognition: strings.recognition
+        case .translation: strings.translation
+        }
+    }
+}
+
+/// The settings window, laid out like System Settings: a sidebar of pages on the left and the
+/// selected page's grouped rows on the right.
 struct SettingsView: View {
     @ObservedObject var controller: TranscriptionController
     @Binding var isPresented: Bool
+    @State private var section: SettingsSection = .general
     @State private var isEngineHelpPresented = false
 
     private var strings: AppStrings { controller.strings }
 
+    /// The window has a fixed size. Sized to its content, it would jump between pages, and a
+    /// content-sized window is where AppKit's update-constraints loop aborted the app before.
+    private static let windowSize = CGSize(width: 720, height: 560)
+    private static let sidebarWidth: CGFloat = 200
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            titleBar
-
-            VStack(spacing: 0) {
-                SettingsRow(title: strings.interfaceLanguage, hint: strings.interfaceLanguageHint) {
-                    Picker(strings.interfaceLanguage, selection: $controller.appLanguage) {
-                        ForEach(AppLanguage.allCases) { language in
-                            Text(language.nativeName).tag(language)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 140, alignment: .trailing)
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.keepWindowOnTop, hint: strings.keepWindowOnTopHint) {
-                    Toggle(strings.keepWindowOnTop, isOn: $controller.keepWindowOnTop)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.timestamp) {
-                    HStack(spacing: 12) {
-                        RadioChoice(strings.relativeTime, selected: controller.timestampMode == .relative) {
-                            controller.timestampMode = .relative
-                        }
-                        RadioChoice(strings.currentTime, selected: controller.timestampMode == .current) {
-                            controller.timestampMode = .current
-                        }
-                    }
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.showDate) {
-                    Toggle(strings.showDate, isOn: $controller.showTimestampDate)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(controller.timestampMode == .relative)
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.input, hint: strings.inputHint) {
-                    InputDevicePopUp(
-                        devices: controller.audioDevices,
-                        selection: $controller.selectedDeviceID,
-                        refresh: {
-                            // A device plugged in after the sheet opened is listed without reopening it.
-                            controller.refreshAudioDevices()
-                            return controller.audioDevices
-                        }
-                    )
-                    .frame(maxWidth: 150, alignment: .trailing)
-                    .disabled(controller.isRecording || controller.preview.isActive)
-                }
-                InputLevelBar(
-                    monitor: controller.inputLevelMonitor,
-                    source: .input,
-                    threshold: controller.speechEnergyFloor,
-                    help: strings.inputLevel
-                )
-                .padding(.bottom, 14)
-
-                Divider()
-
-                SettingsRow(title: strings.energyThreshold, hint: strings.energyThresholdHint, accessory: resetThresholdButton) {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Slider(
-                                value: $controller.speechEnergyFloor,
-                                in: LiveTranscriber.speechEnergyFloorRange
-                            )
-                            .frame(width: 110)
-                            Text(String(format: "%.3f", controller.speechEnergyFloor))
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 38, alignment: .trailing)
-                        }
-                        calibrateNoiseButton
-                    }
-                }
-                if let error = controller.noiseCalibrationError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.bottom, 10)
-                }
-
-                Divider()
-
-                SettingsRow(
-                    title: strings.noiseReduction,
-                    hint: controller.noiseProfile == nil ? strings.noiseReductionNeedsProfile : strings.noiseReductionHint
-                ) {
-                    Toggle(strings.noiseReduction, isOn: $controller.noiseReductionEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(controller.noiseProfile == nil || controller.isRecording || controller.preview.isActive)
-                }
-                // What the input looks like after subtracting the measured noise, whether or not
-                // noise reduction is on, so the user can see what turning it on would do.
-                if controller.noiseProfile != nil {
-                    InputLevelBar(
-                        monitor: controller.inputLevelMonitor,
-                        source: .denoised,
-                        threshold: controller.speechEnergyFloor,
-                        help: strings.denoisedLevel
-                    )
-                    .padding(.bottom, 14)
-                }
-
-                Divider()
-
-                SettingsRow(
-                    title: strings.voiceFilter,
-                    hint: controller.isDownloadingVoiceFilter ? strings.voiceFilterDownloading : strings.voiceFilterHint
-                ) {
-                    Toggle(strings.voiceFilter, isOn: $controller.voiceFilterEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(controller.isRecording || controller.preview.isActive)
-                }
-                if let error = controller.voiceFilterError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.bottom, 10)
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.recognitionEngine, accessory: engineHelpButton) {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        // A pop-up button sizes itself to its widest item, which left a blank
-                        // stretch beside the shorter model names; a menu sizes to the chosen one.
-                        Menu {
-                            ForEach(RecognitionEngine.allCases) { engine in
-                                Button {
-                                    controller.selectEngine(engine)
-                                } label: {
-                                    if engine == controller.selectedEngine {
-                                        Label(engine.displayName, systemImage: "checkmark")
-                                    } else {
-                                        Text(engine.displayName)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Text(controller.selectedEngine.displayName)
-                        }
-                        .fixedSize()
-                        .disabled(controller.isRecording || controller.isPreparing || controller.preview.isActive)
-                        if controller.isPreparing {
-                            enginePreparationProgress
-                        }
-                    }
-                }
-
-                Divider()
-
-                // Under the model row: a specialized model offers only the language it was
-                // fine-tuned for, so the choices depend on the model picked above.
-                SettingsRow(title: strings.recognitionLanguage, hint: strings.recognitionLanguageHint) {
-                    Picker(strings.recognitionLanguage, selection: $controller.selectedLanguage) {
-                        ForEach(RecognitionLanguage.choices(for: controller.selectedEngine)) { language in
-                            Text(language.isAutomatic ? strings.automaticDetection : language.nativeName)
-                                .tag(language)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 140, alignment: .trailing)
-                    .disabled(
-                        controller.isRecording || controller.preview.isActive
-                            || RecognitionLanguage.choices(for: controller.selectedEngine).count < 2
-                    )
-                }
-
-                Divider()
-
-                SettingsRow(
-                    title: strings.translation,
-                    hint: controller.isTranslationAvailable ? strings.translationHint : strings.translationUnavailable
-                ) {
-                    Toggle(strings.translation, isOn: $controller.translationEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(!controller.isTranslationAvailable)
-                }
-                if let error = controller.translationError {
-                    Text(strings.translationFailed(error))
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.bottom, 10)
-                }
-
-                Divider()
-
-                // The target is offered in the languages the interface comes in. Translating
-                // into the language the speech is pinned to would show every sentence twice.
-                SettingsRow(
-                    title: strings.translationLanguage,
-                    hint: controller.translationEnabled && controller.isTranslationRedundant ? strings.translationRedundantHint : nil
-                ) {
-                    Picker(strings.translationLanguage, selection: $controller.translationLanguage) {
-                        ForEach(AppLanguage.allCases) { language in
-                            Text(language.nativeName).tag(language)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(maxWidth: 140, alignment: .trailing)
-                    .disabled(!controller.translationEnabled)
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.translationEmphasis, hint: strings.translationEmphasisHint) {
-                    HStack(spacing: 12) {
-                        RadioChoice(strings.originalText, selected: controller.translationEmphasis == .original) {
-                            controller.translationEmphasis = .original
-                        }
-                        RadioChoice(strings.translatedText, selected: controller.translationEmphasis == .translation) {
-                            controller.translationEmphasis = .translation
-                        }
-                    }
-                    .disabled(!controller.translationEnabled)
-                }
-
-                Divider()
-
-                SettingsRow(title: strings.recognitionPrompt, hint: strings.recognitionPromptHint) {
-                    Button {
-                        controller.openPromptFile()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.and.pencil")
-                            Text(strings.editPromptFile)
-                        }
-                    }
-                    .help(strings.editPromptFileHint)
-                }
-
-                Divider()
-
-                RecognitionPreviewSection(controller: controller, preview: controller.preview)
-
-            }
-
-            if let version = AppVersion.current {
-                Text(strings.version(version))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity)
-                    // Closer to the bottom edge than the content padding puts it.
-                    .padding(.bottom, 10 - Theme.contentPadding)
-            }
+        HStack(spacing: 0) {
+            sidebar
+                .frame(width: Self.sidebarWidth)
+            Divider()
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(Theme.contentPadding)
-        .frame(width: 460)
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
         .background(Theme.background)
         // Toggles, sliders, pickers and radio choices pick up the app's orange.
         .tint(Theme.accent)
-        // The level bars listen to the selected device for as long as the sheet is open.
+        // The level bars listen to the selected device for as long as the window is open.
         .onAppear {
+            if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--section=") }), let i = Int(arg.dropFirst(10)) { section = SettingsSection.allCases[i] } // TEMP-HOOK
             controller.inputLevelMonitor.setNoiseProfile(controller.noiseProfile)
             controller.inputLevelMonitor.listen(to: controller.selectedDeviceID)
         }
@@ -293,23 +85,339 @@ struct SettingsView: View {
         }
     }
 
-    private var titleBar: some View {
-        HStack {
+    // MARK: - Layout
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(strings.settings)
                 .font(.custom("GillSans-Bold", size: 24))
                 .foregroundStyle(Theme.accent)
-            Spacer()
-            Button {
-                isPresented = false
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 14)
+
+            ForEach(SettingsSection.allCases) { item in
+                SidebarItem(section: item, title: item.title(strings), isSelected: item == section) {
+                    section = item
+                }
             }
-            .buttonStyle(.plain)
-            .help(strings.close)
+
+            Spacer(minLength: 0)
+
+            if let version = AppVersion.current {
+                Text(strings.version(version))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 8)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, Theme.contentPadding)
+        .padding(.bottom, 14)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Theme.accent.opacity(0.06))
+    }
+
+    private var detail: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(section.title(strings))
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                Button {
+                    isPresented = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help(strings.close)
+                .keyboardShortcut(.cancelAction)
+            }
+            .frame(height: 28)
+            .padding(.horizontal, Theme.contentPadding)
+            .padding(.top, Theme.contentPadding)
+            .padding(.bottom, 14)
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch section {
+                    case .general: generalPage
+                    case .audioInput: audioInputPage
+                    case .recognition: recognitionPage
+                    case .translation: translationPage
+                    }
+                }
+                .padding(.horizontal, Theme.contentPadding)
+                .padding(.bottom, Theme.contentPadding)
+            }
+            // Each page starts at the top rather than where the previous one was scrolled to.
+            .id(section)
         }
     }
+
+    // MARK: - Pages
+
+    @ViewBuilder
+    private var generalPage: some View {
+        SettingsGroup {
+            SettingsRow(title: strings.interfaceLanguage, hint: strings.interfaceLanguageHint) {
+                Picker(strings.interfaceLanguage, selection: $controller.appLanguage) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.nativeName).tag(language)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 140, alignment: .trailing)
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.keepWindowOnTop, hint: strings.keepWindowOnTopHint) {
+                Toggle(strings.keepWindowOnTop, isOn: $controller.keepWindowOnTop)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+        }
+
+        SettingsGroup {
+            SettingsRow(title: strings.timestamp) {
+                HStack(spacing: 12) {
+                    RadioChoice(strings.relativeTime, selected: controller.timestampMode == .relative) {
+                        controller.timestampMode = .relative
+                    }
+                    RadioChoice(strings.currentTime, selected: controller.timestampMode == .current) {
+                        controller.timestampMode = .current
+                    }
+                }
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.showDate) {
+                Toggle(strings.showDate, isOn: $controller.showTimestampDate)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(controller.timestampMode == .relative)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var audioInputPage: some View {
+        SettingsGroup {
+            SettingsRow(title: strings.input, hint: strings.inputHint) {
+                InputDevicePopUp(
+                    devices: controller.audioDevices,
+                    selection: $controller.selectedDeviceID,
+                    refresh: {
+                        // A device plugged in after the window opened is listed without reopening it.
+                        controller.refreshAudioDevices()
+                        return controller.audioDevices
+                    }
+                )
+                .frame(maxWidth: 150, alignment: .trailing)
+                .disabled(controller.isRecording || controller.preview.isActive)
+            }
+            InputLevelBar(
+                monitor: controller.inputLevelMonitor,
+                source: .input,
+                threshold: controller.speechEnergyFloor,
+                help: strings.inputLevel
+            )
+            .padding(.bottom, 14)
+
+            Divider()
+
+            SettingsRow(title: strings.energyThreshold, hint: strings.energyThresholdHint, accessory: resetThresholdButton) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Slider(
+                            value: $controller.speechEnergyFloor,
+                            in: LiveTranscriber.speechEnergyFloorRange
+                        )
+                        .frame(width: 110)
+                        Text(String(format: "%.3f", controller.speechEnergyFloor))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 38, alignment: .trailing)
+                    }
+                    calibrateNoiseButton
+                }
+            }
+            if let error = controller.noiseCalibrationError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.bottom, 10)
+            }
+        }
+
+        SettingsGroup {
+            SettingsRow(
+                title: strings.noiseReduction,
+                hint: controller.noiseProfile == nil ? strings.noiseReductionNeedsProfile : strings.noiseReductionHint
+            ) {
+                Toggle(strings.noiseReduction, isOn: $controller.noiseReductionEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(controller.noiseProfile == nil || controller.isRecording || controller.preview.isActive)
+            }
+            // What the input looks like after subtracting the measured noise, whether or not
+            // noise reduction is on, so the user can see what turning it on would do.
+            if controller.noiseProfile != nil {
+                InputLevelBar(
+                    monitor: controller.inputLevelMonitor,
+                    source: .denoised,
+                    threshold: controller.speechEnergyFloor,
+                    help: strings.denoisedLevel
+                )
+                .padding(.bottom, 14)
+            }
+
+            Divider()
+
+            SettingsRow(
+                title: strings.voiceFilter,
+                hint: controller.isDownloadingVoiceFilter ? strings.voiceFilterDownloading : strings.voiceFilterHint
+            ) {
+                Toggle(strings.voiceFilter, isOn: $controller.voiceFilterEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(controller.isRecording || controller.preview.isActive)
+            }
+            if let error = controller.voiceFilterError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.bottom, 10)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var recognitionPage: some View {
+        SettingsGroup {
+            SettingsRow(title: strings.recognitionEngine, accessory: engineHelpButton) {
+                VStack(alignment: .trailing, spacing: 6) {
+                    // A pop-up button sizes itself to its widest item, which left a blank
+                    // stretch beside the shorter model names; a menu sizes to the chosen one.
+                    Menu {
+                        ForEach(RecognitionEngine.allCases) { engine in
+                            Button {
+                                controller.selectEngine(engine)
+                            } label: {
+                                if engine == controller.selectedEngine {
+                                    Label(engine.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(engine.displayName)
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(controller.selectedEngine.displayName)
+                    }
+                    .fixedSize()
+                    .disabled(controller.isRecording || controller.isPreparing || controller.preview.isActive)
+                    if controller.isPreparing {
+                        enginePreparationProgress
+                    }
+                }
+            }
+
+            Divider()
+
+            // Under the model row: a specialized model offers only the language it was
+            // fine-tuned for, so the choices depend on the model picked above.
+            SettingsRow(title: strings.recognitionLanguage, hint: strings.recognitionLanguageHint) {
+                Picker(strings.recognitionLanguage, selection: $controller.selectedLanguage) {
+                    ForEach(RecognitionLanguage.choices(for: controller.selectedEngine)) { language in
+                        Text(language.isAutomatic ? strings.automaticDetection : language.nativeName)
+                            .tag(language)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 140, alignment: .trailing)
+                .disabled(
+                    controller.isRecording || controller.preview.isActive
+                        || RecognitionLanguage.choices(for: controller.selectedEngine).count < 2
+                )
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.recognitionPrompt, hint: strings.recognitionPromptHint) {
+                Button {
+                    controller.openPromptFile()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.and.pencil")
+                        Text(strings.editPromptFile)
+                    }
+                }
+                .help(strings.editPromptFileHint)
+            }
+        }
+
+        SettingsGroup {
+            RecognitionPreviewSection(controller: controller, preview: controller.preview)
+        }
+    }
+
+    @ViewBuilder
+    private var translationPage: some View {
+        SettingsGroup {
+            SettingsRow(
+                title: strings.translation,
+                hint: controller.isTranslationAvailable ? strings.translationHint : strings.translationUnavailable
+            ) {
+                Toggle(strings.translation, isOn: $controller.translationEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(!controller.isTranslationAvailable)
+            }
+            if let error = controller.translationError {
+                Text(strings.translationFailed(error))
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.bottom, 10)
+            }
+
+            Divider()
+
+            // The target is offered in the languages the interface comes in. Translating
+            // into the language the speech is pinned to would show every sentence twice.
+            SettingsRow(
+                title: strings.translationLanguage,
+                hint: controller.translationEnabled && controller.isTranslationRedundant ? strings.translationRedundantHint : nil
+            ) {
+                Picker(strings.translationLanguage, selection: $controller.translationLanguage) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.nativeName).tag(language)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 140, alignment: .trailing)
+                .disabled(!controller.translationEnabled)
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.translationEmphasis, hint: strings.translationEmphasisHint) {
+                HStack(spacing: 12) {
+                    RadioChoice(strings.originalText, selected: controller.translationEmphasis == .original) {
+                        controller.translationEmphasis = .original
+                    }
+                    RadioChoice(strings.translatedText, selected: controller.translationEmphasis == .translation) {
+                        controller.translationEmphasis = .translation
+                    }
+                }
+                .disabled(!controller.translationEnabled)
+            }
+        }
+    }
+
+    // MARK: - Controls
 
     /// Download or load progress of the engine just selected, under its picker: the bar on one
     /// line and the phase text on the next, so the row's title keeps its width.
@@ -384,8 +492,9 @@ struct SettingsView: View {
 
 // MARK: - Recognition preview
 
-/// Start/stop control plus, while running, the text the recognizer produces with the current
-/// settings. The input level is on the meter under the input picker above.
+/// Start/stop control plus, while running, the input level and the text the recognizer produces
+/// with the current settings. The level is repeated from the audio input page, which is not in
+/// view here.
 private struct RecognitionPreviewSection: View {
     @ObservedObject var controller: TranscriptionController
     @ObservedObject var preview: RecognitionPreview
@@ -404,7 +513,15 @@ private struct RecognitionPreviewSection: View {
             // small gap separates it from the label.
             Group {
                 if preview.isActive {
-                    previewText
+                    VStack(spacing: 10) {
+                        InputLevelBar(
+                            monitor: controller.inputLevelMonitor,
+                            source: controller.noiseReductionEnabled && controller.noiseProfile != nil ? .denoised : .input,
+                            threshold: controller.speechEnergyFloor,
+                            help: strings.inputLevel
+                        )
+                        previewText
+                    }
                 } else if let error = preview.errorMessage {
                     Text(error)
                         .font(.caption)
@@ -637,6 +754,63 @@ private struct LevelMeter: View {
 }
 
 // MARK: - Components
+
+/// One page in the sidebar: the page's symbol on a coloured rounded square, then its title.
+private struct SidebarItem: View {
+    let section: SettingsSection
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: section.symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(section.color)
+                    )
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            // Pinned, like every settings row that puts a symbol next to a flexible view.
+            .frame(height: 32)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Theme.accent.opacity(Theme.rowFillHoverOpacity) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Rows on a rounded card, the way System Settings groups related settings on a page.
+private struct SettingsGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content
+        }
+        .padding(.horizontal, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.06))
+        )
+    }
+}
 
 /// A label on the left, an optional hint below it, and a control on the right.
 private struct SettingsRow<Accessory: View, Control: View>: View {
