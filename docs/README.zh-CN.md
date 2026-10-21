@@ -1,6 +1,6 @@
 # Voiced
 
-[English](README.md) | **中文** | [日本語](README.ja.md)
+[English](../README.md) | **中文** | [日本語](README.ja.md)
 
 Voiced 是一个原生 macOS 本地实时语音识别应用。它可以监听任意 Core Audio 输入设备，包括麦克风以及 Loopback、BlackHole 虚拟设备，并按句显示带时间戳的转写内容。音频和转写内容不会离开本机。
 
@@ -29,6 +29,8 @@ open .build/Voiced.app
 ```
 
 根目录的 `start.sh`、`stop.sh`、`restart.sh` 作用相同，并会在需要时自动重新构建。
+
+`./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令，在终端输入即可打开应用；`./uninstall.sh` 删除它。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
 
 首次运行需要允许麦克风访问。即使选择的是虚拟音频设备，macOS 仍会把它归类为麦克风输入，因此没有物理麦克风时也需要这项权限。
 
@@ -64,7 +66,7 @@ Voiced 保存的所有内容都在 `~/.voiced` 下：
     <unix time>.wav         每次录音会话的原始音频（16 kHz 单声道 16 位 PCM）
 ```
 
-一次录音会话从点击开始到点击停止。第一次录音会建立记录目录；先在历史记录里选中一条再录音，新会话的音频会以自己的开始时刻命名，追加到同一目录。音频文件在录音过程中边录边写，即使应用意外退出也是完整的。没识别出任何句子的会话仍会保留音频；完全没有采到音频的会话不会留下任何东西。在历史记录里删除一条记录会连同目录和音频一起删除。保存的录音可以用 `VoicedSimulate` 重新喂给识别器（见 [docs/Develop.md](docs/Develop.md)）。
+一次录音会话从点击开始到点击停止。第一次录音会建立记录目录；先在历史记录里选中一条再录音，新会话的音频会以自己的开始时刻命名，追加到同一目录。音频文件在录音过程中边录边写，即使应用意外退出也是完整的。没识别出任何句子的会话仍会保留音频；完全没有采到音频的会话不会留下任何东西。在历史记录里删除一条记录会连同目录和音频一起删除。保存的录音可以用 `VoicedSimulate` 重新喂给识别器（见 [Develop.md](Develop.md)）。
 
 旧版本保存在 `UserDefaults` 和 `~/Library/Application Support/Voiced/History/` 里的设定和历史记录会在首次启动时自动挪到 `~/.voiced`。
 
@@ -74,7 +76,7 @@ Voiced 保存的所有内容都在 `~/.voiced` 下：
 
 ## 开发
 
-测试、文件模拟工具、代码结构和转写提交规则见 [docs/Develop.md](docs/Develop.md)。
+测试、文件模拟工具、代码结构和转写提交规则见 [Develop.md](Develop.md)。
 
 ## 资料
 

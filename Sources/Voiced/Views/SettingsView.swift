@@ -211,6 +211,15 @@ struct SettingsView: View {
                 RecognitionPreviewSection(controller: controller, preview: controller.preview)
 
             }
+
+            if let version = AppVersion.current {
+                Text(strings.version(version))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    // Closer to the bottom edge than the content padding puts it.
+                    .padding(.bottom, 10 - Theme.contentPadding)
+            }
         }
         .padding(Theme.contentPadding)
         .frame(width: 460)

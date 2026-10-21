@@ -1,6 +1,6 @@
 # Voiced
 
-**English** | [中文](README.zh-CN.md) | [日本語](README.ja.md)
+**English** | [中文](docs/README.zh-CN.md) | [日本語](docs/README.ja.md)
 
 Voiced is a native macOS app for local, real-time speech recognition. It listens to any Core Audio input device, including microphones and Loopback or BlackHole virtual devices, and shows the transcript sentence by sentence with timestamps. Audio and transcripts never leave the machine.
 
@@ -31,6 +31,8 @@ open .build/Voiced.app
 ```
 
 `start.sh`, `stop.sh` and `restart.sh` in the repository root do the same and rebuild when needed.
+
+`./install.sh` installs a `voiced` command at `/usr/local/bin/voiced` that opens the app from a terminal; `./uninstall.sh` removes it. The same installer is in the app's Voiced menu as "Install 'voiced' Command".
 
 The first launch asks for microphone access. macOS treats virtual audio devices as microphone input too, so the permission is needed even without a physical microphone.
 

@@ -111,6 +111,17 @@ struct AppStrings: Sendable {
     var previewListening: String { value("正在聆听，请播放或说话…", "聞き取り中。音声を流すか話してください…", "Listening. Play audio or speak…", "À l'écoute. Lancez un son ou parlez…", "Escuchando. Reproduce audio o habla…", "Höre zu. Audio abspielen oder sprechen…") }
     var settings: String { value("设置", "設定", "Settings", "Réglages", "Ajustes", "Einstellungen") }
     var close: String { value("关闭", "閉じる", "Close", "Fermer", "Cerrar", "Schließen") }
+    var installCommand: String { value("安装 voiced 命令…", "voiced コマンドをインストール…", "Install ‘voiced’ Command…", "Installer la commande « voiced »…", "Instalar el comando «voiced»…", "Befehl „voiced“ installieren…") }
+    func commandInstalled(at path: String) -> String {
+        value("voiced 命令已安装到 \(path)。在终端输入 voiced 即可打开 Voiced。", "voiced コマンドを \(path) にインストールしました。ターミナルで voiced と入力すると Voiced が開きます。", "The voiced command is installed at \(path). Type voiced in a terminal to open Voiced.", "La commande voiced est installée dans \(path). Tapez voiced dans un terminal pour ouvrir Voiced.", "El comando voiced está instalado en \(path). Escribe voiced en una terminal para abrir Voiced.", "Der Befehl voiced ist unter \(path) installiert. Gib voiced in einem Terminal ein, um Voiced zu öffnen.")
+    }
+    var commandNeedsAppBundle: String { value("只能从 Voiced.app 安装命令。", "コマンドは Voiced.app からのみインストールできます。", "The command can only be installed from Voiced.app.", "La commande ne peut être installée que depuis Voiced.app.", "El comando solo se puede instalar desde Voiced.app.", "Der Befehl kann nur aus Voiced.app installiert werden.") }
+    func commandInstallFailed(_ detail: String) -> String {
+        value("安装失败：\(detail)", "インストールに失敗：\(detail)", "Installation failed: \(detail)", "Échec de l'installation : \(detail)", "Error de instalación: \(detail)", "Installation fehlgeschlagen: \(detail)")
+    }
+    func version(_ number: String) -> String {
+        value("版本 \(number)", "バージョン \(number)", "Version \(number)", "Version \(number)", "Versión \(number)", "Version \(number)")
+    }
     var languageChangeHint: String { value("选择会立即生效并自动保存。", "選択内容はすぐに反映され、自動的に保存されます。", "Changes apply immediately and are saved automatically.", "Les changements s'appliquent immédiatement et sont enregistrés.", "Los cambios se aplican de inmediato y se guardan automáticamente.", "Änderungen gelten sofort und werden automatisch gespeichert.") }
     var automaticDetection: String { value("自动检测", "自動検出", "Auto detect", "Détection auto", "Detección automática", "Automatisch") }
     var stopRecognition: String { value("停止识别", "認識を停止", "Stop recognition", "Arrêter la reconnaissance", "Detener reconocimiento", "Erkennung beenden") }
