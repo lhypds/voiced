@@ -109,8 +109,9 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
             for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
                 window.standardWindowButton(button)?.isHidden = true
             }
-            // The content draws its own title bar, so the whole background is the drag handle.
-            window.isMovableByWindowBackground = true
+            // Not the whole background: SwiftUI controls let a drag through to it, so pressing a
+            // button and moving a little dragged the window. `WindowDragArea` marks the handles.
+            window.isMovableByWindowBackground = false
             window.backgroundColor = NSColor(Theme.background)
             window.isReleasedWhenClosed = false
             window.level = parent.level
@@ -138,6 +139,22 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
             self.window = nil
             handledFocusRequest = nil
             parent?.makeKeyAndOrderFront(nil)
+        }
+    }
+}
+
+/// Moves the window when dragged, standing in for the title bar the settings window hides. Put
+/// it behind the content's own title, where nothing else takes the click.
+struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DragView() }
+
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            window?.performDrag(with: event)
         }
     }
 }

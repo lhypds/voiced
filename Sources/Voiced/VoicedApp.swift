@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct VoicedApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var transcriber = TranscriptionController()
 
     init() {
@@ -46,5 +47,21 @@ struct VoicedApp: App {
             alert.messageText = strings.commandInstallFailed(detail)
         }
         alert.runModal()
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Comes to the front on launch. Started by `open` from a terminal, as `voiced` and the
+    /// scripts do, the app would otherwise open behind the terminal that keeps the focus.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // SwiftUI creates the main window only after launch has finished.
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            for window in NSApp.windows where window.canBecomeMain {
+                window.makeKeyAndOrderFront(nil)
+                // macOS 14 may decline the activation; this still raises the window.
+                window.orderFrontRegardless()
+            }
+        }
     }
 }

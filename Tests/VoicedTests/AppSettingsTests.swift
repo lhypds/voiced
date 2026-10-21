@@ -30,6 +30,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(settings.translation)
         XCTAssertNil(settings.translationLanguage, "the interface language stands in until one is picked")
         XCTAssertEqual(settings.translationEmphasis, .original)
+        XCTAssertFalse(settings.speakTranslation)
+        XCTAssertEqual(settings.speechVoices, [:])
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
@@ -57,6 +59,8 @@ final class AppSettingsTests: XCTestCase {
         settings.translation = true
         settings.translationLanguage = .german
         settings.translationEmphasis = .translation
+        settings.speakTranslation = true
+        settings.speechVoices = ["zh": "com.apple.voice.compact.zh-TW.Meijia"]
 
         let reloaded = AppSettings(fileURL: fileURL)
         XCTAssertEqual(reloaded.appLanguage, .japanese)
@@ -68,6 +72,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(reloaded.translation)
         XCTAssertEqual(reloaded.translationLanguage, .german)
         XCTAssertEqual(reloaded.translationEmphasis, .translation)
+        XCTAssertTrue(reloaded.speakTranslation)
+        XCTAssertEqual(reloaded.speechVoices, ["zh": "com.apple.voice.compact.zh-TW.Meijia"])
     }
 
     func testStorageKeysAreStable() throws {
@@ -82,11 +88,13 @@ final class AppSettingsTests: XCTestCase {
         settings.translation = true
         settings.translationLanguage = .chinese
         settings.translationEmphasis = .translation
+        settings.speakTranslation = true
 
         XCTAssertEqual(try storedValue("appLanguage") as? String, "english")
         XCTAssertEqual(try storedValue("translation") as? Bool, true)
         XCTAssertEqual(try storedValue("translationLanguage") as? String, "chinese")
         XCTAssertEqual(try storedValue("translationEmphasis") as? String, "translation")
+        XCTAssertEqual(try storedValue("speakTranslation") as? Bool, true)
         XCTAssertEqual(try storedValue("noiseReduction") as? Bool, false)
         XCTAssertEqual(try storedValue("recognitionLanguage") as? String, "zh")
         XCTAssertEqual(try storedValue("recognitionEngine") as? String, "accurate")

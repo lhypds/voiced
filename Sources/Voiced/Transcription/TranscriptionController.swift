@@ -79,8 +79,27 @@ final class TranscriptionController: ObservableObject {
     @Published var translationEmphasis: TranslationEmphasis {
         didSet { settings.translationEmphasis = translationEmphasis }
     }
+    /// Whether translations of newly recognized lines are read aloud.
+    @Published var speakTranslation: Bool {
+        didSet {
+            settings.speakTranslation = speakTranslation
+            if !speakTranslation {
+                speaker.stop()
+            }
+        }
+    }
     /// Why the last translation failed; cleared when the translator is next configured.
     @Published private(set) var translationError: String?
+    /// The system voice picked to read `translationLanguage`; nil reads it in the default voice.
+    var speechVoiceID: String? {
+        get { settings.speechVoices[translationLanguage.code] }
+        set {
+            objectWillChange.send()
+            settings.speechVoices[translationLanguage.code] = newValue
+        }
+    }
+    /// The installed voices that can read `translationLanguage`.
+    var speechVoices: [SpeechVoice] { TranslationSpeaker.voices(for: translationLanguage.code) }
     /// Translates lines on the device. Nil where the system offers no translation (macOS 14).
     let translator: (any SentenceTranslating)?
     /// Voice-detection energy floor; takes effect immediately, even mid-recording.
@@ -156,6 +175,10 @@ final class TranscriptionController: ObservableObject {
     /// Lines the translator rejected since it was last configured, skipped so one bad line does
     /// not hold up the rest.
     private var untranslatableLineIDs: Set<String> = []
+    /// Lines recognized in this recording whose translation has not been read aloud yet. Lines
+    /// already on screen before it, such as a resumed record's, are never read.
+    private var unspokenLineIDs: Set<String> = []
+    private let speaker = TranslationSpeaker()
     /// Forwards the preview's changes as this object's own: views read `preview.isActive` through
     /// the controller to enable their controls, so they must redraw when the preview stops.
     private var previewForwarding: AnyCancellable?
@@ -238,6 +261,7 @@ final class TranscriptionController: ObservableObject {
         translationEnabled = settings.translation
         translationLanguage = settings.translationLanguage ?? settings.appLanguage
         translationEmphasis = settings.translationEmphasis
+        speakTranslation = settings.speakTranslation
         pinLanguageToEngine()
         configureTranslator()
         previewForwarding = preview.objectWillChange.sink { [weak self] _ in
@@ -383,6 +407,7 @@ final class TranscriptionController: ObservableObject {
 
         let startedAt = Date()
         session = RecordingSession(startedAt: startedAt, baseLines: lines)
+        unspokenLineIDs = []
         lastFinishedDecode = 0
 
         // The audio goes into the current record's directory, or into the one reserved by the new
@@ -558,7 +583,7 @@ final class TranscriptionController: ObservableObject {
 
         if var session {
             session.commitTrailing(finalize: assembler.terminated)
-            lines = session.transcript.keepingTranslations(from: lines)
+            show(session.transcript.keepingTranslations(from: lines))
         }
         session = nil
         liveText = ""
@@ -632,10 +657,18 @@ final class TranscriptionController: ObservableObject {
         self.session = session
         let transcript = session.transcript.keepingTranslations(from: lines)
         if lines != transcript {
-            lines = transcript
+            show(transcript)
             persistTranscript()
             translateVisibleLines()
         }
+    }
+
+    /// Replaces the visible lines with a recording's transcript, marking the lines it added to
+    /// have their translation read aloud.
+    private func show(_ transcript: [TranscriptLine]) {
+        let shownIDs = Set(lines.map(\.id))
+        unspokenLineIDs.formUnion(transcript.map(\.id).filter { !shownIDs.contains($0) })
+        lines = transcript
     }
 
     // MARK: - Translation
@@ -665,6 +698,8 @@ final class TranscriptionController: ObservableObject {
         translationTask = nil
         translationError = nil
         untranslatableLineIDs = []
+        // Lines recognized before the change are translated quietly rather than read in a burst.
+        unspokenLineIDs = []
         translator.setLanguages(source: selectedLanguage.code, target: translationTarget)
         translateVisibleLines()
     }
@@ -699,6 +734,15 @@ final class TranscriptionController: ObservableObject {
         guard let index = lines.firstIndex(where: { $0.id == lineID }) else { return }
         lines[index] = lines[index].translated(translation)
         persistTranscript()
+        if unspokenLineIDs.remove(lineID) != nil, speakTranslation, let text = translation.displayText {
+            speaker.speak(text, language: translation.language, voiceID: speechVoiceID)
+        }
+    }
+
+    /// Reads a sample sentence in the chosen voice, in place of anything being read.
+    func previewSpeechVoice() {
+        speaker.stop()
+        speaker.speak(AppStrings(language: translationLanguage).speechSample, language: translationLanguage.code, voiceID: speechVoiceID)
     }
 
     // MARK: - History

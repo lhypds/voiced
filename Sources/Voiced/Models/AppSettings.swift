@@ -18,6 +18,8 @@ struct AppSettings {
         case translation
         case translationLanguage
         case translationEmphasis
+        case speakTranslation
+        case speechVoices
     }
 
     private let file: SettingsFile
@@ -90,6 +92,20 @@ struct AppSettings {
     var translationEmphasis: TranslationEmphasis {
         get { rawValue(.translationEmphasis) ?? .original }
         nonmutating set { set(newValue.rawValue, for: .translationEmphasis) }
+    }
+
+    /// Whether new translations are read aloud. Off by default: the speech plays through the
+    /// speakers, where a microphone or a loopback input would pick it up again.
+    var speakTranslation: Bool {
+        get { file[Key.speakTranslation.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .speakTranslation) }
+    }
+
+    /// The voice picked to read each language aloud, as `AppLanguage.code` to the system voice's
+    /// identifier. A language missing here is read by its default voice.
+    var speechVoices: [String: String] {
+        get { file[Key.speechVoices.rawValue] as? [String: String] ?? [:] }
+        nonmutating set { set(newValue, for: .speechVoices) }
     }
 
     /// Minimum frame RMS the voice detector treats as speech. Clamped to the transcriber's range.

@@ -96,6 +96,8 @@ struct SettingsView: View {
                 .foregroundStyle(Theme.accent)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(WindowDragArea())
 
             ForEach(SettingsSection.allCases) { item in
                 SidebarItem(section: item, title: item.title(strings), isSelected: item == section) {
@@ -140,6 +142,7 @@ struct SettingsView: View {
             .padding(.horizontal, Theme.contentPadding)
             .padding(.top, Theme.contentPadding)
             .padding(.bottom, 14)
+            .background(WindowDragArea())
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -416,10 +419,50 @@ struct SettingsView: View {
                 }
                 .disabled(!controller.translationEnabled)
             }
+
+            Divider()
+
+            SettingsRow(title: strings.speakTranslation, hint: strings.speakTranslationHint) {
+                Toggle(strings.speakTranslation, isOn: $controller.speakTranslation)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(!controller.translationEnabled)
+            }
+
+            Divider()
+
+            // The voices follow the target language; each language keeps its own choice.
+            SettingsRow(title: strings.speechVoice, hint: strings.speechVoiceHint) {
+                HStack(spacing: 8) {
+                    Picker(strings.speechVoice, selection: $controller.speechVoiceID) {
+                        Text(strings.defaultVoice).tag(String?.none)
+                        ForEach(controller.speechVoices) { voice in
+                            Text(voiceLabel(voice)).tag(Optional(voice.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                    // Next to the hint the row runs short of width, and the button was the
+                    // view squeezed down to an empty sliver.
+                    Button(strings.previewVoice) {
+                        controller.previewSpeechVoice()
+                    }
+                    .fixedSize()
+                }
+                .disabled(!controller.translationEnabled || !controller.speakTranslation)
+            }
         }
     }
 
     // MARK: - Controls
+
+    /// A voice's name with its region, such as "Meijia · 中文（台湾）", and its quality when it is
+    /// a downloaded one, named in the interface language.
+    private func voiceLabel(_ voice: SpeechVoice) -> String {
+        let region = Locale(identifier: strings.language.code).localizedString(forIdentifier: voice.language) ?? voice.language
+        let quality = voice.isHighQuality ? " ★" : ""
+        return "\(voice.name)\(quality) · \(region)"
+    }
 
     /// Download or load progress of the engine just selected, under its picker: the bar on one
     /// line and the phase text on the next, so the row's title keeps its width.
