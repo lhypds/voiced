@@ -176,6 +176,9 @@ final class TranscriptionController: ObservableObject {
     private var lastFinishedDecode = 0
     /// The translation in flight, at most one at a time.
     private var translationTask: Task<Void, Never>?
+    /// The pairs the translator holds sessions for: the rules' fixed pairs, plus those added for
+    /// languages lines turned out to be in. Only grows until the translator is next configured.
+    private var activePairs: [LanguagePair] = []
     /// Lines the translator rejected since it was last configured, skipped so one bad line does
     /// not hold up the rest.
     private var untranslatableLineIDs: Set<String> = []
@@ -205,12 +208,14 @@ final class TranscriptionController: ObservableObject {
     var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
     var isVoiceFilterActive: Bool { voiceFilterEnabled && voiceDetectorModelFolder != nil }
     var isTranslationAvailable: Bool { translator != nil }
-    /// The pairs the rules can translate between; empty when translation is off or unavailable.
-    /// A rule for any language takes the pinned recognition language as its source.
+    /// The pairs the rules fix in advance; empty when translation is off or unavailable. A rule
+    /// for any language takes the pinned recognition language as its source, and with automatic
+    /// recognition gets its pairs only as lines are found to be in a language.
     private var translationPairs: [LanguagePair] {
         guard translationEnabled, translator != nil else { return [] }
         return translationRules.reduce(into: []) { pairs, rule in
-            let pair = LanguagePair(source: rule.source?.code ?? selectedLanguage.code, target: rule.target.code)
+            guard let source = rule.source?.code ?? selectedLanguage.code else { return }
+            let pair = LanguagePair(source: source, target: rule.target.code)
             if pair.source != pair.target, !pairs.contains(pair) { pairs.append(pair) }
         }
     }
@@ -732,12 +737,15 @@ final class TranscriptionController: ObservableObject {
     }
 
     /// The pair `line` is translated by: from the rule for the pinned recognition language, or,
-    /// with automatic recognition, for the language the line reads as. Nil leaves it untranslated.
+    /// with automatic recognition, for the language the line reads as. Nil leaves it untranslated,
+    /// as for a line whose language cannot be told: a session without a source language would
+    /// ask the user to pick one.
     private func translationPair(for line: TranscriptLine) -> LanguagePair? {
         guard translationEnabled, translator != nil else { return nil }
         let language = selectedLanguage.code ?? detectedLanguage(of: line.text)
-        guard let rule = translationRules.rule(for: language) else { return nil }
-        let pair = LanguagePair(source: rule.source?.code ?? selectedLanguage.code, target: rule.target.code)
+        guard let rule = translationRules.rule(for: language),
+              let source = rule.source?.code ?? language else { return nil }
+        let pair = LanguagePair(source: source, target: rule.target.code)
         return pair.source == pair.target ? nil : pair
     }
 
@@ -759,7 +767,8 @@ final class TranscriptionController: ObservableObject {
         untranslatableLineIDs = []
         // Lines recognized before the change are translated quietly rather than read in a burst.
         unspokenLineIDs = []
-        translator.setPairs(translationPairs)
+        activePairs = translationPairs
+        translator.setPairs(activePairs)
         translateVisibleLines()
     }
 
@@ -773,6 +782,10 @@ final class TranscriptionController: ObservableObject {
             line.needsTranslation(into: pair.target) && !self.untranslatableLineIDs.contains(line.id)
         }
         guard let (line, pair) = next else { return }
+        if !activePairs.contains(pair) {
+            activePairs.append(pair)
+            translator.setPairs(activePairs)
+        }
         translationTask = Task { [weak self] in
             var translation: TranslatedText?
             do {

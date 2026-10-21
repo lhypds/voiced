@@ -206,15 +206,21 @@ actor LiveTranscriber {
         let now = Date()
         // WhisperKit's relative-energy VAD adapts to the speaker's own level, so on its own it
         // fires on clicks and breaths; the absolute floor over at least `minimumSpeechSeconds` rules those out.
+        let newFrames = Self.speechFrames(samples, from: decodedSampleCount, to: samples.count, floor: speechEnergyFloor, voice: voiceActivity, captureOffset: discardedSampleCount)
         let hasVoice = newSamples > 0
             && AudioProcessor.isVoiceDetected(
                 in: audioProcessor.relativeEnergy,
                 nextBufferInSeconds: newSeconds,
                 silenceThreshold: silenceThreshold
             )
-            && Self.speechSeconds(samples, from: decodedSampleCount, to: samples.count, floor: speechEnergyFloor, voice: voiceActivity, captureOffset: discardedSampleCount) >= Self.minimumSpeechSeconds
-        if hasVoice {
-            lastVoiceAt = now
+            && Float(newFrames.filter { $0 }.count) * Self.speechFrameSeconds >= Self.minimumSpeechSeconds
+        if hasVoice, let lastFrame = newFrames.lastIndex(of: true) {
+            // The pause is timed from where the speech ends in the audio, not from this poll: the
+            // check runs over up to `minimumDecodeSeconds` of new audio, so the speech in it can
+            // have ended most of a second ago, and timing from now delays every commit by that much.
+            let frame = Int(Self.speechFrameSeconds * Self.sampleRate)
+            let silenceSoFar = max(0, samples.count - (max(0, decodedSampleCount) + (lastFrame + 1) * frame))
+            lastVoiceAt = max(lastVoiceAt, now.addingTimeInterval(-TimeInterval(Float(silenceSoFar) / Self.sampleRate)))
         }
 
         if hasVoice, newSeconds >= Self.minimumDecodeSeconds {
