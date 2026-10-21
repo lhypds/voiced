@@ -54,7 +54,7 @@ struct SettingsView: View {
     /// dragged between the minimum and the screen. The size never follows the content: sized to
     /// its content, the window would jump between pages, and a content-sized window is where
     /// AppKit's update-constraints loop aborted the app before.
-    static let windowSize = SettingsWindowSize(width: 715, minHeight: 420, defaultHeight: 560)
+    static let windowSize = SettingsWindowSize(width: 715, minHeight: 420, defaultHeight: 537)
     private static let sidebarWidth: CGFloat = 215
 
     var body: some View {
@@ -390,21 +390,7 @@ struct SettingsView: View {
 
             Divider()
 
-            // The target is offered in the languages the interface comes in. Translating
-            // into the language the speech is pinned to would show every sentence twice.
-            SettingsRow(
-                title: strings.translationLanguage,
-                hint: controller.translationEnabled && controller.isTranslationRedundant ? strings.translationRedundantHint : nil
-            ) {
-                Picker(strings.translationLanguage, selection: $controller.translationLanguage) {
-                    ForEach(AppLanguage.allCases) { language in
-                        Text(language.nativeName).tag(language)
-                    }
-                }
-                .labelsHidden()
-                .frame(maxWidth: 140, alignment: .trailing)
-                .disabled(!controller.translationEnabled)
-            }
+            translationRulesSection
 
             Divider()
 
@@ -429,32 +415,120 @@ struct SettingsView: View {
                     .disabled(!controller.translationEnabled)
             }
 
-            Divider()
-
-            // The voices follow the target language; each language keeps its own choice.
-            SettingsRow(title: strings.speechVoice, hint: strings.speechVoiceHint) {
-                HStack(spacing: 8) {
-                    Picker(strings.speechVoice, selection: $controller.speechVoiceID) {
-                        Text(strings.defaultVoice).tag(String?.none)
-                        ForEach(controller.speechVoices) { voice in
-                            Text(voiceLabel(voice)).tag(Optional(voice.id))
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 180)
-                    // Next to the hint the row runs short of width, and the button was the
-                    // view squeezed down to an empty sliver.
-                    Button(strings.previewVoice) {
-                        controller.previewSpeechVoice()
-                    }
-                    .fixedSize()
-                }
-                .disabled(!controller.translationEnabled || !controller.speakTranslation)
+            // One voice per language translated into; each language keeps its own choice.
+            ForEach(controller.translationTargets) { language in
+                Divider()
+                speechVoiceRow(for: language)
             }
         }
     }
 
     // MARK: - Controls
+
+    /// The rules, one per line as "source → target", with a button to add another. Translating
+    /// a language into itself would show every sentence twice, so a rule's target never offers
+    /// its own source.
+    private var translationRulesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsRow(title: strings.translationRules, hint: strings.translationRulesHint) {
+                Button(strings.addTranslationRule) {
+                    if let rule = newTranslationRule() {
+                        controller.translationRules.append(rule)
+                    }
+                }
+                .fixedSize()
+                .disabled(newTranslationRule() == nil)
+            }
+            .padding(.bottom, -6)
+            ForEach($controller.translationRules) { $rule in
+                HStack(spacing: 8) {
+                    // A source another rule already has would contradict it, so only free ones
+                    // and the rule's own are offered.
+                    let taken = controller.translationRules.filter { $0.id != rule.id }.map(\.source)
+                    Picker(strings.translationRules, selection: $rule.source) {
+                        if !taken.contains(nil) {
+                            Text(strings.anyOtherLanguage).tag(AppLanguage?.none)
+                        }
+                        ForEach(AppLanguage.allCases.filter { !taken.contains($0) }) { language in
+                            Text(language.nativeName).tag(Optional(language))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 140)
+                    Text("→")
+                        .foregroundStyle(.secondary)
+                    Picker(strings.translationRules, selection: $rule.target) {
+                        ForEach(AppLanguage.allCases.filter { $0 != rule.source }) { language in
+                            Text(language.nativeName).tag(language)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 140)
+                    .onChange(of: rule.source) { _, source in
+                        if rule.target == source, let other = AppLanguage.allCases.first(where: { $0 != source }) {
+                            rule.target = other
+                        }
+                    }
+                    // At least one rule stays; turning translation off is the way to stop it.
+                    if controller.translationRules.count > 1 {
+                        Button(strings.delete) {
+                            controller.translationRules.removeAll { $0.id == rule.id }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(Theme.accent)
+                        .padding(.leading, 4)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(height: 28)
+            }
+        }
+        .padding(.bottom, 14)
+        .disabled(!controller.translationEnabled)
+    }
+
+    /// A rule for the first language no rule has yet, or for any other language once every one
+    /// has a rule, into the interface language, or into English when that is the source. Nil
+    /// when every source is taken.
+    private func newTranslationRule() -> TranslationRule? {
+        let taken = controller.translationRules.map(\.source)
+        let source: AppLanguage?
+        if let free = AppLanguage.allCases.first(where: { !taken.contains($0) }) {
+            source = free
+        } else if !taken.contains(nil) {
+            source = nil
+        } else {
+            return nil
+        }
+        let target = source == controller.appLanguage ? (source == .english ? .chinese : .english) : controller.appLanguage
+        return TranslationRule(source: source, target: target)
+    }
+
+    private func speechVoiceRow(for language: AppLanguage) -> some View {
+        SettingsRow(title: "\(strings.speechVoice) · \(language.nativeName)") {
+            HStack(spacing: 8) {
+                Picker(strings.speechVoice, selection: Binding(
+                    get: { controller.speechVoiceID(for: language) },
+                    set: { controller.setSpeechVoiceID($0, for: language) }
+                )) {
+                    Text(strings.defaultVoice).tag(String?.none)
+                    ForEach(controller.speechVoices(for: language)) { voice in
+                        Text(voiceLabel(voice)).tag(Optional(voice.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 180)
+                // Next to the hint the row runs short of width, and the button was the
+                // view squeezed down to an empty sliver.
+                Button(strings.previewVoice) {
+                    controller.previewSpeechVoice(for: language)
+                }
+                .fixedSize()
+            }
+            .disabled(!controller.translationEnabled || !controller.speakTranslation)
+        }
+    }
 
     /// A voice's name with its region, such as "Meijia · 中文（台湾）", and its quality when it is
     /// a downloaded one, named in the interface language.

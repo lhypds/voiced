@@ -1,3 +1,5 @@
+.vscode/
+
 # Swift Package Manager
 .build/
 .swiftpm/

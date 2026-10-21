@@ -62,16 +62,18 @@ final class TranscriptionController: ObservableObject {
     @Published private(set) var selectedEngine: RecognitionEngine {
         didSet { settings.recognitionEngine = selectedEngine }
     }
-    /// Whether committed lines are translated into `translationLanguage`.
+    /// Whether committed lines are translated by `translationRules`.
     @Published var translationEnabled: Bool {
         didSet {
             settings.translation = translationEnabled
             configureTranslator()
         }
     }
-    @Published var translationLanguage: AppLanguage {
+    /// Which language each line is translated into, by the language it is in.
+    @Published var translationRules: [TranslationRule] {
         didSet {
-            settings.translationLanguage = translationLanguage
+            guard translationRules != oldValue else { return }
+            settings.translationRules = translationRules
             configureTranslator()
         }
     }
@@ -90,16 +92,13 @@ final class TranscriptionController: ObservableObject {
     }
     /// Why the last translation failed; cleared when the translator is next configured.
     @Published private(set) var translationError: String?
-    /// The system voice picked to read `translationLanguage`; nil reads it in the default voice.
-    var speechVoiceID: String? {
-        get { settings.speechVoices[translationLanguage.code] }
-        set {
-            objectWillChange.send()
-            settings.speechVoices[translationLanguage.code] = newValue
+    /// The languages the rules translate into, each once, in the rules' order: the ones a voice
+    /// can be picked for.
+    var translationTargets: [AppLanguage] {
+        translationRules.reduce(into: []) { targets, rule in
+            if !targets.contains(rule.target) { targets.append(rule.target) }
         }
     }
-    /// The installed voices that can read `translationLanguage`.
-    var speechVoices: [SpeechVoice] { TranslationSpeaker.voices(for: translationLanguage.code) }
     /// Translates lines on the device. Nil where the system offers no translation (macOS 14).
     let translator: (any SentenceTranslating)?
     /// Voice-detection energy floor; takes effect immediately, even mid-recording.
@@ -175,6 +174,8 @@ final class TranscriptionController: ObservableObject {
     /// Lines the translator rejected since it was last configured, skipped so one bad line does
     /// not hold up the rest.
     private var untranslatableLineIDs: Set<String> = []
+    /// Language codes `LineLanguage` found for line texts, nil where it could not tell.
+    private var detectedLanguages: [String: String?] = [:]
     /// Lines recognized in this recording whose translation has not been read aloud yet. Lines
     /// already on screen before it, such as a resumed record's, are never read.
     private var unspokenLineIDs: Set<String> = []
@@ -199,14 +200,14 @@ final class TranscriptionController: ObservableObject {
     var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
     var isVoiceFilterActive: Bool { voiceFilterEnabled && voiceDetectorModelFolder != nil }
     var isTranslationAvailable: Bool { translator != nil }
-    /// Whether the speech is pinned to the language it would be translated into, so translation
-    /// has nothing to do.
-    var isTranslationRedundant: Bool { selectedLanguage.code == translationLanguage.code }
-    /// Code of the language lines are translated into; nil when translation is off, unavailable
-    /// or redundant.
-    private var translationTarget: String? {
-        guard translationEnabled, translator != nil, !isTranslationRedundant else { return nil }
-        return translationLanguage.code
+    /// The pairs the rules can translate between; empty when translation is off or unavailable.
+    /// A rule for any language takes the pinned recognition language as its source.
+    private var translationPairs: [LanguagePair] {
+        guard translationEnabled, translator != nil else { return [] }
+        return translationRules.reduce(into: []) { pairs, rule in
+            let pair = LanguagePair(source: rule.source?.code ?? selectedLanguage.code, target: rule.target.code)
+            if pair.source != pair.target, !pairs.contains(pair) { pairs.append(pair) }
+        }
     }
     var isPreparing: Bool {
         switch phase {
@@ -261,7 +262,9 @@ final class TranscriptionController: ObservableObject {
         selectedEngine = settings.recognitionEngine
         speechEnergyFloor = settings.speechEnergyFloor
         translationEnabled = settings.translation
-        translationLanguage = settings.translationLanguage ?? settings.appLanguage
+        // Before rules, every line went into one language.
+        translationRules = settings.translationRules?.withoutRepeatedSources
+            ?? [TranslationRule(source: nil, target: settings.translationLanguage ?? settings.appLanguage)]
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
         pinLanguageToEngine()
@@ -691,8 +694,26 @@ final class TranscriptionController: ObservableObject {
     /// The translation shown with `line`: only while translation is on and it is in the language
     /// currently chosen. A line already in that language shows none.
     private func translation(for line: TranscriptLine) -> String? {
-        guard let target = translationTarget, let translation = line.translation, translation.language == target else { return nil }
+        guard let pair = translationPair(for: line), let translation = line.translation, translation.language == pair.target else { return nil }
         return translation.displayText
+    }
+
+    /// The pair `line` is translated by: from the rule for the pinned recognition language, or,
+    /// with automatic recognition, for the language the line reads as. Nil leaves it untranslated.
+    private func translationPair(for line: TranscriptLine) -> LanguagePair? {
+        guard translationEnabled, translator != nil else { return nil }
+        let language = selectedLanguage.code ?? detectedLanguage(of: line.text)
+        guard let rule = translationRules.rule(for: language) else { return nil }
+        let pair = LanguagePair(source: rule.source?.code ?? selectedLanguage.code, target: rule.target.code)
+        return pair.source == pair.target ? nil : pair
+    }
+
+    /// `LineLanguage.code(of:)`, remembered per text: rows ask on every redraw.
+    private func detectedLanguage(of text: String) -> String? {
+        if let known = detectedLanguages[text] { return known }
+        let code = LineLanguage.code(of: text)
+        detectedLanguages[text] = code
+        return code
     }
 
     /// Points the translator at the current languages, forgets earlier failures and translates
@@ -705,19 +726,24 @@ final class TranscriptionController: ObservableObject {
         untranslatableLineIDs = []
         // Lines recognized before the change are translated quietly rather than read in a burst.
         unspokenLineIDs = []
-        translator.setLanguages(source: selectedLanguage.code, target: translationTarget)
+        translator.setPairs(translationPairs)
         translateVisibleLines()
     }
 
     /// Translates the visible lines that are not yet in the target language, newest first and
     /// one at a time, so a sentence just committed is not queued behind an old transcript.
     private func translateVisibleLines() {
-        guard let translator, let target = translationTarget, translationTask == nil else { return }
-        guard let line = lines.last(where: { $0.needsTranslation(into: target) && !untranslatableLineIDs.contains($0.id) }) else { return }
+        guard let translator, translationTask == nil else { return }
+        let next = lines.lazy.reversed().compactMap { line in
+            self.translationPair(for: line).map { (line, $0) }
+        }.first { line, pair in
+            line.needsTranslation(into: pair.target) && !self.untranslatableLineIDs.contains(line.id)
+        }
+        guard let (line, pair) = next else { return }
         translationTask = Task { [weak self] in
             var translation: TranslatedText?
             do {
-                translation = try await translator.translate(line.text)
+                translation = try await translator.translate(line.text, pair: pair)
             } catch is CancellationError {
                 // Translation was turned off or reconfigured; that call has already moved on.
                 return
@@ -740,14 +766,29 @@ final class TranscriptionController: ObservableObject {
         lines[index] = lines[index].translated(translation)
         persistTranscript()
         if unspokenLineIDs.remove(lineID) != nil, speakTranslation, let text = translation.displayText {
-            speaker.speak(text, language: translation.language, voiceID: speechVoiceID)
+            speaker.speak(text, language: translation.language, voiceID: settings.speechVoices[translation.language])
         }
     }
 
-    /// Reads a sample sentence in the chosen voice, in place of anything being read.
-    func previewSpeechVoice() {
+    /// The system voice picked to read `language`; nil reads it in the default voice.
+    func speechVoiceID(for language: AppLanguage) -> String? {
+        settings.speechVoices[language.code]
+    }
+
+    func setSpeechVoiceID(_ voiceID: String?, for language: AppLanguage) {
+        objectWillChange.send()
+        settings.speechVoices[language.code] = voiceID
+    }
+
+    /// The installed voices that can read `language`.
+    func speechVoices(for language: AppLanguage) -> [SpeechVoice] {
+        TranslationSpeaker.voices(for: language.code)
+    }
+
+    /// Reads a sample sentence in `language` in its chosen voice, in place of anything being read.
+    func previewSpeechVoice(for language: AppLanguage) {
         speaker.stop()
-        speaker.speak(AppStrings(language: translationLanguage).speechSample, language: translationLanguage.code, voiceID: speechVoiceID)
+        speaker.speak(AppStrings(language: language).speechSample, language: language.code, voiceID: speechVoiceID(for: language))
     }
 
     // MARK: - History

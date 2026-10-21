@@ -20,6 +20,7 @@ struct AppSettings {
         case translationEmphasis
         case speakTranslation
         case speechVoices
+        case translationRules
     }
 
     private let file: SettingsFile
@@ -81,11 +82,18 @@ struct AppSettings {
         nonmutating set { set(newValue, for: .translation) }
     }
 
-    /// The language lines are translated into. Nil until the user picks one; the interface
-    /// language stands in until then.
+    /// The language every line was translated into before rules replaced it. Read only to turn
+    /// it into the first rule; nil until the user picks one, when the interface language stands in.
     var translationLanguage: AppLanguage? {
         get { rawValue(.translationLanguage) }
         nonmutating set { set(newValue?.rawValue, for: .translationLanguage) }
+    }
+
+    /// Which language lines are translated into, by the language they are in. Nil until the
+    /// rules are first saved; a rule naming a language this version does not know is dropped.
+    var translationRules: [TranslationRule]? {
+        get { (file[Key.translationRules.rawValue] as? [[String: String]])?.compactMap(TranslationRule.init(stored:)) }
+        nonmutating set { set(newValue?.map(\.stored), for: .translationRules) }
     }
 
     /// Which text of a translated line is shown at full size.

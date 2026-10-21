@@ -32,6 +32,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.translationEmphasis, .original)
         XCTAssertFalse(settings.speakTranslation)
         XCTAssertEqual(settings.speechVoices, [:])
+        XCTAssertNil(settings.translationRules, "the old target language stands in until rules are saved")
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
@@ -61,6 +62,10 @@ final class AppSettingsTests: XCTestCase {
         settings.translationEmphasis = .translation
         settings.speakTranslation = true
         settings.speechVoices = ["zh": "com.apple.voice.compact.zh-TW.Meijia"]
+        settings.translationRules = [
+            TranslationRule(source: .chinese, target: .japanese),
+            TranslationRule(source: nil, target: .english),
+        ]
 
         let reloaded = AppSettings(fileURL: fileURL)
         XCTAssertEqual(reloaded.appLanguage, .japanese)
@@ -74,6 +79,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.translationEmphasis, .translation)
         XCTAssertTrue(reloaded.speakTranslation)
         XCTAssertEqual(reloaded.speechVoices, ["zh": "com.apple.voice.compact.zh-TW.Meijia"])
+        XCTAssertEqual(reloaded.translationRules?.map(\.source), [.chinese, nil])
+        XCTAssertEqual(reloaded.translationRules?.map(\.target), [.japanese, .english])
     }
 
     func testStorageKeysAreStable() throws {
