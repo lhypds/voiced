@@ -25,7 +25,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.recognitionEngine, .turbo)
         XCTAssertEqual(settings.timestampMode, .current)
         XCTAssertTrue(settings.showTimestampDate)
-        XCTAssertTrue(settings.noiseReduction)
+        XCTAssertFalse(settings.noiseReduction)
         XCTAssertTrue(settings.keepWindowOnTop)
         XCTAssertFalse(settings.translation)
         XCTAssertNil(settings.translationLanguage, "the interface language stands in until one is picked")

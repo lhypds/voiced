@@ -71,9 +71,10 @@ struct AppSettings {
         nonmutating set { set(newValue, for: .showTimestampDate) }
     }
 
-    /// Whether captured audio goes through spectral subtraction. Only effective once a noise profile exists.
+    /// Whether captured audio goes through spectral subtraction. Off by default because a new
+    /// installation has no measured noise profile.
     var noiseReduction: Bool {
-        get { file[Key.noiseReduction.rawValue] as? Bool ?? true }
+        get { file[Key.noiseReduction.rawValue] as? Bool ?? false }
         nonmutating set { set(newValue, for: .noiseReduction) }
     }
 
