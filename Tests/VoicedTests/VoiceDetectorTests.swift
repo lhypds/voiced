@@ -11,10 +11,18 @@ final class VoiceDetectorTests: XCTestCase {
         var activity = VoiceActivity()
         activity.append([false, false, true, false])
 
-        XCTAssertFalse(activity.containsSpeech(in: 0..<(2 * chunk)))
         XCTAssertTrue(activity.containsSpeech(in: (2 * chunk - 1)..<(2 * chunk + 1)), "touches the first sample of the speech chunk")
         XCTAssertTrue(activity.containsSpeech(in: (3 * chunk - 1)..<(4 * chunk)), "touches its last sample")
         XCTAssertFalse(activity.containsSpeech(in: (3 * chunk)..<(4 * chunk)))
+    }
+
+    func testRangeShortlyBeforeSpeechCountsAsItsOnset() {
+        let lag = VoiceActivity.onsetLagChunks
+        var activity = VoiceActivity()
+        activity.append([Bool](repeating: false, count: lag + 2) + [true])
+
+        XCTAssertTrue(activity.containsSpeech(in: (2 * chunk)..<(3 * chunk)), "the speech chunk is within the lag after it")
+        XCTAssertFalse(activity.containsSpeech(in: chunk..<(2 * chunk)), "the speech chunk is past the lag")
     }
 
     func testAudioNoChunkHasJudgedYetCountsAsSpeech() {
@@ -29,33 +37,35 @@ final class VoiceDetectorTests: XCTestCase {
     }
 
     func testDiscardKeepsLaterChunksInPlace() {
+        let lag = VoiceActivity.onsetLagChunks
         var activity = VoiceActivity()
-        activity.append([true, false, true])
+        activity.append([true] + [Bool](repeating: false, count: lag + 1) + [true])
 
         activity.discard(before: chunk + 10)
 
         XCTAssertEqual(activity.start, chunk, "only the first chunk ends before the cut")
-        XCTAssertEqual(activity.chunks, [false, true])
+        XCTAssertEqual(activity.chunks, [Bool](repeating: false, count: lag + 1) + [true])
         XCTAssertFalse(activity.containsSpeech(in: chunk..<(2 * chunk)))
-        XCTAssertTrue(activity.containsSpeech(in: (2 * chunk)..<(3 * chunk)))
+        XCTAssertTrue(activity.containsSpeech(in: ((lag + 2) * chunk)..<((lag + 3) * chunk)))
 
-        activity.discard(before: 10 * chunk)
+        activity.discard(before: 100 * chunk)
 
         XCTAssertEqual(activity.chunks, [])
-        XCTAssertEqual(activity.start, 3 * chunk)
+        XCTAssertEqual(activity.start, (lag + 3) * chunk)
     }
 
     func testDecodeInputSkipsLoudAudioTheDetectorRejects() {
-        // 2 s of tone; the detector hears speech only from chunk 31 (0.992 s) on, so the first
-        // speech frame is the 100 ms frame starting at 0.9 s, and half a second before it is kept.
+        // 2 s of tone; the detector hears speech only from chunk 31 (0.992 s) on, which makes chunk
+        // 21 (0.672 s) the onset, so the first speech frame is the 100 ms frame starting at 0.6 s,
+        // and half a second before it is kept.
         let buffer = tone(2)
         var activity = VoiceActivity()
         activity.append([Bool](repeating: false, count: 31) + [Bool](repeating: true, count: 40))
 
         let (samples, lead) = LiveTranscriber.decodeInput(buffer, floor: floor, voice: activity, captureOffset: 0)
 
-        XCTAssertEqual(lead, 0.4, accuracy: 0.001)
-        XCTAssertEqual(samples.count, Int(1.6 * Float(rate)))
+        XCTAssertEqual(lead, 0.1, accuracy: 0.001)
+        XCTAssertEqual(samples.count, Int(1.9 * Float(rate)))
     }
 
     func testDecodeInputPlacesTheBufferByItsCaptureOffset() {

@@ -243,11 +243,12 @@ actor LiveTranscriber {
             }
         }
         if !hasVoice, !awaitingPause {
-            // Everything decoded so far has been committed or found empty: drop it, keeping a short
-            // tail plus any audio the VAD has not released for decoding yet, so the next utterance
-            // starts near the front of the buffer and memory stays bounded.
-            let undecoded = max(0, samples.count - decodedSampleCount)
-            trimBuffer(keepingLast: undecoded + Int(Self.silenceTailSeconds * Self.sampleRate), reason: "trim")
+            // Everything decoded so far has been committed or found empty, and the audio since then
+            // holds too little speech to decode: drop it all but a short tail, so the next utterance
+            // starts near the front of the buffer. Keeping the undecoded audio as well let a long
+            // silence pile up in the buffer, and the first decode after it took over a minute of
+            // room noise that Whisper slowed down on and hallucinated over.
+            trimBuffer(keepingLast: Int(Self.silenceTailSeconds * Self.sampleRate), reason: "trim")
         }
         try await Task.sleep(for: Self.pollInterval)
     }

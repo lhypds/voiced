@@ -118,14 +118,21 @@ struct VoiceActivity: Equatable {
         start += count * Self.chunkLength
     }
 
+    /// Chunks after a range that are still looked at for speech. The detector's recurrent state
+    /// needs a few hundred milliseconds of a voice before its probability crosses the threshold, so
+    /// it calls the onset of an utterance quiet; in a word as short as "你好" that onset is nearly
+    /// the whole word, and Whisper places the word there. Measured lags were 0.2 to 0.3 s.
+    static let onsetLagChunks = 10
+
     /// Whether the detector heard speech in `range` of the capture: true when any chunk overlapping
-    /// it is speech. A range no judged chunk overlaps, such as the audio still waiting to fill a
-    /// chunk, is left to the caller's other checks and counts as speech.
+    /// it, or any of the `onsetLagChunks` after it, is speech. A range no judged chunk overlaps, such
+    /// as the audio still waiting to fill a chunk, is left to the caller's other checks and counts
+    /// as speech.
     func containsSpeech(in range: Range<Int>) -> Bool {
         guard !range.isEmpty else { return false }
         let first = max(0, (range.lowerBound - start) / Self.chunkLength)
-        let last = min(chunks.count - 1, (range.upperBound - 1 - start) / Self.chunkLength)
-        guard first <= last, range.upperBound > start else { return true }
-        return chunks[first...last].contains(true)
+        let last = (range.upperBound - 1 - start) / Self.chunkLength
+        guard first <= min(chunks.count - 1, last), range.upperBound > start else { return true }
+        return chunks[first...min(chunks.count - 1, last + Self.onsetLagChunks)].contains(true)
     }
 }
