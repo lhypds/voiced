@@ -45,6 +45,19 @@ final class LiveTranscriberTests: XCTestCase {
 }
 
 final class SegmentSplittingTests: XCTestCase {
+    func testTranscriptTokensLeaveOutThePromptAndSpecialTokens() {
+        // Multilingual Whisper ids: <|startofprev|> prompt… <|startoftranscript|> <|zh|> <|transcribe|> text… <|0.00|>
+        let specialTokens = SpecialTokens(
+            endToken: 50257, englishToken: 50259, noSpeechToken: 50362, noTimestampsToken: 50363,
+            specialTokenBegin: 50257, startOfPreviousToken: 50361, startOfTranscriptToken: 50258,
+            timeTokenBegin: 50364, transcribeToken: 50359, translateToken: 50358, whitespaceToken: 220
+        )
+        let tokens = [50361, 11, 12, 13, 50258, 50260, 50359, 50364, 100, 101, 50400, 102]
+
+        XCTAssertEqual(LiveTranscriber.transcriptTokens(of: tokens, specialTokens: specialTokens), [100, 101, 102])
+        XCTAssertEqual(LiveTranscriber.transcriptTokens(of: [100, 50364, 101], specialTokens: specialTokens), [100, 101])
+    }
+
     func testSegmentIsSplitAfterEveryPunctuatedWord() {
         let segment = TranscriptionSegment(start: 10, end: 16, text: "你好，今天很热。再见", words: [
             word("你", 10.0, 10.3), word("好，", 10.3, 10.8),

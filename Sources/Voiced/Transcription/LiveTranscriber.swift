@@ -260,7 +260,7 @@ actor LiveTranscriber {
         let options = options
         let log = log
         let delegate = delegate
-        let liveText = LiveTextAccumulator()
+        let liveText = LiveTextAccumulator(tokenizer: whisperKit.tokenizer)
         let floor = speechEnergyFloor
         let voice = voiceActivity
         let (samples, lead) = Self.decodeInput(buffer, floor: floor, voice: voice, captureOffset: discardedSampleCount)
@@ -277,7 +277,7 @@ actor LiveTranscriber {
             if let self, let delegate {
                 Task { await delegate.transcriber(self, didUpdateLiveText: text, decode: decodeID) }
             }
-            let stop = Self.shouldStopEarly(progress: progress, options: options)
+            let stop = Self.shouldStopEarly(progress: progress, options: options, tokenizer: liveText.tokenizer)
             if stop == false {
                 log?("decode aborted early after \(progress.tokens.count) tokens: repetition loop")
             }
@@ -486,6 +486,16 @@ actor LiveTranscriber {
         text.replacingOccurrences(of: "\u{FFFD}", with: "")
     }
 
+    /// The tokens a decode has produced so far, without the prefill and special tokens.
+    ///
+    /// `TranscriptionProgress` carries every token from the start of the decoder input, so it begins
+    /// with `<|startofprev|>`, the recognition prompt and `<|startoftranscript|>`; its `text` is
+    /// decoded from all of them and would show the prompt at the front of every live update.
+    static func transcriptTokens(of tokens: [Int], specialTokens: SpecialTokens) -> [Int] {
+        let start = tokens.firstIndex(of: specialTokens.startOfTranscriptToken).map { $0 + 1 } ?? 0
+        return tokens[start...].filter { $0 < specialTokens.specialTokenBegin }
+    }
+
     private static func rms<C: Collection>(_ samples: C) -> Float where C.Element == Float {
         guard !samples.isEmpty else { return 0 }
         var sum: Float = 0
@@ -605,9 +615,10 @@ actor LiveTranscriber {
     /// speech after them, is thrown away. With a steady source such as a news broadcast the same
     /// window opens the same way on every decode, and whole sentences are lost. Confidence is
     /// judged per segment after the decode instead (`minimumAverageLogProb`).
-    private static func shouldStopEarly(progress: TranscriptionProgress, options: DecodingOptions) -> Bool? {
-        if progress.tokens.count > compressionCheckWindow {
-            let recent: [Int] = progress.tokens.suffix(compressionCheckWindow)
+    private static func shouldStopEarly(progress: TranscriptionProgress, options: DecodingOptions, tokenizer: (any WhisperTokenizer)?) -> Bool? {
+        let tokens = tokenizer.map { transcriptTokens(of: progress.tokens, specialTokens: $0.specialTokens) } ?? progress.tokens
+        if tokens.count > compressionCheckWindow {
+            let recent: [Int] = tokens.suffix(compressionCheckWindow)
             if TextUtilities.compressionRatio(of: recent) > options.compressionRatioThreshold ?? 0 {
                 return false
             }
@@ -623,19 +634,28 @@ actor LiveTranscriber {
 /// A restart caused by a temperature fallback re-decodes the same window, so it replaces the
 /// current piece instead of adding one.
 private final class LiveTextAccumulator: @unchecked Sendable {
+    /// Decodes the progress tokens without the prompt; nil falls back to `TranscriptionProgress.text`.
+    let tokenizer: (any WhisperTokenizer)?
     private let lock = NSLock()
     private var finishedWindows: [String] = []
     private var current = ""
     private var fallbacks = 0
 
+    init(tokenizer: (any WhisperTokenizer)?) {
+        self.tokenizer = tokenizer
+    }
+
     func text(adding progress: TranscriptionProgress) -> String {
-        lock.withLock {
+        let text = tokenizer.map {
+            $0.decode(tokens: LiveTranscriber.transcriptTokens(of: progress.tokens, specialTokens: $0.specialTokens))
+        } ?? progress.text
+        return lock.withLock {
             let fallbacksNow = Int(progress.timings.totalDecodingFallbacks)
-            if progress.text.count < current.count, fallbacksNow == fallbacks {
+            if text.count < current.count, fallbacksNow == fallbacks {
                 finishedWindows.append(current)
             }
             fallbacks = fallbacksNow
-            current = progress.text
+            current = text
             return (finishedWindows + [current])
                 .map { LiveTranscriber.droppingPartialCharacters($0).trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
