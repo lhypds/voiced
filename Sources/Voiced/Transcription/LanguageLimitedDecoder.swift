@@ -68,7 +68,39 @@ final class LanguageLimitedDecoder: TextDecoding, WhisperMLModel, @unchecked Sen
         options decoderOptions: DecodingOptions,
         callback: TranscriptionCallback?
     ) async throws -> DecodingResult {
-        try await decoder.decodeText(from: encoderOutput, using: decoderInputs, sampler: tokenSampler, options: decoderOptions, callback: callback)
+        var result = try await decoder.decodeText(from: encoderOutput, using: decoderInputs, sampler: tokenSampler, options: decoderOptions, callback: callback)
+        if let tokenizer,
+           let promptLength = decoderInputs.initialPrompt.firstIndex(of: tokenizer.specialTokens.startOfTranscriptToken),
+           promptLength > 0,
+           let weights = result.cache?.alignmentWeights {
+            result.cache?.alignmentWeights = try Self.droppingRows(promptLength, of: weights)
+        }
+        return result
+    }
+
+    /// The alignment weights without their first `count` rows.
+    ///
+    /// The decoder stores one row of weights per decoder step, prompt steps included, but the
+    /// result's tokens start at start-of-transcript, and WhisperKit's word timing pairs token `i`
+    /// with row `i`. With a recognition prompt (`<|startofprev|>` and the prompt tokens ahead of
+    /// start-of-transcript) every word is timed from the weights of a token that many steps
+    /// earlier: the timings come out anywhere in the 30 s window, usually near its end, and the
+    /// transcriber drops the words as hallucinations over quiet audio. Visible for tests.
+    static func droppingRows(_ count: Int, of weights: MLMultiArray) throws -> MLMultiArray {
+        guard weights.shape.count == 2, let rows = weights.shape.first?.intValue, count > 0, count < rows
+        else { return weights }
+        let shifted = try MLMultiArray(shape: weights.shape, dataType: weights.dataType)
+        weights.withUnsafeBytes { source in
+            shifted.withUnsafeMutableBytes { destination, _ in
+                let rowBytes = source.count / rows
+                destination.initializeMemory(as: UInt8.self, repeating: 0)
+                destination.baseAddress!.copyMemory(
+                    from: source.baseAddress!.advanced(by: count * rowBytes),
+                    byteCount: (rows - count) * rowBytes
+                )
+            }
+        }
+        return shifted
     }
 
     static func updateKVCache(keyTensor: MLMultiArray, keySlice: MLMultiArray, valueTensor: MLMultiArray, valueSlice: MLMultiArray, insertAtIndex index: Int) {
