@@ -85,6 +85,9 @@ final class SentenceAssemblerTests: XCTestCase {
         XCTAssertEqual(latin.terminated(line("a", 0, 1, "Hello")).text, "Hello.")
         XCTAssertEqual(latin.terminated(line("a", 0, 1, "Hello?")).text, "Hello?")
         XCTAssertEqual(cjk.terminated(line("a", 0, 1, "你好")).text, "你好。")
+        XCTAssertEqual(cjk.terminated(line("a", 0, 1, "你好，")).text, "你好，")
+        XCTAssertEqual(latin.terminated(line("a", 0, 1, "Hello,")).text, "Hello,")
+        XCTAssertEqual(japanese.terminated(line("a", 0, 1, "各県の知事に対し、")).text, "各県の知事に対し、")
     }
 
     func testDraftTrimsAndDropsEmptyParts() {

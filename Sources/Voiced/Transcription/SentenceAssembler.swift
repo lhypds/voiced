@@ -85,9 +85,14 @@ struct SentenceAssembler: Sendable {
         return cleaned.joined(separator: joiningSeparator(after: cleaned.first ?? ""))
     }
 
-    /// Appends a sentence terminator unless the line already ends with one.
+    /// Appends a sentence terminator unless the line already ends with punctuation. A line cut at a
+    /// pause often ends with Whisper's clause comma (各県の知事に対し、); that comma stays, since
+    /// the sentence does go on, rather than gaining a 。 after it.
     func terminated(_ line: TranscriptLine) -> TranscriptLine {
-        endsSentence(line.text) ? line : line.replacingText(line.text + terminator(for: line.text))
+        guard let last = line.text.last,
+              !Self.cjkClausePunctuation.contains(last), !Self.asciiClausePunctuation.contains(last)
+        else { return line }
+        return line.replacingText(line.text + terminator(for: line.text))
     }
 
     func endsSentence(_ text: String) -> Bool {
