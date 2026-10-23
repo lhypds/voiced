@@ -72,6 +72,7 @@ struct SettingsView: View {
         }
         .frame(width: Self.windowSize.width)
         .frame(minHeight: Self.windowSize.minHeight, maxHeight: .infinity)
+        .background(FocusClearingArea())
         .background(Theme.background)
         // Toggles, sliders, pickers and radio choices pick up the app's orange.
         .tint(Theme.accent)
@@ -1000,7 +1001,7 @@ private struct CharacterWrappingTextView: NSViewRepresentable {
     @Binding var text: String
     let lines: Int
 
-    private static let font = NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
+    private static let font = NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular)
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()

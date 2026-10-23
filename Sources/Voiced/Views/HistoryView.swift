@@ -121,10 +121,11 @@ private struct HistoryRow: View {
                     // Small actions sit on the timestamp line, shown only while the pointer is
                     // over the row, so the preview below keeps the full width.
                     HStack(spacing: 6) {
+                        // One button for the summary: it opens the summary once there is one,
+                        // and asks for it until then.
                         if summary.exists {
-                            rowAction("doc.text", help: strings.openSummary, action: openSummary)
-                        }
-                        if summary.isOffered && !summary.isRunning {
+                            rowAction("sparkles", help: strings.openSummary, action: openSummary)
+                        } else if summary.isOffered && !summary.isRunning {
                             rowAction("sparkles", help: strings.summarize, action: summarize)
                         }
                         rowAction("folder", help: strings.openFolder, action: openFolder)

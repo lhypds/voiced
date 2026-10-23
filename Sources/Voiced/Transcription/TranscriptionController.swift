@@ -883,8 +883,9 @@ final class TranscriptionController: ObservableObject {
     }
 
     /// Asks the AI service for a summary of the record and writes it to `summary.txt` in the
-    /// record's directory, replacing an earlier one. The summary is written in the interface
-    /// language. Nothing happens while the record is already being summarized or there is no key.
+    /// record's directory, replacing an earlier one, then opens it. The summary is written in the
+    /// interface language. Nothing happens while the record is already being summarized or there
+    /// is no key.
     func summarize(_ record: TranscriptRecord) {
         guard let key = trimmedAPIKey, !summarizingRecordIDs.contains(record.id) else { return }
         summarizingRecordIDs.insert(record.id)
@@ -906,6 +907,7 @@ final class TranscriptionController: ObservableObject {
             switch outcome {
             case .success:
                 summarizedRecordIDs.insert(record.id)
+                openSummary(record)
             case .failure(let error):
                 // Only if the record is still listed: deleted meanwhile, there is no row to show it on.
                 if history.contains(where: { $0.id == record.id }) {
