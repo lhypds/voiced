@@ -7,12 +7,14 @@ import Foundation
 ///   1760950000/              record id: unix time of its start
 ///     transcript.json        lines and sessions
 ///     1760950000.wav         raw audio of each session, named by the session's start
+///     summary.txt            the transcript summarized by the AI service, once asked for
 /// ```
 ///
 /// The default directory is `~/.voiced/history`. Directories without a readable transcript are
 /// skipped rather than failing the whole load.
 struct TranscriptHistoryStore {
     static let transcriptFileName = "transcript.json"
+    static let summaryFileName = "summary.txt"
 
     let directory: URL
 
@@ -69,6 +71,20 @@ struct TranscriptHistoryStore {
 
     func recordDirectory(id: String) -> URL {
         directory.appendingPathComponent(id, isDirectory: true)
+    }
+
+    func summaryFile(id: String) -> URL {
+        recordDirectory(id: id).appendingPathComponent(Self.summaryFileName)
+    }
+
+    func hasSummary(id: String) -> Bool {
+        FileManager.default.fileExists(atPath: summaryFile(id: id).path)
+    }
+
+    /// Writes the record's summary next to its transcript, replacing an earlier one.
+    func saveSummary(_ text: String, id: String) throws {
+        try FileManager.default.createDirectory(at: recordDirectory(id: id), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: summaryFile(id: id), options: .atomic)
     }
 
     /// The id for a record started at `date` that no directory uses yet.

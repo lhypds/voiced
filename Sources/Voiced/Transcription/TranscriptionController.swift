@@ -97,6 +97,16 @@ final class TranscriptionController: ObservableObject {
     }
     /// Why the last translation failed; cleared when the translator is next configured.
     @Published private(set) var translationError: String?
+    /// The OpenAI API key as entered; empty when none is set. Saved on every change.
+    @Published var openAIAPIKey: String {
+        didSet { settings.openAIAPIKey = openAIAPIKey }
+    }
+    /// Records whose summary is being requested right now.
+    @Published private(set) var summarizingRecordIDs: Set<String> = []
+    /// Records that have a `summary.txt`, so the history can offer to open it.
+    @Published private(set) var summarizedRecordIDs: Set<String> = []
+    /// Why the last summary of a record failed, by record id; cleared when it is asked for again.
+    @Published private(set) var summaryErrors: [String: String] = [:]
     /// The languages the rules translate into, each once, in the rules' order: the ones a voice
     /// can be picked for.
     var translationTargets: [AppLanguage] {
@@ -159,6 +169,8 @@ final class TranscriptionController: ObservableObject {
 
     private let settings: AppSettings
     private let historyStore: TranscriptHistoryStore
+    /// Makes the summarizer for a key, so tests can stand in for the service.
+    private let makeSummarizer: (String) -> any TranscriptSummarizing
     private let noiseProfileURL: URL
     private let promptFileURL: URL
     private var whisperKit: WhisperKit?
@@ -208,6 +220,12 @@ final class TranscriptionController: ObservableObject {
     var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
     var isVoiceFilterActive: Bool { voiceFilterEnabled && voiceDetectorModelFolder != nil }
     var isTranslationAvailable: Bool { translator != nil }
+    /// Whether the history offers summaries: an API key has been entered.
+    var canSummarize: Bool { trimmedAPIKey != nil }
+    private var trimmedAPIKey: String? {
+        let key = openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return key.isEmpty ? nil : key
+    }
     /// The pairs the rules fix in advance; empty when translation is off or unavailable. A rule
     /// for any language takes the pinned recognition language as its source, and with automatic
     /// recognition gets its pairs only as lines are found to be in a language.
@@ -251,10 +269,12 @@ final class TranscriptionController: ObservableObject {
         historyStore: TranscriptHistoryStore = TranscriptHistoryStore(),
         noiseProfileURL: URL = VoicedDirectory.noiseProfileFile,
         promptFileURL: URL = VoicedDirectory.promptFile,
-        translator: (any SentenceTranslating)? = nil
+        translator: (any SentenceTranslating)? = nil,
+        makeSummarizer: @escaping (String) -> any TranscriptSummarizing = { OpenAISummarizer(apiKey: $0) }
     ) {
         self.settings = settings
         self.historyStore = historyStore
+        self.makeSummarizer = makeSummarizer
         self.noiseProfileURL = noiseProfileURL
         self.promptFileURL = promptFileURL
         // A default argument is evaluated outside the main actor, which the system translator needs.
@@ -263,8 +283,11 @@ final class TranscriptionController: ObservableObject {
         noiseProfile = NoiseProfile.load(from: noiseProfileURL)
         voiceFilterEnabled = settings.voiceFilter
         voiceDetectorModelFolder = VoiceDetectorModelStore.cachedModelFolder()
-        history = historyStore.load()
+        let records = historyStore.load()
+        history = records
+        summarizedRecordIDs = Set(records.map(\.id).filter { historyStore.hasSummary(id: $0) })
         appLanguage = settings.appLanguage
+        openAIAPIKey = settings.openAIAPIKey ?? ""
         selectedLanguage = settings.recognitionLanguage
         detectionLanguages = settings.detectionLanguages
         timestampMode = settings.timestampMode
@@ -373,6 +396,7 @@ final class TranscriptionController: ObservableObject {
         translationRules = [TranslationRule(source: nil, target: settings.appLanguage)]
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
+        openAIAPIKey = settings.openAIAPIKey ?? ""
         // The assignments above wrote each default back; start the file over so it holds none.
         settings.reset()
     }
@@ -853,6 +877,44 @@ final class TranscriptionController: ObservableObject {
         NSWorkspace.shared.open(historyStore.recordDirectory(id: record.id))
     }
 
+    /// Shows the record's summary in the default text editor.
+    func openSummary(_ record: TranscriptRecord) {
+        NSWorkspace.shared.open(historyStore.summaryFile(id: record.id))
+    }
+
+    /// Asks the AI service for a summary of the record and writes it to `summary.txt` in the
+    /// record's directory, replacing an earlier one. The summary is written in the interface
+    /// language. Nothing happens while the record is already being summarized or there is no key.
+    func summarize(_ record: TranscriptRecord) {
+        guard let key = trimmedAPIKey, !summarizingRecordIDs.contains(record.id) else { return }
+        summarizingRecordIDs.insert(record.id)
+        summaryErrors[record.id] = nil
+        let summarizer = makeSummarizer(key)
+        let language = appLanguage
+        let store = historyStore
+        Task { [weak self] in
+            let outcome: Result<Void, Error>
+            do {
+                let summary = try await summarizer.summarize(record.lines, in: language)
+                try store.saveSummary(summary, id: record.id)
+                outcome = .success(())
+            } catch {
+                outcome = .failure(error)
+            }
+            guard let self else { return }
+            summarizingRecordIDs.remove(record.id)
+            switch outcome {
+            case .success:
+                summarizedRecordIDs.insert(record.id)
+            case .failure(let error):
+                // Only if the record is still listed: deleted meanwhile, there is no row to show it on.
+                if history.contains(where: { $0.id == record.id }) {
+                    summaryErrors[record.id] = error.localizedDescription
+                }
+            }
+        }
+    }
+
     func deleteRecord(_ record: TranscriptRecord) {
         do {
             try historyStore.delete(id: record.id)
@@ -860,6 +922,8 @@ final class TranscriptionController: ObservableObject {
             return
         }
         history.removeAll { $0.id == record.id }
+        summarizedRecordIDs.remove(record.id)
+        summaryErrors[record.id] = nil
         if record.id == currentRecordID {
             currentRecordID = nil
             if !isRecording {

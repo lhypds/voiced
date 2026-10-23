@@ -34,7 +34,20 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.speechVoices, [:])
         XCTAssertNil(settings.translationRules, "the old target language stands in until rules are saved")
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
+        XCTAssertNil(settings.openAIAPIKey)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
+    }
+
+    func testOpenAIAPIKeyIsTrimmedAndEmptyMeansNone() throws {
+        let settings = AppSettings(fileURL: fileURL)
+
+        settings.openAIAPIKey = "  sk-test-123\n"
+        XCTAssertEqual(AppSettings(fileURL: fileURL).openAIAPIKey, "sk-test-123")
+        XCTAssertEqual(try storedValue("openAIAPIKey") as? String, "sk-test-123")
+
+        settings.openAIAPIKey = "   "
+        XCTAssertNil(AppSettings(fileURL: fileURL).openAIAPIKey)
+        XCTAssertNil(try storedValue("openAIAPIKey"), "a blank key is removed rather than stored")
     }
 
     func testDetectionLanguagesDefaultToNoneAndDropUnknownCodes() throws {

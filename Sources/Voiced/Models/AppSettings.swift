@@ -22,6 +22,7 @@ struct AppSettings {
         case speakTranslation
         case speechVoices
         case translationRules
+        case openAIAPIKey
     }
 
     private let file: SettingsFile
@@ -130,6 +131,19 @@ struct AppSettings {
     var speechVoices: [String: String] {
         get { file[Key.speechVoices.rawValue] as? [String: String] ?? [:] }
         nonmutating set { set(newValue, for: .speechVoices) }
+    }
+
+    /// The OpenAI API key the summaries in History are requested with; nil until one is entered.
+    /// Surrounding whitespace, as from a copied key, is dropped, and an empty key is stored as none.
+    var openAIAPIKey: String? {
+        get {
+            let stored = string(.openAIAPIKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return stored.isEmpty ? nil : stored
+        }
+        nonmutating set {
+            let trimmed = newValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            set(trimmed.isEmpty ? nil : trimmed, for: .openAIAPIKey)
+        }
     }
 
     /// Minimum frame RMS the voice detector treats as speech. Clamped to the transcriber's range.

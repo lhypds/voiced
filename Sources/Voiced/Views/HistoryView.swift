@@ -31,12 +31,15 @@ struct HistoryView: View {
                             HistoryRow(
                                 record: record,
                                 isCurrent: record.id == controller.currentRecordID,
+                                summary: summaryState(of: record),
                                 strings: strings,
                                 select: {
                                     controller.resume(record)
                                     isPresented = false
                                 },
                                 openFolder: { controller.openRecordFolder(record) },
+                                summarize: { controller.summarize(record) },
+                                openSummary: { controller.openSummary(record) },
                                 delete: { controller.deleteRecord(record) }
                             )
                         }
@@ -48,14 +51,36 @@ struct HistoryView: View {
         .frame(width: 340)
         .background(Theme.background)
     }
+
+    private func summaryState(of record: TranscriptRecord) -> HistoryRow.SummaryState {
+        HistoryRow.SummaryState(
+            isOffered: controller.canSummarize,
+            isRunning: controller.summarizingRecordIDs.contains(record.id),
+            exists: controller.summarizedRecordIDs.contains(record.id),
+            error: controller.summaryErrors[record.id]
+        )
+    }
 }
 
 private struct HistoryRow: View {
+    /// What the row shows about the record's AI summary.
+    struct SummaryState {
+        /// Whether summaries can be asked for at all: an API key is set.
+        let isOffered: Bool
+        let isRunning: Bool
+        /// Whether `summary.txt` exists, so it can be opened.
+        let exists: Bool
+        let error: String?
+    }
+
     let record: TranscriptRecord
     let isCurrent: Bool
+    let summary: SummaryState
     let strings: AppStrings
     let select: () -> Void
     let openFolder: () -> Void
+    let summarize: () -> Void
+    let openSummary: () -> Void
     let delete: () -> Void
 
     @State private var isHovered = false
@@ -85,9 +110,23 @@ private struct HistoryRow: View {
                             .background(Theme.accent.opacity(0.18), in: Capsule())
                     }
                     Spacer()
+                    // The summary in progress stays visible without the pointer: it is the only
+                    // sign that the request is running.
+                    if summary.isRunning {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .frame(width: 16, height: 16)
+                            .help(strings.summarizing)
+                    }
                     // Small actions sit on the timestamp line, shown only while the pointer is
                     // over the row, so the preview below keeps the full width.
                     HStack(spacing: 6) {
+                        if summary.exists {
+                            rowAction("doc.text", help: strings.openSummary, action: openSummary)
+                        }
+                        if summary.isOffered && !summary.isRunning {
+                            rowAction("sparkles", help: strings.summarize, action: summarize)
+                        }
                         rowAction("folder", help: strings.openFolder, action: openFolder)
                         rowAction("trash", help: strings.delete, action: delete)
                     }
@@ -99,6 +138,14 @@ private struct HistoryRow: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let error = summary.error {
+                    Text(strings.summaryFailed(error))
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -108,6 +155,13 @@ private struct HistoryRow: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .contextMenu {
+            if summary.exists {
+                Button(strings.openSummary, action: openSummary)
+            }
+            if summary.isOffered {
+                Button(strings.summarize, action: summarize)
+                    .disabled(summary.isRunning)
+            }
             Button(strings.openFolder, action: openFolder)
             Button(strings.delete, role: .destructive, action: delete)
         }

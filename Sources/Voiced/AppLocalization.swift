@@ -50,6 +50,18 @@ enum AppLanguage: String, CaseIterable, Identifiable, Sendable {
         case .german: "Deutsch"
         }
     }
+
+    /// The language's name in English, for instructions written to an AI service.
+    var englishName: String {
+        switch self {
+        case .english: "English"
+        case .chinese: "Chinese"
+        case .japanese: "Japanese"
+        case .french: "French"
+        case .spanish: "Spanish"
+        case .german: "German"
+        }
+    }
 }
 
 struct AppStrings: Sendable {
@@ -192,6 +204,14 @@ struct AppStrings: Sendable {
     var resetAllSettingsConfirmation: String { value("重置所有设置？", "すべての設定をリセットしますか？", "Reset all settings?", "Réinitialiser tous les réglages ?", "¿Restablecer todos los ajustes?", "Alle Einstellungen zurücksetzen?") }
     var cancel: String { value("取消", "キャンセル", "Cancel", "Annuler", "Cancelar", "Abbrechen") }
     var delete: String { value("删除", "削除", "Delete", "Supprimer", "Eliminar", "Löschen") }
+    var ai: String { "AI" }
+    var openAIAPIKey: String { value("OpenAI API 密钥", "OpenAI API キー", "OpenAI API Key", "Clé API OpenAI", "Clave de API de OpenAI", "OpenAI-API-Schlüssel") }
+    var summarize: String { value("生成摘要", "要約する", "Summarize", "Résumer", "Resumir", "Zusammenfassen") }
+    var summarizing: String { value("正在生成摘要…", "要約中…", "Summarizing…", "Résumé en cours…", "Resumiendo…", "Zusammenfassung läuft…") }
+    var openSummary: String { value("打开摘要", "要約を開く", "Open summary", "Ouvrir le résumé", "Abrir resumen", "Zusammenfassung öffnen") }
+    func summaryFailed(_ detail: String) -> String {
+        value("摘要失败：\(detail)", "要約に失敗：\(detail)", "Summary failed: \(detail)", "Échec du résumé : \(detail)", "Error al resumir: \(detail)", "Zusammenfassung fehlgeschlagen: \(detail)")
+    }
     var emptyTitle: String { value("点击麦克风开始识别", "マイクをクリックして認識を開始", "Click the microphone to start", "Cliquez sur le micro pour commencer", "Haz clic en el micrófono para empezar", "Auf das Mikrofon klicken, um zu starten") }
     var noInput: String { value("未选择输入", "入力が未選択", "No input selected", "Aucune entrée sélectionnée", "Sin entrada seleccionada", "Kein Eingang gewählt") }
     var chooseInput: String { value("请选择音频输入设备", "音声入力デバイスを選択してください", "Select an audio input device", "Sélectionnez un périphérique d'entrée audio", "Selecciona un dispositivo de entrada de audio", "Audioeingang auswählen") }

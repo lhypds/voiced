@@ -81,6 +81,26 @@ final class TranscriptHistoryStoreTests: XCTestCase {
         XCTAssertNoThrow(try store.delete(id: record.id))
     }
 
+    func testSummaryIsWrittenNextToTheTranscript() throws {
+        let store = TranscriptHistoryStore(directory: directory)
+        let record = TranscriptRecord(lines: [line("a", "first")])
+        try store.save(record)
+        XCTAssertFalse(store.hasSummary(id: record.id))
+
+        try store.saveSummary("Main points.", id: record.id)
+
+        XCTAssertTrue(store.hasSummary(id: record.id))
+        XCTAssertEqual(store.summaryFile(id: record.id).path, store.recordDirectory(id: record.id).appendingPathComponent("summary.txt").path)
+        XCTAssertEqual(try String(contentsOf: store.summaryFile(id: record.id), encoding: .utf8), "Main points.")
+        XCTAssertEqual(store.load().map(\.id), [record.id], "the summary file does not disturb loading")
+
+        try store.saveSummary("Revised.", id: record.id)
+        XCTAssertEqual(try String(contentsOf: store.summaryFile(id: record.id), encoding: .utf8), "Revised.", "summarizing again replaces the file")
+
+        try store.delete(id: record.id)
+        XCTAssertFalse(store.hasSummary(id: record.id))
+    }
+
     func testDeleteIfEmptyKeepsDirectoriesWithContent() throws {
         let store = TranscriptHistoryStore(directory: directory)
         try FileManager.default.createDirectory(at: store.recordDirectory(id: "1"), withIntermediateDirectories: true)

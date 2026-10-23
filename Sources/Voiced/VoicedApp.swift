@@ -57,11 +57,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // SwiftUI creates the main window only after launch has finished.
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
-            for window in NSApp.windows where window.canBecomeMain {
-                window.makeKeyAndOrderFront(nil)
-                // macOS 14 may decline the activation; this still raises the window.
-                window.orderFrontRegardless()
-            }
+            guard let window = Self.closeExtraWindows() else { return }
+            window.makeKeyAndOrderFront(nil)
+            // macOS 14 may decline the activation; this still raises the window.
+            window.orderFrontRegardless()
         }
+    }
+
+    /// Keeps a single main window: the key window, or else the first visible one, survives and
+    /// every other visible main-capable window is closed. Returns the surviving window, or the
+    /// first main-capable window when none is on screen yet.
+    @discardableResult
+    static func closeExtraWindows() -> NSWindow? {
+        let candidates = NSApp.windows.filter { $0.canBecomeMain }
+        let visible = candidates.filter(\.isVisible)
+        guard let kept = visible.first(where: \.isKeyWindow) ?? visible.first ?? candidates.first else { return nil }
+        for window in visible where window !== kept {
+            window.close()
+        }
+        return kept
     }
 }

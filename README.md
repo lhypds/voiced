@@ -56,6 +56,7 @@ With BlackHole, use a Multi-Output Device that routes to both the speakers and B
 - Noise reduction: subtracts the measured background noise from the input before recognition. Available once the noise has been measured.
 - Voice filter: runs a speech detection model (Silero VAD) over the input, so sound that is loud but not speech, such as background music, no longer triggers recognition or holds a sentence open. Off by default. The model (about 1 MB) is downloaded from Hugging Face when the filter is first turned on and cached next to the recognition models.
 - Recognition preview: listens with the current settings and shows the input level and recognized text without writing to the transcript. Useful for tuning the threshold.
+- OpenAI API key (AI page): once a key is entered, every transcript in History gets a "Summarize" action. It sends the whole transcript to OpenAI and writes the summary, in the interface language, to `summary.txt` in the record's folder, where "Open summary" shows it. This is the only feature that sends anything off the machine, and only when asked. The key is kept in `~/.voiced/settings.json`.
 - Recognition prompt: words the recognizer should prefer, such as names, product names and technical terms it tends to get wrong. "Edit file" opens `~/.voiced/prompt.txt` in the default text editor; put one term per line, in the language you speak. Lines starting with `#` are ignored. The file is read at the start of each recording or preview. Whisper has no hard keyword list, so the prompt only tilts the model towards these spellings; it works best for a few dozen terms and the first 223 tokens are used.
 
 ## Data on disk
@@ -71,6 +72,7 @@ Everything Voiced stores lives under `~/.voiced`:
     transcript.json         the lines, plus one entry per recording session: start and end time,
                             input device, language, engine and the name of its audio file
     <unix time>.wav         the raw audio of all sessions, one after another (16 kHz mono 16-bit PCM)
+    summary.txt             the AI summary, once asked for in the history
 ```
 
 A recording session runs from the start button to the stop button. The first session of a record creates its directory and its WAV file, named after the session's start time. Every later session recorded into the same record (by selecting it in the history first) continues that file, and its entry in `transcript.json` notes the offset, in seconds, where its audio starts. The audio file is written while recording, so it is complete even if the app quits unexpectedly. A session that recognized nothing still keeps its audio; one that captured no audio at all leaves nothing behind. Deleting a record in the history removes its directory with the audio. The saved audio can be replayed through the recognizer with `VoicedSimulate` (see [docs/Develop.md](docs/Develop.md)).

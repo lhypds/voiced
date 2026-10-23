@@ -8,6 +8,7 @@ enum SettingsSection: CaseIterable, Identifiable {
     case audioInput
     case recognition
     case translation
+    case ai
 
     var id: Self { self }
 
@@ -17,6 +18,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .audioInput: "mic.fill"
         case .recognition: "waveform"
         case .translation: "translate"
+        case .ai: "sparkles"
         }
     }
 
@@ -27,6 +29,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .audioInput: Color(red: 0.94, green: 0.33, blue: 0.31)
         case .recognition: Color(red: 0.25, green: 0.52, blue: 0.96)
         case .translation: Color(red: 0.30, green: 0.72, blue: 0.42)
+        case .ai: Color(red: 0.58, green: 0.40, blue: 0.88)
         }
     }
 
@@ -36,6 +39,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .audioInput: strings.audioInput
         case .recognition: strings.recognition
         case .translation: strings.translation
+        case .ai: strings.ai
         }
     }
 }
@@ -152,6 +156,7 @@ struct SettingsView: View {
                     case .audioInput: audioInputPage
                     case .recognition: recognitionPage
                     case .translation: translationPage
+                    case .ai: aiPage
                     }
                 }
                 .padding(.horizontal, Theme.contentPadding)
@@ -443,6 +448,28 @@ struct SettingsView: View {
                 Divider()
                 speechVoiceRow(for: language)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var aiPage: some View {
+        SettingsGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(strings.openAIAPIKey)
+                    .font(.body)
+                // A box four lines tall under the title. The key wraps wherever it reaches the
+                // edge, not at its hyphens, and Return does nothing: a key has no line breaks.
+                CharacterWrappingTextView(text: Binding(
+                    get: { controller.openAIAPIKey },
+                    set: { controller.openAIAPIKey = $0 }
+                ), lines: 4)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Theme.accent.opacity(Theme.rowFillOpacity))
+                )
+            }
+            .padding(.vertical, 14)
         }
     }
 
@@ -966,6 +993,113 @@ private struct LevelMeter: View {
 }
 
 // MARK: - Components
+
+/// A plain text box that wraps its text by character rather than at word or hyphen boundaries,
+/// for a value such as an API key that has no words. Line breaks cannot be typed or pasted in.
+private struct CharacterWrappingTextView: NSViewRepresentable {
+    @Binding var text: String
+    let lines: Int
+
+    private static let font = NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSTextView.scrollableTextView()
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        let textView = scrollView.documentView as! NSTextView
+        textView.delegate = context.coordinator
+        textView.font = Self.font
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.usesFontPanel = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        // Accessing the TextKit 1 layout manager opts the view out of TextKit 2, which breaks
+        // lines by the text's paragraph style and ignores the container's mode.
+        _ = textView.layoutManager
+        textView.textContainer?.lineBreakMode = .byCharWrapping
+        textView.defaultParagraphStyle = Self.paragraphStyle
+        textView.typingAttributes = Self.attributes
+        textView.string = text
+        Self.restyle(textView)
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        let textView = scrollView.documentView as! NSTextView
+        if textView.string != text {
+            textView.string = text
+            Self.restyle(textView)
+        }
+    }
+
+    private static let paragraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byCharWrapping
+        return style
+    }()
+
+    private static var attributes: [NSAttributedString.Key: Any] {
+        [.font: font, .paragraphStyle: paragraphStyle, .foregroundColor: NSColor.textColor]
+    }
+
+    /// Every character carries the wrapping style; a string set or pasted in has none of its own.
+    static func restyle(_ textView: NSTextView) {
+        guard let storage = textView.textStorage else { return }
+        storage.setAttributes(attributes, range: NSRange(location: 0, length: storage.length))
+        textView.typingAttributes = attributes
+    }
+
+    /// Pinned: the window is sized by the user and every row keeps a stable height.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        let line = ceil(Self.font.ascender - Self.font.descender + Self.font.leading)
+        return CGSize(width: proposal.width ?? 300, height: line * CGFloat(lines))
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: CharacterWrappingTextView
+
+        init(parent: CharacterWrappingTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            CharacterWrappingTextView.restyle(textView)
+            parent.text = textView.string
+        }
+
+        /// Return, and anything else that would insert a line break, is dropped.
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            commandSelector == #selector(NSResponder.insertNewline(_:))
+                || commandSelector == #selector(NSResponder.insertLineBreak(_:))
+                || commandSelector == #selector(NSResponder.insertParagraphSeparator(_:))
+                || commandSelector == #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:))
+        }
+
+        /// Pasted text loses its line breaks before it goes in.
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
+            guard let replacement = replacementString, replacement.contains(where: \.isNewline) else { return true }
+            let cleaned = replacement.filter { !$0.isNewline }
+            if textView.shouldChangeText(in: range, replacementString: cleaned) {
+                textView.replaceCharacters(in: range, with: cleaned)
+                textView.didChangeText()
+            }
+            return false
+        }
+    }
+}
 
 /// One page in the sidebar: the page's symbol on a coloured rounded square, then its title.
 private struct SidebarItem: View {
