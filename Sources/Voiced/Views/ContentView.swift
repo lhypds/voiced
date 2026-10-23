@@ -112,6 +112,13 @@ struct ContentView: View {
                 // lay out cheaply without laziness.
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.rowGap) {
+                        // The AI's notes lead the list, newest first, above the LIVE row. Each
+                        // leaves once it has been on screen long enough to be read.
+                        ForEach(controller.hints.reversed()) { hint in
+                            HintRow(hint: hint, timestampWidth: timestampWidth, dismissHelp: strings.close) {
+                                controller.dismiss(hint)
+                            }
+                        }
                         if controller.isRecording || !controller.liveText.isEmpty {
                             LiveRow(text: controller.liveText, timestampWidth: timestampWidth)
                         }
@@ -129,6 +136,7 @@ struct ContentView: View {
                             )
                         }
                     }
+                    .animation(.easeOut(duration: 0.25), value: controller.hints)
                     .padding(.horizontal, Theme.contentPadding)
                     .padding(.top, Self.rowEdgeGap)
                     // Room to scroll the last row clear of the record button, leaving the same
@@ -492,6 +500,71 @@ private struct TranscriptRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .onTapGesture(perform: onCopy)
+    }
+}
+
+/// A row above the LIVE row with one of the AI's notes: an "AI" label in the timestamp column,
+/// then the topic in purple over the explanation, both a little under the transcript's text size, on a purple tint. A close button appears while
+/// hovered. The row dismisses itself after the hint's reading time, counted from when it
+/// appeared or from when the pointer last left it, so a hint being read is not taken away.
+private struct HintRow: View {
+    let hint: TranscriptHint
+    let timestampWidth: CGFloat
+    let dismissHelp: String
+    let onDismiss: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Theme.rowSpacing) {
+            HStack(spacing: 4) {
+                Text("AI")
+                    .font(.system(.caption, design: .monospaced).weight(.bold))
+                Image(systemName: "sparkles")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(Theme.aiAccent)
+            // The column keeps the fixed height of every row's label, symbol or not.
+            .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
+            VStack(alignment: .leading, spacing: Theme.secondaryTextGap) {
+                // Both a little smaller than the transcript's text; the purple topic tells them apart.
+                Text(hint.topic)
+                    .font(.system(size: Theme.hintFontSize))
+                    .foregroundStyle(Theme.aiAccent)
+                Text(hint.text)
+                    .font(.system(size: Theme.hintFontSize))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    // Pinned so the row's height does not depend on the symbol's own metrics.
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(dismissHelp)
+            .opacity(isHovering ? 1 : 0)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Theme.aiAccent.opacity(isHovering ? Theme.rowFillHoverOpacity : Theme.rowFillOpacity))
+        )
+        .padding(.horizontal, -8)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        // Leaving the row starts a fresh countdown; hovering cancels the one running.
+        .task(id: isHovering) {
+            guard !isHovering else { return }
+            try? await Task.sleep(for: .seconds(hint.readingTime))
+            guard !Task.isCancelled else { return }
+            onDismiss()
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 

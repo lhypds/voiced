@@ -23,6 +23,11 @@ struct AppSettings {
         case speechVoices
         case translationRules
         case openAIAPIKey
+        case aiHints
+        case aiHintLanguage
+        case aiHintModel
+        case aiSummary
+        case summaryModel
     }
 
     private let file: SettingsFile
@@ -144,6 +149,46 @@ struct AppSettings {
             let trimmed = newValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             set(trimmed.isEmpty ? nil : trimmed, for: .openAIAPIKey)
         }
+    }
+
+    /// Whether newly recognized lines get AI hint bubbles for obscure things and questions. Off
+    /// by default: every new sentence is sent to the service, which also needs a key.
+    var aiHints: Bool {
+        get { file[Key.aiHints.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .aiHints) }
+    }
+
+    /// The language AI hints are written in; nil, the default, follows the interface language.
+    var aiHintLanguage: AppLanguage? {
+        get { rawValue(.aiHintLanguage) }
+        nonmutating set { set(newValue?.rawValue, for: .aiHintLanguage) }
+    }
+
+    /// The OpenAI model hints are asked from; the default until a name is entered, and when
+    /// the entered name is blank.
+    var aiHintModel: String {
+        get { OpenAIChatCompletion.modelName(string(.aiHintModel)) }
+        nonmutating set { setModelName(newValue, for: .aiHintModel) }
+    }
+
+    /// Whether the history offers AI summaries. On by default: a summary is only ever made when
+    /// asked for, and only with a key.
+    var aiSummary: Bool {
+        get { file[Key.aiSummary.rawValue] as? Bool ?? true }
+        nonmutating set { set(newValue, for: .aiSummary) }
+    }
+
+    /// The OpenAI model summaries are asked from, as `aiHintModel`.
+    var summaryModel: String {
+        get { OpenAIChatCompletion.modelName(string(.summaryModel)) }
+        nonmutating set { setModelName(newValue, for: .summaryModel) }
+    }
+
+    /// Stores a model name trimmed, and the default name as nothing, so the file only holds
+    /// what the user changed.
+    private func setModelName(_ name: String, for key: Key) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        set(trimmed.isEmpty || trimmed == OpenAIChatCompletion.defaultModel ? nil : trimmed, for: key)
     }
 
     /// Minimum frame RMS the voice detector treats as speech. Clamped to the transcriber's range.

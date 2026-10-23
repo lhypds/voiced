@@ -8,6 +8,8 @@ enum Theme {
     static let accent = Color(red: 0.96, green: 0.64, blue: 0.38)
     /// Darker orange for the record button's lower edge and shadow.
     static let accentDark = Color(red: 0.88, green: 0.50, blue: 0.24)
+    /// Purple for everything the AI service produces: the AI settings page and the hint bubbles.
+    static let aiAccent = Color(red: 0.58, green: 0.40, blue: 0.88)
 
     static let contentPadding: CGFloat = 22
     static let rowSpacing: CGFloat = 22
@@ -20,6 +22,8 @@ enum Theme {
     static let bodyFontSize: CGFloat = 17
     /// Size of the second text of a translated row, under the main one.
     static let secondaryFontSize: CGFloat = 14
+    /// Size of the AI's hints: a little under the transcript's text, as they say more per row.
+    static let hintFontSize: CGFloat = 15
     /// Gap between a row's main text and its second text.
     static let secondaryTextGap: CGFloat = 4
     /// Height of one line of body text; the lower bound for the timestamp column height.

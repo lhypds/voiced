@@ -35,6 +35,11 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertNil(settings.translationRules, "the old target language stands in until rules are saved")
         XCTAssertEqual(settings.speechEnergyFloor, LiveTranscriber.defaultSpeechEnergyFloor)
         XCTAssertNil(settings.openAIAPIKey)
+        XCTAssertFalse(settings.aiHints)
+        XCTAssertNil(settings.aiHintLanguage, "the interface language stands in until one is picked")
+        XCTAssertEqual(settings.aiHintModel, OpenAIChatCompletion.defaultModel)
+        XCTAssertTrue(settings.aiSummary)
+        XCTAssertEqual(settings.summaryModel, OpenAIChatCompletion.defaultModel)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path), "reading must not create the file")
     }
 
@@ -48,6 +53,22 @@ final class AppSettingsTests: XCTestCase {
         settings.openAIAPIKey = "   "
         XCTAssertNil(AppSettings(fileURL: fileURL).openAIAPIKey)
         XCTAssertNil(try storedValue("openAIAPIKey"), "a blank key is removed rather than stored")
+    }
+
+    func testModelNamesAreTrimmedAndTheDefaultIsNotStored() throws {
+        let settings = AppSettings(fileURL: fileURL)
+
+        settings.aiHintModel = "  gpt-5-mini \n"
+        settings.summaryModel = "gpt-5"
+        XCTAssertEqual(AppSettings(fileURL: fileURL).aiHintModel, "gpt-5-mini")
+        XCTAssertEqual(AppSettings(fileURL: fileURL).summaryModel, "gpt-5")
+        XCTAssertEqual(try storedValue("aiHintModel") as? String, "gpt-5-mini")
+
+        settings.aiHintModel = "   "
+        settings.summaryModel = OpenAIChatCompletion.defaultModel
+        XCTAssertEqual(AppSettings(fileURL: fileURL).aiHintModel, OpenAIChatCompletion.defaultModel)
+        XCTAssertNil(try storedValue("aiHintModel"), "a blank name is removed rather than stored")
+        XCTAssertNil(try storedValue("summaryModel"), "the default name is not stored")
     }
 
     func testDetectionLanguagesDefaultToNoneAndDropUnknownCodes() throws {
@@ -72,12 +93,18 @@ final class AppSettingsTests: XCTestCase {
         settings.keepWindowOnTop = false
         settings.recognitionEngine = .accurate
         settings.detectionLanguages = ["zh"]
+        settings.aiHints = true
+        settings.aiHintLanguage = .japanese
+        XCTAssertTrue(AppSettings(fileURL: fileURL).aiHints)
+        XCTAssertEqual(AppSettings(fileURL: fileURL).aiHintLanguage, .japanese)
 
         settings.reset()
 
         let reread = AppSettings(fileURL: fileURL)
         XCTAssertTrue(reread.keepWindowOnTop)
         XCTAssertEqual(reread.recognitionEngine, .turbo)
+        XCTAssertFalse(reread.aiHints)
+        XCTAssertNil(reread.aiHintLanguage)
         XCTAssertEqual(reread.detectionLanguages, [])
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
         XCTAssertEqual(object?.isEmpty, true)

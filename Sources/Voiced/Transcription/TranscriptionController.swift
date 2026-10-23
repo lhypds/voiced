@@ -107,6 +107,42 @@ final class TranscriptionController: ObservableObject {
     @Published private(set) var summarizedRecordIDs: Set<String> = []
     /// Why the last summary of a record failed, by record id; cleared when it is asked for again.
     @Published private(set) var summaryErrors: [String: String] = [:]
+    /// Whether newly recognized lines are sent to the AI service for hint bubbles.
+    @Published var aiHintsEnabled: Bool {
+        didSet {
+            settings.aiHints = aiHintsEnabled
+            if aiHintsEnabled {
+                // Only what is said from now on gets hints; the lines already on screen are old news.
+                hintedLineIDs.formUnion(lines.map(\.id))
+            } else {
+                hintTask?.cancel()
+                hintTask = nil
+                hintError = nil
+            }
+        }
+    }
+    /// The language hints are written in; nil follows the interface language.
+    @Published var aiHintLanguage: AppLanguage? {
+        didSet { settings.aiHintLanguage = aiHintLanguage }
+    }
+    /// The model hints are asked from, as typed; the default stands in for a blank name.
+    @Published var aiHintModel: String {
+        didSet { settings.aiHintModel = aiHintModel }
+    }
+    /// Whether the history offers summaries at all.
+    @Published var aiSummaryEnabled: Bool {
+        didSet { settings.aiSummary = aiSummaryEnabled }
+    }
+    /// The model summaries are asked from, as typed; the default stands in for a blank name.
+    @Published var summaryModel: String {
+        didSet { settings.summaryModel = summaryModel }
+    }
+    /// The AI's notes on things mentioned and questions asked, oldest first; at most
+    /// `maxShownHints`, the newest. Each goes away when it is dismissed or has been shown long
+    /// enough to be read.
+    @Published private(set) var hints: [TranscriptHint] = []
+    /// Why the last hint request failed; cleared by the next one that succeeds or when hints are turned off.
+    @Published private(set) var hintError: String?
     /// The languages the rules translate into, each once, in the rules' order: the ones a voice
     /// can be picked for.
     var translationTargets: [AppLanguage] {
@@ -169,8 +205,17 @@ final class TranscriptionController: ObservableObject {
 
     private let settings: AppSettings
     private let historyStore: TranscriptHistoryStore
-    /// Makes the summarizer for a key, so tests can stand in for the service.
-    private let makeSummarizer: (String) -> any TranscriptSummarizing
+    /// Makes the summarizer for a key and model name, so tests can stand in for the service.
+    private let makeSummarizer: (String, String) -> any TranscriptSummarizing
+    /// Makes the hint provider for a key and model name, so tests can stand in for the service.
+    private let makeHintProvider: (String, String) -> any TranscriptHinting
+    /// The hint request in flight, at most one at a time.
+    private var hintTask: Task<Void, Never>?
+    /// Lines already sent for hints, or shown before hints were on, so each is judged at most once.
+    private var hintedLineIDs: Set<String> = []
+    /// Topics of the hints made for this transcript, the newest last, including ones no longer
+    /// shown, so the service does not explain a thing again once its bubble has gone.
+    private var explainedTopics: [String] = []
     private let noiseProfileURL: URL
     private let promptFileURL: URL
     private var whisperKit: WhisperKit?
@@ -220,8 +265,10 @@ final class TranscriptionController: ObservableObject {
     var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
     var isVoiceFilterActive: Bool { voiceFilterEnabled && voiceDetectorModelFolder != nil }
     var isTranslationAvailable: Bool { translator != nil }
-    /// Whether the history offers summaries: an API key has been entered.
-    var canSummarize: Bool { trimmedAPIKey != nil }
+    /// Whether the history offers summaries: they are on and an API key has been entered.
+    var canSummarize: Bool { aiSummaryEnabled && trimmedAPIKey != nil }
+    /// Whether hints can be turned on: an API key has been entered.
+    var canHint: Bool { trimmedAPIKey != nil }
     private var trimmedAPIKey: String? {
         let key = openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         return key.isEmpty ? nil : key
@@ -270,11 +317,13 @@ final class TranscriptionController: ObservableObject {
         noiseProfileURL: URL = VoicedDirectory.noiseProfileFile,
         promptFileURL: URL = VoicedDirectory.promptFile,
         translator: (any SentenceTranslating)? = nil,
-        makeSummarizer: @escaping (String) -> any TranscriptSummarizing = { OpenAISummarizer(apiKey: $0) }
+        makeSummarizer: @escaping (String, String) -> any TranscriptSummarizing = { OpenAISummarizer(apiKey: $0, model: $1) },
+        makeHintProvider: @escaping (String, String) -> any TranscriptHinting = { OpenAIHintProvider(apiKey: $0, model: $1) }
     ) {
         self.settings = settings
         self.historyStore = historyStore
         self.makeSummarizer = makeSummarizer
+        self.makeHintProvider = makeHintProvider
         self.noiseProfileURL = noiseProfileURL
         self.promptFileURL = promptFileURL
         // A default argument is evaluated outside the main actor, which the system translator needs.
@@ -288,6 +337,11 @@ final class TranscriptionController: ObservableObject {
         summarizedRecordIDs = Set(records.map(\.id).filter { historyStore.hasSummary(id: $0) })
         appLanguage = settings.appLanguage
         openAIAPIKey = settings.openAIAPIKey ?? ""
+        aiHintsEnabled = settings.aiHints
+        aiHintLanguage = settings.aiHintLanguage
+        aiHintModel = settings.aiHintModel
+        aiSummaryEnabled = settings.aiSummary
+        summaryModel = settings.summaryModel
         selectedLanguage = settings.recognitionLanguage
         detectionLanguages = settings.detectionLanguages
         timestampMode = settings.timestampMode
@@ -397,6 +451,11 @@ final class TranscriptionController: ObservableObject {
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
         openAIAPIKey = settings.openAIAPIKey ?? ""
+        aiHintsEnabled = settings.aiHints
+        aiHintLanguage = settings.aiHintLanguage
+        aiHintModel = settings.aiHintModel
+        aiSummaryEnabled = settings.aiSummary
+        summaryModel = settings.summaryModel
         // The assignments above wrote each default back; start the file over so it holds none.
         settings.reset()
     }
@@ -697,6 +756,7 @@ final class TranscriptionController: ObservableObject {
         lines = []
         liveText = ""
         currentRecordID = nil
+        clearHints()
         let now = Date()
         pendingRecord = (historyStore.unusedID(startedAt: now), now)
     }
@@ -730,6 +790,7 @@ final class TranscriptionController: ObservableObject {
             show(transcript)
             persistTranscript()
             translateVisibleLines()
+            requestHints()
         }
     }
 
@@ -861,6 +922,66 @@ final class TranscriptionController: ObservableObject {
         speaker.speak(AppStrings(language: language).speechSample, language: language.code, voiceID: speechVoiceID(for: language))
     }
 
+    // MARK: - AI hints
+
+    /// How many new lines one request covers at most. Older unjudged lines are let go, so a
+    /// backlog after a slow answer does not grow into ever larger requests.
+    private static let hintBatchSize = 8
+    /// How many hints are on screen at once; a new one pushes the oldest out.
+    private static let maxShownHints = 3
+    /// How many earlier topics are listed for the service to avoid repeating.
+    private static let rememberedTopicCount = 30
+
+    func dismiss(_ hint: TranscriptHint) {
+        hints.removeAll { $0.id == hint.id }
+    }
+
+    /// Forgets the hints and the lines judged so far, for a transcript that starts over.
+    private func clearHints() {
+        hintTask?.cancel()
+        hintTask = nil
+        hints = []
+        hintedLineIDs = []
+        explainedTopics = []
+    }
+
+    /// Sends the lines not judged yet to the AI service, one request at a time, and shows the
+    /// hints it answers with. Only lines `HintTrigger` finds worth asking about are sent; the
+    /// rest are judged on the machine alone. Lines are judged once, whatever the outcome, so a
+    /// failing service is asked once per new sentence rather than again and again.
+    private func requestHints() {
+        guard aiHintsEnabled, let key = trimmedAPIKey, hintTask == nil else { return }
+        let pending = lines.filter { !hintedLineIDs.contains($0.id) }
+        guard !pending.isEmpty else { return }
+        hintedLineIDs.formUnion(pending.map(\.id))
+        let worthAsking = pending.filter { HintTrigger.shouldAsk($0.text) }
+        guard !worthAsking.isEmpty else { return }
+        let batch = Array(worthAsking.suffix(Self.hintBatchSize))
+        let context = lines.prefix(while: { $0.id != batch[0].id }).suffix(OpenAIHintProvider.contextLineCount)
+        let explained = explainedTopics
+        let provider = makeHintProvider(key, OpenAIChatCompletion.modelName(aiHintModel))
+        let language = aiHintLanguage ?? appLanguage
+        hintTask = Task { [weak self] in
+            var found: [TranscriptHint] = []
+            do {
+                found = try await provider.hints(for: batch, context: Array(context), explained: explained, in: language)
+                self?.hintError = nil
+            } catch is CancellationError {
+                // Hints were turned off or the transcript was cleared; that answer is not wanted.
+                return
+            } catch {
+                self?.hintError = error.localizedDescription
+            }
+            guard let self, !Task.isCancelled else { return }
+            hintTask = nil
+            let shown = Set(lines.map(\.id))
+            let kept = found.filter { shown.contains($0.lineID) }
+            hints = Array((hints + kept).suffix(Self.maxShownHints))
+            explainedTopics = Array((explainedTopics + kept.map(\.topic)).suffix(Self.rememberedTopicCount))
+            requestHints()
+        }
+    }
+
     // MARK: - History
 
     /// Puts a saved transcript back on screen so the next recording appends to it.
@@ -869,6 +990,8 @@ final class TranscriptionController: ObservableObject {
         lines = record.lines
         liveText = ""
         currentRecordID = record.id
+        clearHints()
+        hintedLineIDs = Set(record.lines.map(\.id))
         translateVisibleLines()
     }
 
@@ -884,13 +1007,13 @@ final class TranscriptionController: ObservableObject {
 
     /// Asks the AI service for a summary of the record and writes it to `summary.txt` in the
     /// record's directory, replacing an earlier one, then opens it. The summary is written in the
-    /// interface language. Nothing happens while the record is already being summarized or there
-    /// is no key.
+    /// interface language. Nothing happens while the record is already being summarized,
+    /// summaries are off or there is no key.
     func summarize(_ record: TranscriptRecord) {
-        guard let key = trimmedAPIKey, !summarizingRecordIDs.contains(record.id) else { return }
+        guard canSummarize, let key = trimmedAPIKey, !summarizingRecordIDs.contains(record.id) else { return }
         summarizingRecordIDs.insert(record.id)
         summaryErrors[record.id] = nil
-        let summarizer = makeSummarizer(key)
+        let summarizer = makeSummarizer(key, OpenAIChatCompletion.modelName(summaryModel))
         let language = appLanguage
         let store = historyStore
         Task { [weak self] in

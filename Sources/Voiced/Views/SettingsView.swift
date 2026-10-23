@@ -29,7 +29,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .audioInput: Color(red: 0.94, green: 0.33, blue: 0.31)
         case .recognition: Color(red: 0.25, green: 0.52, blue: 0.96)
         case .translation: Color(red: 0.30, green: 0.72, blue: 0.42)
-        case .ai: Color(red: 0.58, green: 0.40, blue: 0.88)
+        case .ai: Theme.aiAccent
         }
     }
 
@@ -470,6 +470,64 @@ struct SettingsView: View {
                 )
             }
             .padding(.vertical, 14)
+        }
+
+        SettingsGroup {
+            SettingsRow(
+                title: strings.aiHints,
+                hint: controller.canHint ? strings.aiHintsHint : strings.aiHintsNeedsKey
+            ) {
+                Toggle(strings.aiHints, isOn: $controller.aiHintsEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(!controller.canHint)
+            }
+            if let error = controller.hintError {
+                Text(strings.aiHintFailed(error))
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.bottom, 10)
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.aiModel, hint: strings.aiModelHint) {
+                ModelNameField(name: $controller.aiHintModel, resetTitle: strings.resetToDefault)
+                    .disabled(!controller.aiHintsEnabled)
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.aiHintLanguage, hint: strings.aiHintLanguageHint) {
+                Picker(strings.aiHintLanguage, selection: $controller.aiHintLanguage) {
+                    Text(strings.sameAsInterfaceLanguage).tag(AppLanguage?.none)
+                    Divider()
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language.nativeName).tag(AppLanguage?.some(language))
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 160, alignment: .trailing)
+                .disabled(!controller.aiHintsEnabled)
+            }
+        }
+
+        SettingsGroup {
+            SettingsRow(
+                title: strings.aiSummary,
+                hint: controller.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? strings.aiHintsNeedsKey : strings.aiSummaryHint
+            ) {
+                Toggle(strings.aiSummary, isOn: $controller.aiSummaryEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.aiModel, hint: strings.aiModelHint) {
+                ModelNameField(name: $controller.summaryModel, resetTitle: strings.resetToDefault)
+                    .disabled(!controller.aiSummaryEnabled)
+            }
         }
     }
 
@@ -1246,6 +1304,46 @@ private struct SettingsRow<Accessory: View, Control: View>: View {
             control
         }
         .padding(.vertical, 14)
+    }
+}
+
+/// A menu of the known model names, with a link back to the default name while another is
+/// chosen. A stored name the list does not know, from an earlier version or an edited settings
+/// file, is listed too so the menu shows what is in use.
+private struct ModelNameField: View {
+    @Binding var name: String
+    let resetTitle: String
+
+    private var models: [String] {
+        let current = OpenAIChatCompletion.modelName(name)
+        let known = OpenAIChatCompletion.knownModels
+        return known.contains(current) ? known : known + [current]
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if OpenAIChatCompletion.modelName(name) != OpenAIChatCompletion.defaultModel {
+                Button(resetTitle) { name = OpenAIChatCompletion.defaultModel }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.trailing, 4)
+            }
+            Picker(
+                "",
+                selection: Binding(
+                    get: { OpenAIChatCompletion.modelName(name) },
+                    set: { name = $0 }
+                )
+            ) {
+                ForEach(models, id: \.self) { model in
+                    Text(model).tag(model)
+                }
+            }
+            .labelsHidden()
+            // Its own width, so the menu sits flush with the row's right edge like the other controls.
+            .fixedSize()
+        }
     }
 }
 
