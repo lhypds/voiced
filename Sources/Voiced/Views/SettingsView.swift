@@ -72,7 +72,6 @@ struct SettingsView: View {
         }
         .frame(width: Self.windowSize.width)
         .frame(minHeight: Self.windowSize.minHeight, maxHeight: .infinity)
-        .background(FocusClearingArea())
         .background(Theme.background)
         // Toggles, sliders, pickers and radio choices pick up the app's orange.
         .tint(Theme.accent)
@@ -458,12 +457,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(strings.openAIAPIKey)
                     .font(.body)
-                // A box four lines tall under the title. The key wraps wherever it reaches the
+                // A box three lines tall under the title. The key wraps wherever it reaches the
                 // edge, not at its hyphens, and Return does nothing: a key has no line breaks.
                 CharacterWrappingTextView(text: Binding(
                     get: { controller.openAIAPIKey },
                     set: { controller.openAIAPIKey = $0 }
-                ), lines: 4)
+                ), lines: 3)
                 .padding(8)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1029,7 +1028,12 @@ private struct CharacterWrappingTextView: NSViewRepresentable {
         textView.typingAttributes = Self.attributes
         textView.string = text
         Self.restyle(textView)
+        context.coordinator.watchClicks(outside: textView)
         return scrollView
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        coordinator.stopWatchingClicks()
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -1070,9 +1074,38 @@ private struct CharacterWrappingTextView: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: CharacterWrappingTextView
+        private var clickMonitor: Any?
 
         init(parent: CharacterWrappingTextView) {
             self.parent = parent
+        }
+
+        deinit {
+            stopWatchingClicks()
+        }
+
+        /// Ends editing on a click anywhere else in the window, as System Settings does. The
+        /// pages sit in a scroll view, so a click on a page never reaches a view behind it;
+        /// watching the window's events catches it wherever it lands.
+        func watchClicks(outside textView: NSTextView) {
+            stopWatchingClicks()
+            clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak textView] event in
+                guard let textView, let window = textView.window, event.window === window,
+                      window.firstResponder === textView
+                else { return event }
+                let point = textView.convert(event.locationInWindow, from: nil)
+                if !textView.bounds.contains(point) {
+                    window.makeFirstResponder(nil)
+                }
+                return event
+            }
+        }
+
+        func stopWatchingClicks() {
+            if let clickMonitor {
+                NSEvent.removeMonitor(clickMonitor)
+                self.clickMonitor = nil
+            }
         }
 
         func textDidChange(_ notification: Notification) {

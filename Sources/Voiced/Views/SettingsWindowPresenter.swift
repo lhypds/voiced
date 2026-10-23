@@ -154,23 +154,7 @@ struct WindowDragArea: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { true }
 
         override func mouseDown(with event: NSEvent) {
-            // A click on the handle is a click away from any field being edited.
-            window?.makeFirstResponder(nil)
             window?.performDrag(with: event)
-        }
-    }
-}
-
-/// Behind a whole page: a click on nothing in particular takes the focus away from the field
-/// being edited, as it does in System Settings. SwiftUI's own views leave the focus where it is.
-struct FocusClearingArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { ClearingView() }
-
-    func updateNSView(_ view: NSView, context: Context) {}
-
-    private final class ClearingView: NSView {
-        override func mouseDown(with event: NSEvent) {
-            window?.makeFirstResponder(nil)
         }
     }
 }
