@@ -137,9 +137,9 @@ final class TranscriptionController: ObservableObject {
     @Published var summaryModel: String {
         didSet { settings.summaryModel = summaryModel }
     }
-    /// The AI's notes on things mentioned and questions asked, oldest first; at most
-    /// `maxShownHints`, the newest. Each goes away when it is dismissed or has been shown long
-    /// enough to be read.
+    /// The AI's notes on things mentioned and questions asked: the latest answer's, oldest
+    /// first. A new answer replaces them, and each goes away on its own when it is dismissed or
+    /// has been shown long enough to be read, so the list never piles up.
     @Published private(set) var hints: [TranscriptHint] = []
     /// Why the last hint request failed; cleared by the next one that succeeds or when hints are turned off.
     @Published private(set) var hintError: String?
@@ -927,8 +927,6 @@ final class TranscriptionController: ObservableObject {
     /// How many new lines one request covers at most. Older unjudged lines are let go, so a
     /// backlog after a slow answer does not grow into ever larger requests.
     private static let hintBatchSize = 8
-    /// How many hints are on screen at once; a new one pushes the oldest out.
-    private static let maxShownHints = 3
     /// How many earlier topics are listed for the service to avoid repeating.
     private static let rememberedTopicCount = 30
 
@@ -976,7 +974,10 @@ final class TranscriptionController: ObservableObject {
             hintTask = nil
             let shown = Set(lines.map(\.id))
             let kept = found.filter { shown.contains($0.lineID) }
-            hints = Array((hints + kept).suffix(Self.maxShownHints))
+            // The newest answer takes the screen; what was up before has had its moment.
+            if !kept.isEmpty {
+                hints = kept
+            }
             explainedTopics = Array((explainedTopics + kept.map(\.topic)).suffix(Self.rememberedTopicCount))
             requestHints()
         }

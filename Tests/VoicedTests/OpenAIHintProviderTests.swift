@@ -110,16 +110,16 @@ final class OpenAIHintProviderTests: XCTestCase {
 
 final class TranscriptHintReadingTimeTests: XCTestCase {
     func testShortHintsStayForAGlance() {
-        XCTAssertEqual(TranscriptHint(lineID: "a", topic: "T", text: "X").readingTime, 5)
+        XCTAssertEqual(TranscriptHint(lineID: "a", topic: "T", text: "X").readingTime, 4)
     }
 
     func testLongerHintsStayLongerAndNeverPastTheCap() {
         let short = TranscriptHint(lineID: "a", topic: "Merkle tree", text: "A hash tree used to verify data.")
         let long = TranscriptHint(lineID: "a", topic: "Merkle tree", text: String(repeating: "A hash tree used to verify data. ", count: 10))
         let endless = TranscriptHint(lineID: "a", topic: "T", text: String(repeating: "word ", count: 500))
-        XCTAssertGreaterThanOrEqual(short.readingTime, 5)
+        XCTAssertGreaterThanOrEqual(short.readingTime, 4)
         XCTAssertGreaterThan(long.readingTime, short.readingTime)
-        XCTAssertEqual(endless.readingTime, 40)
+        XCTAssertEqual(endless.readingTime, 25)
     }
 
     func testACJKCharacterCountsAsAWord() {

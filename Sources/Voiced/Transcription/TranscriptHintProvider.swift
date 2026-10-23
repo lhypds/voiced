@@ -18,15 +18,15 @@ struct TranscriptHint: Identifiable, Equatable, Sendable {
     }
 
     /// How long the hint stays on screen unasked, in seconds: a moment to notice it, then time
-    /// to read it at an unhurried pace. A Chinese, Japanese or Korean character carries about a
-    /// word, so it counts for several Latin letters. Never shorter than a glance nor longer than
-    /// a long paragraph takes, whatever the service wrote.
+    /// to skim it. A Chinese, Japanese or Korean character carries about a word, so it counts
+    /// for several Latin letters. Never shorter than a glance nor longer than a paragraph takes
+    /// to skim, whatever the service wrote.
     var readingTime: TimeInterval {
-        var seconds = 3.0
+        var seconds = 2.0
         for scalar in (topic + text).unicodeScalars where !scalar.properties.isWhitespace {
-            seconds += Self.isWordCharacter(scalar) ? 0.25 : 0.05
+            seconds += Self.isWordCharacter(scalar) ? 0.18 : 0.04
         }
-        return min(max(seconds, 5), 40)
+        return min(max(seconds, 4), 25)
     }
 
     /// Han ideographs, kana and hangul: scripts where one character reads like a word.
@@ -116,18 +116,24 @@ struct OpenAIHintProvider: TranscriptHinting {
     static func instructions(language: AppLanguage) -> String {
         """
         You follow a live transcript of recorded speech and add brief hints for the listener. The \
-        transcript was produced by automatic speech recognition, so it may contain misheard words; \
-        infer the intended meaning where it is clear. Look only at the numbered new lines, and find \
-        (a) questions somebody asked and (b) obscure things a general listener may not know: rare \
-        or technical terms, names, products, places, events, works or concepts. For a question, \
-        answer it in a short paragraph of three to five sentences, giving the answer first and then \
-        the reasoning or background that makes it clear. For an obscure thing, explain in three to \
-        five sentences what it is, where it comes from or is used, and why it matters in this \
-        context. Skip everyday content, small talk, greetings and anything listed as already \
-        explained. Write the hints in \(language.englishName). Answer with a JSON object only, of the form \
-        {"hints": [{"line": 1, "topic": "...", "text": "..."}]}, where "line" is the number of the \
-        new line the hint belongs to, "topic" names the thing or restates the question in a few \
-        words, and "text" is the hint. Most lines need no hint; then answer {"hints": []}.
+        transcript was produced by automatic speech recognition, so it may contain misheard words \
+        or garbled sentences. Look only at the numbered new lines, and find (a) questions about a \
+        definite thing or fact that general knowledge can answer, such as what something is, who \
+        someone is, where or when something happened or how something works, and (b) obscure \
+        things a general listener may not know: rare or technical terms, names, products, places, \
+        events, works or concepts. For a question, answer it in a short paragraph of three to five \
+        sentences, giving the answer first and then the reasoning or background that makes it \
+        clear. For an obscure thing, explain in three to five sentences what it is, where it comes \
+        from or is used, and why it matters in this context. Give no hint for a question that is \
+        vague, incomplete, garbled, rhetorical or addressed to the other people in the conversation \
+        (asking for their opinion, plans, agreement or confirmation), nor for everyday content, \
+        small talk, greetings or anything listed as already explained. Never guess what a garbled \
+        or misheard sentence was meant to say, and never comment on the transcript or its errors: \
+        when the meaning is not clear, there is no hint. Write the hints in \(language.englishName). \
+        Answer with a JSON object only, of the form {"hints": [{"line": 1, "topic": "...", \
+        "text": "..."}]}, where "line" is the number of the new line the hint belongs to, "topic" \
+        names the thing or restates the question in a few words, and "text" is the hint. Most \
+        lines need no hint; then answer {"hints": []}.
         """
     }
 
