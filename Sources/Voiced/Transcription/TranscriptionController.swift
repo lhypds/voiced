@@ -129,6 +129,10 @@ final class TranscriptionController: ObservableObject {
     @Published var aiHintModel: String {
         didSet { settings.aiHintModel = aiHintModel }
     }
+    /// Whether the model may search the web while writing hints.
+    @Published var aiHintWebSearchEnabled: Bool {
+        didSet { settings.aiHintWebSearch = aiHintWebSearchEnabled }
+    }
     /// Whether the history offers summaries at all.
     @Published var aiSummaryEnabled: Bool {
         didSet { settings.aiSummary = aiSummaryEnabled }
@@ -207,8 +211,9 @@ final class TranscriptionController: ObservableObject {
     private let historyStore: TranscriptHistoryStore
     /// Makes the summarizer for a key and model name, so tests can stand in for the service.
     private let makeSummarizer: (String, String) -> any TranscriptSummarizing
-    /// Makes the hint provider for a key and model name, so tests can stand in for the service.
-    private let makeHintProvider: (String, String) -> any TranscriptHinting
+    /// Makes the hint provider for a key, model name and whether it may search the web, so
+    /// tests can stand in for the service.
+    private let makeHintProvider: (String, String, Bool) -> any TranscriptHinting
     /// The hint request in flight, at most one at a time.
     private var hintTask: Task<Void, Never>?
     /// Lines already sent for hints, or shown before hints were on, so each is judged at most once.
@@ -318,7 +323,7 @@ final class TranscriptionController: ObservableObject {
         promptFileURL: URL = VoicedDirectory.promptFile,
         translator: (any SentenceTranslating)? = nil,
         makeSummarizer: @escaping (String, String) -> any TranscriptSummarizing = { OpenAISummarizer(apiKey: $0, model: $1) },
-        makeHintProvider: @escaping (String, String) -> any TranscriptHinting = { OpenAIHintProvider(apiKey: $0, model: $1) }
+        makeHintProvider: @escaping (String, String, Bool) -> any TranscriptHinting = { OpenAIHintProvider(apiKey: $0, model: $1, webSearch: $2) }
     ) {
         self.settings = settings
         self.historyStore = historyStore
@@ -340,6 +345,7 @@ final class TranscriptionController: ObservableObject {
         aiHintsEnabled = settings.aiHints
         aiHintLanguage = settings.aiHintLanguage
         aiHintModel = settings.aiHintModel
+        aiHintWebSearchEnabled = settings.aiHintWebSearch
         aiSummaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
         selectedLanguage = settings.recognitionLanguage
@@ -454,6 +460,7 @@ final class TranscriptionController: ObservableObject {
         aiHintsEnabled = settings.aiHints
         aiHintLanguage = settings.aiHintLanguage
         aiHintModel = settings.aiHintModel
+        aiHintWebSearchEnabled = settings.aiHintWebSearch
         aiSummaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
         // The assignments above wrote each default back; start the file over so it holds none.
@@ -957,7 +964,7 @@ final class TranscriptionController: ObservableObject {
         let batch = Array(worthAsking.suffix(Self.hintBatchSize))
         let context = lines.prefix(while: { $0.id != batch[0].id }).suffix(OpenAIHintProvider.contextLineCount)
         let explained = explainedTopics
-        let provider = makeHintProvider(key, OpenAIChatCompletion.modelName(aiHintModel))
+        let provider = makeHintProvider(key, OpenAIChatCompletion.modelName(aiHintModel), aiHintWebSearchEnabled)
         let language = aiHintLanguage ?? appLanguage
         hintTask = Task { [weak self] in
             var found: [TranscriptHint] = []

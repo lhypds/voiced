@@ -25,13 +25,29 @@ final class OpenAIHintProviderTests: XCTestCase {
     }
 
     func testRequestCarriesTheChosenModel() throws {
-        let request = try OpenAIHintProvider.request(newLines: newLines, context: [], explained: [], language: .english, apiKey: "sk-test", model: "gpt-5-mini")
+        let request = try OpenAIHintProvider.request(newLines: newLines, context: [], explained: [], language: .english, apiKey: "sk-test", model: "gpt-5.6-terra")
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
-        XCTAssertEqual(body["model"] as? String, "gpt-5-mini")
+        XCTAssertEqual(body["model"] as? String, "gpt-5.6-terra")
 
         let blank = try OpenAISummarizer.request(for: newLines, language: .english, apiKey: "sk-test", model: "  ")
         let blankBody = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(blank.httpBody)) as? [String: Any])
         XCTAssertEqual(blankBody["model"] as? String, OpenAIChatCompletion.defaultModel, "a blank name falls back to the default")
+    }
+
+    func testWebSearchGoesThroughTheResponsesAPIWithTheSearchTool() throws {
+        let request = try OpenAIHintProvider.request(newLines: newLines, context: context, explained: [], language: .french, apiKey: "sk-test", model: "gpt-5.5", webSearch: true)
+
+        XCTAssertEqual(request.url, OpenAIResponses.endpoint)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+        XCTAssertEqual(body["model"] as? String, "gpt-5.5")
+        XCTAssertEqual(body["tools"] as? [[String: String]], [["type": "web_search"]])
+        XCTAssertEqual(body["input"] as? String, OpenAIHintProvider.input(newLines: newLines, context: context, explained: []))
+        let instructions = try XCTUnwrap(body["instructions"] as? String)
+        XCTAssertTrue(instructions.contains("in French"))
+        XCTAssertTrue(instructions.contains("search the web"), "the model is told it may search")
+        XCTAssertNil(body["text"], "no structured output setting alongside the search tool")
+        XCTAssertFalse(OpenAIHintProvider.instructions(language: .french).contains("search the web"), "without search the model is not told to")
     }
 
     func testInputNumbersTheNewLinesAfterTheContextAndBeforeEarlierTopics() {
@@ -77,6 +93,18 @@ final class OpenAIHintProviderTests: XCTestCase {
         XCTAssertEqual(hints.map(\.topic), ["Merkle tree", "Capital of Mongolia"])
         XCTAssertEqual(hints.map(\.text), ["A hash tree used to verify data.", "Ulaanbaatar."])
         XCTAssertEqual(Set(hints.map(\.id)).count, 2, "every hint has its own identity")
+    }
+
+    func testHintsAreFoundInsideProseAndStrippedOfCitations() {
+        let answer = """
+        Here is what I found:
+        ```json
+        {"hints": [{"line": 1, "topic": "Merkle tree 【3†source】", "text": "A hash tree ([Wikipedia](https://en.wikipedia.org/wiki/Merkle_tree)) used to verify data (https://example.com/x). See https://example.com/y [2]"}]}
+        ```
+        """
+        let hints = OpenAIHintProvider.hints(from: answer, newLines: newLines)
+        XCTAssertEqual(hints.map(\.topic), ["Merkle tree"])
+        XCTAssertEqual(hints.map(\.text), ["A hash tree (Wikipedia) used to verify data. See"])
     }
 
     func testHintsNamingNoValidLineGoToTheLastNewLine() {

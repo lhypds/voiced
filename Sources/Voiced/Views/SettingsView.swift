@@ -455,8 +455,11 @@ struct SettingsView: View {
     private var aiPage: some View {
         SettingsGroup {
             VStack(alignment: .leading, spacing: 8) {
-                Text(strings.openAIAPIKey)
-                    .font(.body)
+                HStack(spacing: 8) {
+                    Text(strings.openAIAPIKey)
+                        .font(.body)
+                    getAPIKeyLink
+                }
                 // A box three lines tall under the title. The key wraps wherever it reaches the
                 // edge, not at its hyphens, and Return does nothing: a key has no line breaks.
                 CharacterWrappingTextView(text: Binding(
@@ -493,6 +496,15 @@ struct SettingsView: View {
 
             SettingsRow(title: strings.aiModel, hint: strings.aiModelHint) {
                 ModelNameField(name: $controller.aiHintModel, resetTitle: strings.resetToDefault)
+                    .disabled(!controller.aiHintsEnabled)
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.aiHintWebSearch, hint: strings.aiHintWebSearchHint) {
+                Toggle(strings.aiHintWebSearch, isOn: $controller.aiHintWebSearchEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
                     .disabled(!controller.aiHintsEnabled)
             }
 
@@ -770,6 +782,16 @@ struct SettingsView: View {
         .foregroundStyle(controller.canCalibrateNoise ? Theme.accent : Color.secondary)
         .disabled(!controller.canCalibrateNoise)
         .help(strings.calibrateNoiseHint)
+    }
+
+    /// Opens OpenAI's API key page in the browser, next to the key field's title.
+    private var getAPIKeyLink: some View {
+        Button(strings.getAPIKey) {
+            NSWorkspace.shared.open(URL(string: "https://platform.openai.com/api-keys")!)
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(Theme.accent)
     }
 
     private var engineHelpButton: some View {

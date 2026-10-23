@@ -21,10 +21,13 @@ enum OpenAIChatCompletion {
     }
 
     static let endpoint = URL(string: "https://api.openai.com/v1/chat/completions")!
-    /// The model used until the user names another: cheap and quick enough for live hints.
-    static let defaultModel = "gpt-4.1-mini"
-    /// Names offered in Settings; the service decides whether a name still exists.
-    static let knownModels = ["gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o", "gpt-5-nano", "gpt-5-mini", "gpt-5"]
+    /// The model used until the user picks another: OpenAI's most efficient general model as
+    /// of October 2026, cheap and quick enough for live hints, and the replacement it names
+    /// for the retired small GPT-4.1 and GPT-4o models.
+    static let defaultModel = "gpt-6-luna"
+    /// Names offered in Settings, cheapest first, from OpenAI's model list of October 2026;
+    /// the service decides whether a name still exists.
+    static let knownModels = ["gpt-6-luna", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5", "gpt-6-sol", "gpt-6.1-sol", "gpt-6-astra"]
 
     /// `name` with surrounding whitespace dropped, or the default when nothing is left.
     static func modelName(_ name: String?) -> String {
@@ -79,6 +82,72 @@ enum OpenAIChatCompletion {
         let choices = object?["choices"] as? [[String: Any]]
         let content = (choices?.first?["message"] as? [String: Any])?["content"] as? String
         let text = content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !text.isEmpty else { throw Failure.emptyAnswer }
+        return text
+    }
+}
+
+/// The OpenAI Responses API call used when the model may search the web: the same instruction
+/// and input, answered with a single text, with the service's web search tool switched on.
+/// Citations the model weaves into its text are stripped by the callers that parse it.
+enum OpenAIResponses {
+    typealias Failure = OpenAIChatCompletion.Failure
+
+    static let endpoint = URL(string: "https://api.openai.com/v1/responses")!
+
+    static func complete(
+        instructions: String,
+        input: String,
+        apiKey: String,
+        model: String = OpenAIChatCompletion.defaultModel,
+        webSearch: Bool = false,
+        session: URLSession = .shared
+    ) async throws -> String {
+        guard !apiKey.isEmpty else { throw Failure.missingKey }
+        let request = try request(instructions: instructions, input: input, apiKey: apiKey, model: model, webSearch: webSearch)
+        let (data, response) = try await session.data(for: request)
+        return try text(from: data, response: response)
+    }
+
+    /// The answer is asked for as plain text even when JSON is wanted: whether the structured
+    /// output setting can be combined with the search tool is not documented, and the callers
+    /// find the JSON object inside the text anyway.
+    static func request(instructions: String, input: String, apiKey: String, model: String = OpenAIChatCompletion.defaultModel, webSearch: Bool = false) throws -> URLRequest {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        var body: [String: Any] = [
+            "model": OpenAIChatCompletion.modelName(model),
+            "instructions": instructions,
+            "input": input,
+        ]
+        if webSearch {
+            body["tools"] = [["type": "web_search"]]
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
+    }
+
+    /// Joins the text of every message in the answer's output, which also lists the searches
+    /// made and may carry a refusal, or throws with what the service said went wrong.
+    static func text(from data: Data, response: URLResponse) throws -> String {
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let message = (object?["error"] as? [String: Any])?["message"] as? String
+        if let status = (response as? HTTPURLResponse)?.statusCode, !(200..<300).contains(status) {
+            throw Failure.server(status: status, message: message)
+        }
+        if let message {
+            throw Failure.server(status: (response as? HTTPURLResponse)?.statusCode ?? 200, message: message)
+        }
+        let output = object?["output"] as? [[String: Any]] ?? []
+        let texts = output
+            .filter { $0["type"] as? String == "message" }
+            .flatMap { $0["content"] as? [[String: Any]] ?? [] }
+            .filter { $0["type"] as? String == "output_text" }
+            .compactMap { $0["text"] as? String }
+        let text = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw Failure.emptyAnswer }
         return text
     }

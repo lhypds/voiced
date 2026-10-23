@@ -52,8 +52,10 @@ protocol TranscriptHinting: Sendable {
     ) async throws -> [TranscriptHint]
 }
 
-/// Asks OpenAI's chat completions API, which answers with a JSON list of hints. Only the new
-/// lines, a few lines of context and the earlier topics are sent, not the whole transcript.
+/// Asks OpenAI, which answers with a JSON list of hints. Only the new lines, a few lines of
+/// context and the earlier topics are sent, not the whole transcript. With `webSearch` the
+/// model may look things up on the web through the service's search tool, which goes through
+/// the Responses API; otherwise the chat completions API answers from what the model knows.
 struct OpenAIHintProvider: TranscriptHinting {
     typealias Failure = OpenAIChatCompletion.Failure
 
@@ -62,6 +64,7 @@ struct OpenAIHintProvider: TranscriptHinting {
 
     let apiKey: String
     var model: String = OpenAIChatCompletion.defaultModel
+    var webSearch = false
     var session: URLSession = .shared
 
     func hints(
@@ -71,14 +74,13 @@ struct OpenAIHintProvider: TranscriptHinting {
         in language: AppLanguage
     ) async throws -> [TranscriptHint] {
         guard !newLines.isEmpty else { return [] }
-        let answer = try await OpenAIChatCompletion.complete(
-            instructions: Self.instructions(language: language),
-            input: Self.input(newLines: newLines, context: context, explained: explained),
-            apiKey: apiKey,
-            model: model,
-            jsonAnswer: true,
-            session: session
-        )
+        let instructions = Self.instructions(language: language, webSearch: webSearch)
+        let input = Self.input(newLines: newLines, context: context, explained: explained)
+        let answer = if webSearch {
+            try await OpenAIResponses.complete(instructions: instructions, input: input, apiKey: apiKey, model: model, webSearch: true, session: session)
+        } else {
+            try await OpenAIChatCompletion.complete(instructions: instructions, input: input, apiKey: apiKey, model: model, jsonAnswer: true, session: session)
+        }
         return Self.hints(from: answer, newLines: newLines)
     }
 
@@ -88,15 +90,15 @@ struct OpenAIHintProvider: TranscriptHinting {
         explained: [String],
         language: AppLanguage,
         apiKey: String,
-        model: String = OpenAIChatCompletion.defaultModel
+        model: String = OpenAIChatCompletion.defaultModel,
+        webSearch: Bool = false
     ) throws -> URLRequest {
-        try OpenAIChatCompletion.request(
-            instructions: instructions(language: language),
-            input: input(newLines: newLines, context: context, explained: explained),
-            apiKey: apiKey,
-            model: model,
-            jsonAnswer: true
-        )
+        let instructions = instructions(language: language, webSearch: webSearch)
+        let input = input(newLines: newLines, context: context, explained: explained)
+        if webSearch {
+            return try OpenAIResponses.request(instructions: instructions, input: input, apiKey: apiKey, model: model, webSearch: true)
+        }
+        return try OpenAIChatCompletion.request(instructions: instructions, input: input, apiKey: apiKey, model: model, jsonAnswer: true)
     }
 
     /// The new lines numbered from 1, after the context lines and before the topics already covered.
@@ -113,8 +115,13 @@ struct OpenAIHintProvider: TranscriptHinting {
         return parts.joined(separator: "\n\n")
     }
 
-    static func instructions(language: AppLanguage) -> String {
-        """
+    static func instructions(language: AppLanguage, webSearch: Bool = false) -> String {
+        let search = webSearch ? """
+         You may search the web to check a fact or to find out what a recent, local or unfamiliar \
+        thing is; prefer that to guessing. Put nothing but the hint in "text": no links, URLs, \
+        citations or source names.
+        """ : ""
+        return """
         You follow a live transcript of recorded speech and add brief hints for the listener. The \
         transcript was produced by automatic speech recognition, so it may contain misheard words \
         or garbled sentences. Look only at the numbered new lines, and find (a) questions about a \
@@ -133,25 +140,51 @@ struct OpenAIHintProvider: TranscriptHinting {
         Answer with a JSON object only, of the form {"hints": [{"line": 1, "topic": "...", \
         "text": "..."}]}, where "line" is the number of the new line the hint belongs to, "topic" \
         names the thing or restates the question in a few words, and "text" is the hint. Most \
-        lines need no hint; then answer {"hints": []}.
+        lines need no hint; then answer {"hints": []}.\(search)
         """
     }
 
     /// The hints in the service's JSON answer, each attached to the new line it names; a hint
     /// naming no valid line goes to the last new line. Entries without a topic or text, and an
-    /// answer that is not the expected object, give no hints.
+    /// answer with no such object in it, give no hints. The object may sit inside other text,
+    /// as when the model searched the web and wrote around it, and links and citation marks the
+    /// search left in the hints are dropped.
     static func hints(from answer: String, newLines: [TranscriptLine]) -> [TranscriptHint] {
         guard let last = newLines.last,
-              let object = (try? JSONSerialization.jsonObject(with: Data(answer.utf8))) as? [String: Any],
+              let object = jsonObject(in: answer),
               let entries = object["hints"] as? [[String: Any]]
         else { return [] }
         return entries.compactMap { entry in
-            let topic = (entry["topic"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let text = (entry["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let topic = withoutCitations((entry["topic"] as? String) ?? "")
+            let text = withoutCitations((entry["text"] as? String) ?? "")
             guard !topic.isEmpty, !text.isEmpty else { return nil }
             let number = entry["line"] as? Int ?? Int((entry["line"] as? String) ?? "") ?? 0
             let line = newLines.indices.contains(number - 1) ? newLines[number - 1] : last
             return TranscriptHint(lineID: line.id, topic: topic, text: text)
         }
+    }
+
+    /// The first JSON object in `text`: the whole text, or else the span from its first brace
+    /// to its last, for an answer that wraps the object in prose or a code fence.
+    static func jsonObject(in text: String) -> [String: Any]? {
+        if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+            return object
+        }
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end else { return nil }
+        return (try? JSONSerialization.jsonObject(with: Data(text[start...end].utf8))) as? [String: Any]
+    }
+
+    private static let markdownLink = try! NSRegularExpression(pattern: #"\[([^\]]*)\]\((?:https?://|www\.)[^)\s]*\)"#)
+    private static let citationMark = try! NSRegularExpression(pattern: #"\s*(?:【[^】]*】|\((?:https?://|www\.)[^)\s]*\)|\[\d+\])"#)
+    private static let bareURL = try! NSRegularExpression(pattern: #"\s*(?:https?://|www\.)\S+"#)
+
+    /// `text` without the links and citation marks a web search leaves behind: a Markdown link
+    /// keeps its title, and bracketed source marks, bare URLs and numbered references go.
+    static func withoutCitations(_ text: String) -> String {
+        var result = text
+        for (expression, template) in [(markdownLink, "$1"), (citationMark, ""), (bareURL, "")] {
+            result = expression.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: template)
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

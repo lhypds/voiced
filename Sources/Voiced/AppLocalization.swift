@@ -206,6 +206,7 @@ struct AppStrings: Sendable {
     var delete: String { value("删除", "削除", "Delete", "Supprimer", "Eliminar", "Löschen") }
     var ai: String { "AI" }
     var openAIAPIKey: String { value("OpenAI API 密钥", "OpenAI API キー", "OpenAI API Key", "Clé API OpenAI", "Clave de API de OpenAI", "OpenAI-API-Schlüssel") }
+    var getAPIKey: String { value("获取密钥", "キーを取得", "Get a key", "Obtenir une clé", "Obtener una clave", "Schlüssel holen") }
     var summarize: String { value("生成摘要", "要約する", "Summarize", "Résumer", "Resumir", "Zusammenfassen") }
     var summarizing: String { value("正在生成摘要…", "要約中…", "Summarizing…", "Résumé en cours…", "Resumiendo…", "Zusammenfassung läuft…") }
     var openSummary: String { value("打开摘要", "要約を開く", "Open summary", "Ouvrir le résumé", "Abrir resumen", "Zusammenfassung öffnen") }
@@ -219,6 +220,8 @@ struct AppStrings: Sendable {
     var aiModelHint: String { value("使用的 OpenAI 模型", "使用する OpenAI のモデル", "The OpenAI model used", "Modèle OpenAI utilisé", "Modelo de OpenAI utilizado", "Verwendetes OpenAI-Modell") }
     var aiSummary: String { value("AI 摘要", "AI 要約", "AI summaries", "Résumés IA", "Resúmenes de IA", "KI-Zusammenfassungen") }
     var aiSummaryHint: String { value("在历史记录里提供“生成摘要”，整段转写会发送给 OpenAI", "履歴に「要約する」を表示します。文字起こし全体が OpenAI に送信されます", "Offers \"Summarize\" in History; the whole transcript is sent to OpenAI", "Propose « Résumer » dans l'historique ; toute la transcription est envoyée à OpenAI", "Ofrece \"Resumir\" en el historial; toda la transcripción se envía a OpenAI", "Bietet „Zusammenfassen“ im Verlauf an; das ganze Transkript wird an OpenAI gesendet") }
+    var aiHintWebSearch: String { value("联网搜索", "ウェブ検索", "Web search", "Recherche web", "Búsqueda web", "Websuche") }
+    var aiHintWebSearchHint: String { value("允许模型联网查证或查找最新信息。响应更慢、费用更高，且需要支持搜索的模型", "モデルがウェブで確認や最新情報の検索をできるようにします。応答が遅く、費用が高くなり、検索対応モデルが必要です", "Lets the model look things up on the web. Slower, costs more and needs a model with search", "Permet au modèle de chercher sur le web. Plus lent, plus coûteux et réservé aux modèles avec recherche", "Permite al modelo buscar en la web. Más lento, más caro y solo con modelos con búsqueda", "Lässt das Modell im Web nachschlagen. Langsamer, teurer und nur mit suchfähigen Modellen") }
     var aiHintLanguage: String { value("AI 提示语言", "AI ヒントの言語", "AI hint language", "Langue des indices IA", "Idioma de las pistas de IA", "Sprache der KI-Hinweise") }
     var aiHintLanguageHint: String { value("提示用哪种语言书写", "ヒントを書く言語", "The language the hints are written in", "Langue dans laquelle les indices sont rédigés", "Idioma en que se escriben las pistas", "Sprache, in der die Hinweise verfasst werden") }
     var sameAsInterfaceLanguage: String { value("跟随界面语言", "表示言語と同じ", "Same as interface", "Comme l'interface", "Como la interfaz", "Wie die Oberfläche") }

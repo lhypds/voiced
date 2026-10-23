@@ -26,6 +26,7 @@ struct AppSettings {
         case aiHints
         case aiHintLanguage
         case aiHintModel
+        case aiHintWebSearch
         case aiSummary
         case summaryModel
     }
@@ -169,6 +170,13 @@ struct AppSettings {
     var aiHintModel: String {
         get { OpenAIChatCompletion.modelName(string(.aiHintModel)) }
         nonmutating set { setModelName(newValue, for: .aiHintModel) }
+    }
+
+    /// Whether the model may search the web while writing hints. Off by default: slower, dearer
+    /// and only for models with the search tool.
+    var aiHintWebSearch: Bool {
+        get { file[Key.aiHintWebSearch.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .aiHintWebSearch) }
     }
 
     /// Whether the history offers AI summaries. On by default: a summary is only ever made when
