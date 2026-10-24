@@ -326,8 +326,14 @@ struct SettingsView: View {
     private var recognitionPage: some View {
         SettingsGroup {
             // The progress appears under the menu while a model loads; on the baseline the title
-            // stays level with the menu instead of re-centring on the taller column.
-            SettingsRow(title: strings.recognitionEngine, alignment: .firstTextBaseline, accessory: engineHelpButton) {
+            // stays level with the menu instead of re-centring on the taller column. The hint
+            // explains the busy machine while the other models compile in the background.
+            SettingsRow(
+                title: strings.recognitionEngine,
+                hint: controller.isCompilingOtherModels ? strings.compilingOtherModels : nil,
+                alignment: .firstTextBaseline,
+                accessory: engineHelpButton
+            ) {
                 VStack(alignment: .trailing, spacing: 6) {
                     // A pop-up button sizes itself to its widest item, which left a blank
                     // stretch beside the shorter model names; a menu sizes to the chosen one.

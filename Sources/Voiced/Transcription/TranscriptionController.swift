@@ -192,6 +192,9 @@ final class TranscriptionController: ObservableObject {
     @Published private(set) var isDownloadingVoiceFilter = false
     /// Why the voice filter cannot be used; cleared when the next download starts.
     @Published private(set) var voiceFilterError: String?
+    /// Whether the other downloaded models are being compiled for the Neural Engine in the
+    /// background (`warmUpOtherEngines`), so Settings can say why the machine is busy.
+    @Published private(set) var isCompilingOtherModels = false
     /// True while the input is being sampled to measure the background noise.
     @Published private(set) var isCalibratingNoise = false
     /// Why the last noise calibration did not set a floor; cleared when the next one starts.
@@ -216,6 +219,8 @@ final class TranscriptionController: ObservableObject {
     private let makeHintProvider: (String, String, Bool) -> any TranscriptHinting
     /// The hint request in flight, at most one at a time.
     private var hintTask: Task<Void, Never>?
+    /// The background compile of the other downloaded models, while one runs.
+    private var warmupTask: Task<Void, Never>?
     /// Lines already sent for hints, or shown before hints were on, so each is judged at most once.
     private var hintedLineIDs: Set<String> = []
     /// Topics of the hints made for this transcript, the newest last, including ones no longer
@@ -412,11 +417,45 @@ final class TranscriptionController: ObservableObject {
                 }
             }
             phase = .ready
+            // Loading compiled the model for the Neural Engine if the system had not yet.
+            settings.markCompiled(engine)
+            warmUpOtherEngines()
         } catch {
             phase = .failed(.model(error.localizedDescription))
         }
         loadingComponent = nil
         loadingStartedAt = nil
+    }
+
+    /// Compiles, once per macOS build, each downloaded model the Neural Engine has not compiled
+    /// yet, so switching to it later takes seconds rather than the minutes the compile takes.
+    /// Each model is loaded in turn and dropped again: the system keeps the compiled program
+    /// (see `WhisperModelStore.load`). A load starts only while nothing records, previews or
+    /// loads, since the compile keeps a CPU core busy for minutes and the load holds a second
+    /// model in memory; one under way cannot be stopped.
+    private func warmUpOtherEngines() {
+        guard warmupTask == nil else { return }
+        let compiled = settings.compiledEngines()
+        let pending = RecognitionEngine.allCases.filter { engine in
+            engine != selectedEngine && !compiled.contains(engine) && WhisperModelStore.cachedModelFolder(for: engine) != nil
+        }
+        guard !pending.isEmpty else { return }
+        isCompilingOtherModels = true
+        warmupTask = Task { [weak self] in
+            for engine in pending {
+                while let self, self.isRecording || self.preview.isActive || self.isPreparing {
+                    try? await Task.sleep(for: .seconds(5))
+                }
+                guard let self else { return }
+                guard let folder = WhisperModelStore.cachedModelFolder(for: engine) else { continue }
+                if (try? await WhisperModelStore.load(modelFolder: folder)) != nil {
+                    self.settings.markCompiled(engine)
+                }
+            }
+            guard let self else { return }
+            self.warmupTask = nil
+            self.isCompilingOtherModels = false
+        }
     }
 
     func retryPreparation() {

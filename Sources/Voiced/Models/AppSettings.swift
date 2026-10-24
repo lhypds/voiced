@@ -29,6 +29,7 @@ struct AppSettings {
         case aiHintWebSearch
         case aiSummary
         case summaryModel
+        case compiledModels
     }
 
     private let file: SettingsFile
@@ -208,6 +209,21 @@ struct AppSettings {
             return Float(stored).clamped(to: LiveTranscriber.speechEnergyFloorRange)
         }
         nonmutating set { set(Double(newValue.clamped(to: LiveTranscriber.speechEnergyFloorRange)), for: .speechEnergyFloor) }
+    }
+
+    /// The engines whose models the Neural Engine has compiled on the given macOS build, as
+    /// recorded by `markCompiled`. Stored as `{build: [engine]}`; the system keeps its compiled
+    /// programs per build, so a record for any other build is stale and reads as empty.
+    func compiledEngines(for build: String = OSBuild.current) -> Set<RecognitionEngine> {
+        let stored = file[Key.compiledModels.rawValue] as? [String: [String]] ?? [:]
+        return Set((stored[build] ?? []).compactMap(RecognitionEngine.init(rawValue:)))
+    }
+
+    /// Records that `engine`'s model has been loaded, and so compiled, on `build`. Records for
+    /// other builds are dropped: the compiled programs they stand for are gone.
+    func markCompiled(_ engine: RecognitionEngine, for build: String = OSBuild.current) {
+        let engines = compiledEngines(for: build).union([engine]).map(\.rawValue).sorted()
+        set([build: engines], for: .compiledModels)
     }
 
     /// Forgets every stored preference, so each reads its default again.

@@ -54,9 +54,16 @@ enum WhisperModelStore {
     /// Loads an already downloaded model into memory.
     ///
     /// WhisperKit loads the feature extractor, the text decoder and the audio encoder one after
-    /// another and reports nothing but a debug log line as each begins. Core ML compiles a model
-    /// for the Neural Engine the first time a process loads it, which takes minutes for the
-    /// encoder of a large model, so `onComponent` is the only sign of life to show meanwhile.
+    /// another and reports nothing but a debug log line as each begins. The first load of a model
+    /// compiles it for the Neural Engine, which takes minutes for a large model (2 to 9 minutes
+    /// here), so `onComponent` is the only sign of life to show meanwhile. The system keeps the
+    /// compiled program under the app's code-signing identifier and the macOS build, so every
+    /// later load of that model, in any later launch or rebuild of the app, takes a few seconds;
+    /// a macOS update starts the compiles over. `TranscriptionController` compiles the other
+    /// downloaded models in the background so a switch does not wait for one.
+    ///
+    /// Without `onComponent` the load leaves WhisperKit's shared logging alone, so a background
+    /// load does not silence the progress of one being shown.
     static func load(
         modelFolder: URL,
         onComponent: (@Sendable (ModelComponent) -> Void)? = nil
@@ -78,8 +85,10 @@ enum WhisperModelStore {
             }
         }
         defer {
-            Logging.updateCallback(nil)
-            Logging.updateLogLevel(.none)
+            if onComponent != nil {
+                Logging.updateCallback(nil)
+                Logging.updateLogLevel(.none)
+            }
         }
         return try await WhisperKit(config)
     }

@@ -89,6 +89,24 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertNil(try storedValue("detectionLanguages"))
     }
 
+    func testCompiledEnginesAreRecordedPerOSBuild() throws {
+        let settings = AppSettings(fileURL: fileURL)
+        XCTAssertEqual(settings.compiledEngines(for: "25F84"), [])
+
+        settings.markCompiled(.belleTurbo, for: "25F84")
+        settings.markCompiled(.turbo, for: "25F84")
+        settings.markCompiled(.turbo, for: "25F84")
+        XCTAssertEqual(AppSettings(fileURL: fileURL).compiledEngines(for: "25F84"), [.belleTurbo, .turbo])
+        XCTAssertEqual(try storedValue("compiledModels") as? [String: [String]], ["25F84": ["belleTurbo", "turbo"]], "stored once each, in a stable order")
+
+        // A macOS update throws the system's compiled programs away, so the record starts over.
+        XCTAssertEqual(settings.compiledEngines(for: "26A100"), [])
+        settings.markCompiled(.kotoba, for: "26A100")
+        XCTAssertEqual(AppSettings(fileURL: fileURL).compiledEngines(for: "26A100"), [.kotoba])
+        XCTAssertEqual(try storedValue("compiledModels") as? [String: [String]], ["26A100": ["kotoba"]], "the old build's record is dropped")
+        XCTAssertFalse(OSBuild.current.isEmpty)
+    }
+
     func testResetForgetsEveryPreference() throws {
         let settings = AppSettings(fileURL: fileURL)
         settings.keepWindowOnTop = false
