@@ -238,8 +238,9 @@ struct ContentView: View {
 
     private var actions: some View {
         HStack(spacing: 8) {
+            // Always available, as on macOS: it stops a running recognition before starting the new record.
             Button { model.newRecord(); query = "" } label: { Image(systemName: "plus") }
-                .accessibilityLabel("新建转写").disabled(model.locked)
+                .accessibilityLabel("新建转写")
             Button { withAnimation(.easeInOut(duration: 0.2)) { searching.toggle(); if !searching { query = "" } } } label: {
                 Image(systemName: "magnifyingglass")
             }.accessibilityLabel("搜索转写")
@@ -293,7 +294,7 @@ struct ContentView: View {
 
     private func timestampLabel(_ label: String, live: Bool = false) -> some View {
         Text(label.replacingOccurrences(of: " ", with: "\n"))
-            .font(.system(.caption, design: .monospaced, weight: .medium))
+            .font(.system(.caption, design: .monospaced, weight: .bold))
             .foregroundStyle(live ? Color.red : MobileTheme.accent).fixedSize(horizontal: false, vertical: true)
     }
 
@@ -487,7 +488,7 @@ private struct HintCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 Text("AI").font(.system(.caption, design: .monospaced, weight: .bold))
-                Image(systemName: "sparkles").font(.caption.weight(.semibold))
+                Image(systemName: "sparkles").font(.caption.weight(.bold))
             }
             if pinned { Image(systemName: "pin.fill").font(.caption2) }
         }

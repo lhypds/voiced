@@ -176,8 +176,26 @@ final class MobileTranscriber: ObservableObject {
         }
     }
 
+    /// Starts a new record, as on macOS: a running recognition or preview is stopped first, and its
+    /// last lines and audio stay with the current record, which remains in the history.
     func newRecord() {
-        guard !locked else { return }
+        // Calibration and the voice-filter download run from the settings sheet, not the main screen.
+        guard !calibrating, !downloadingVoiceFilter else { return }
+        stopPlayback()
+        if recording || busy || previewActive || stopping {
+            stop()
+            // Finishing commits the trailing sentence into `current`, so detach only afterwards.
+            let finishing = task
+            Task { [weak self] in
+                await finishing?.value
+                self?.detachFromCurrentRecord()
+            }
+            return
+        }
+        detachFromCurrentRecord()
+    }
+
+    private func detachFromCurrentRecord() {
         save()
         stopPlayback()
         current = TranscriptRecord(lines: [])

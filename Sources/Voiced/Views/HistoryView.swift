@@ -86,7 +86,9 @@ struct HistoryView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.accent)
-            TextField(strings.searchHistory, text: $query)
+            // No placeholder, as in the main window's search field; the name stays for VoiceOver.
+            TextField("", text: $query)
+                .accessibilityLabel(strings.searchHistory)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .focused($isSearchFocused)
@@ -174,7 +176,8 @@ private struct HistoryRow: View {
                     Text(Self.dateFormatter.string(from: record.updatedAt))
                         .font(.system(.caption, design: .monospaced).weight(.medium))
                         .foregroundStyle(Theme.accent)
-                    Text(match.map { strings.matchCount($0.matchCount) } ?? strings.lineCount(record.lines.count))
+                    // The number of sentences on its own, without a unit; while searching, the matches.
+                    Text(match.map { strings.matchCount($0.matchCount) } ?? "\(record.lines.count)")
                         .font(.caption)
                         .foregroundStyle(Theme.accent)
                     if isCurrent {

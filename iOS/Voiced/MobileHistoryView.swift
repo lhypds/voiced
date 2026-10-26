@@ -10,6 +10,14 @@ struct MobileHistoryView: View {
     var openSearch: (String) -> Void = { _ in }
     @State private var query = ""
 
+    /// The same fixed, compact "2026-10-27 12:12" the macOS history shows.
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
+
     /// Each record with what of it matches the search; every record, unmatched, while the search is empty.
     private var rows: [(record: TranscriptRecord, match: HistorySearchResult?)] {
         guard HistorySearch.normalized(query) != nil else { return model.records.map { ($0, nil) } }
@@ -39,13 +47,24 @@ struct MobileHistoryView: View {
                             // Cards size to their content: a one-line preview stays compact, and the
                             // summary status row only appears when there is something to show.
                             VStack(alignment: .leading, spacing: 6) {
+                                // As on macOS: "2026-10-27 12:12" of the last change in the
+                                // timestamp's font, then the number of sentences, or of matches
+                                // while searching.
                                 HStack(spacing: 8) {
-                                    Text(record.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                    if let match = row.match {
-                                        Text(model.strings.matchCount(match.matchCount))
+                                    Text(Self.dateFormatter.string(from: record.updatedAt))
+                                        .font(.system(.caption, design: .monospaced, weight: .medium))
+                                    Text(row.match.map { model.strings.matchCount($0.matchCount) } ?? "\(record.lines.count)")
+                                        .font(.caption)
+                                    // The record on the main screen, marked as macOS marks it.
+                                    if record.id == model.current.id {
+                                        Text(model.strings.currentRecord)
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 6).padding(.vertical, 1)
+                                            .background(MobileTheme.accent.opacity(0.18), in: Capsule())
+                                            .accessibilityIdentifier("current-record-badge")
                                     }
                                 }
-                                .font(.caption).foregroundStyle(MobileTheme.accent).lineLimit(1)
+                                .foregroundStyle(MobileTheme.accent).lineLimit(1)
                                 // While searching, the first matching line with the match picked
                                 // out, in place of the record's opening line.
                                 Group {

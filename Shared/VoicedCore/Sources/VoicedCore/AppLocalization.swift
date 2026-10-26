@@ -228,7 +228,7 @@ public struct AppStrings: Sendable {
     public var history: String { value("历史记录", "履歴", "History", "Historique", "Historial", "Verlauf") }
     public var historyHint: String { value("选择一条记录后继续识别", "履歴を選ぶと続きから認識します", "Pick a transcript to keep recognizing into it", "Choisissez une transcription pour continuer à y reconnaître", "Elige una transcripción para seguir reconociendo en ella", "Transkript wählen, um darin weiter zu erkennen") }
     public var historyEmpty: String { value("暂无历史记录", "履歴はまだありません", "No history yet", "Aucun historique", "Sin historial", "Noch kein Verlauf") }
-    public var currentRecord: String { value("当前", "現在", "Current", "Actuel", "Actual", "Aktuell") }
+    public var currentRecord: String { value("当前", "現在", "This", "Actuel", "Actual", "Aktuell") }
     public var openFolder: String { value("打开文件夹", "フォルダを開く", "Open folder", "Ouvrir le dossier", "Abrir carpeta", "Ordner öffnen") }
     public var resetAllSettings: String { value("重置所有设置", "すべての設定をリセット", "Reset all settings", "Réinitialiser tous les réglages", "Restablecer todos los ajustes", "Alle Einstellungen zurücksetzen") }
     public var resetAllSettingsHint: String { value("恢复为初次启动时的设置，历史记录和提示词文件不受影响", "初回起動時の設定に戻します。履歴とプロンプトファイルはそのままです", "Restores the first-launch settings; history and the prompt file are kept", "Rétablit les réglages du premier lancement ; l'historique et le fichier d'invite sont conservés", "Restaura los ajustes del primer inicio; el historial y el archivo de indicaciones se conservan", "Stellt die Einstellungen des ersten Starts wieder her; Verlauf und Prompt-Datei bleiben erhalten") }
@@ -276,17 +276,6 @@ public struct AppStrings: Sendable {
             count == 1 ? "1 correspondance" : "\(count) correspondances",
             count == 1 ? "1 coincidencia" : "\(count) coincidencias",
             count == 1 ? "1 Treffer" : "\(count) Treffer"
-        )
-    }
-
-    public func lineCount(_ count: Int) -> String {
-        value(
-            "\(count) 句",
-            "\(count) 文",
-            count == 1 ? "1 sentence" : "\(count) sentences",
-            count == 1 ? "1 phrase" : "\(count) phrases",
-            count == 1 ? "1 frase" : "\(count) frases",
-            count == 1 ? "1 Satz" : "\(count) Sätze"
         )
     }
 

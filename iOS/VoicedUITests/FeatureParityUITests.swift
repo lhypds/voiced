@@ -103,6 +103,8 @@ final class FeatureParityUITests: XCTestCase {
 
 
 
+
+
     private func openSettings() {
         app.launch()
         XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 15))
@@ -235,6 +237,21 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertTrue(toast.waitForExistence(timeout: 3))
         // The toast dismisses itself.
         XCTAssertTrue(toast.waitForNonExistence(timeout: 3))
+    }
+
+    func testNewRecordWhileRecordingStopsAndStartsEmptyRecord() {
+        app.launchArguments.append("--ui-recording")
+        app.launch()
+        XCTAssertTrue(app.buttons["停止录音"].waitForExistence(timeout: 15))
+        let newRecord = app.buttons["新建转写"]
+        XCTAssertTrue(newRecord.isEnabled)
+        newRecord.tap()
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["empty-transcript-prompt"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["这是一条测试转写。"].exists)
+        // The previous record stays in the history.
+        app.buttons["历史记录"].tap()
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "history-record.fixture").firstMatch.waitForExistence(timeout: 5))
     }
 
 }
