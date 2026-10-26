@@ -31,7 +31,7 @@ final class RecognitionEngineTests: XCTestCase {
     func testGeneralModelsOfferEveryLanguageAndSpecializedOnesOnlyTheirOwn() {
         XCTAssertEqual(RecognitionLanguage.choices(for: .turbo), RecognitionLanguage.choices)
         XCTAssertEqual(RecognitionLanguage.choices(for: .accurate), RecognitionLanguage.choices)
-        XCTAssertEqual(RecognitionLanguage.choices(for: .belleTurbo).map(\.code), ["zh"])
+        XCTAssertEqual(RecognitionLanguage.choices(for: .belleTurbo).map(\.id), ["zh", "zh-Hant"])
         XCTAssertEqual(RecognitionLanguage.choices(for: .kotoba).map(\.code), ["ja"])
         XCTAssertFalse(RecognitionLanguage.choices(for: .kotoba).contains(.automatic))
     }
@@ -44,6 +44,14 @@ final class RecognitionEngineTests: XCTestCase {
         for engine in RecognitionEngine.allCases {
             XCTAssertTrue(RecognitionLanguage.choices(for: engine).contains(RecognitionLanguage.defaultChoice(for: engine)))
         }
+    }
+
+    func testChineseIsOfferedInBothScriptsButDetectedAsOneLanguage() {
+        XCTAssertEqual(RecognitionLanguage.choice(id: "zh").chineseScript, .simplified, "settings saved before the split stay Simplified")
+        XCTAssertEqual(RecognitionLanguage.choice(id: "zh-Hant").chineseScript, .traditional)
+        XCTAssertEqual(RecognitionLanguage.choice(id: "zh-Hant").code, "zh")
+        XCTAssertEqual(RecognitionLanguage.detectable.filter { $0.code == "zh" }.map(\.id), ["zh"])
+        XCTAssertEqual(Set(RecognitionLanguage.choices.map(\.id)).count, RecognitionLanguage.choices.count)
     }
 
     func testDisplayNamesAreDistinct() {

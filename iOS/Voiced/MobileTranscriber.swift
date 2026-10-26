@@ -90,7 +90,7 @@ final class MobileTranscriber: ObservableObject {
     private var loadedEngine: RecognitionEngine?
     private var transcriber: LiveTranscriber?
     private var session: RecordingSession?
-    private var sessionLanguage: String?
+    private var sessionLanguage = RecognitionLanguage.automatic
     private var recorder: SessionRecorder?
     private var sessionInfo: TranscriptRecord.Session?
     private var lastFinishedDecode = 0
@@ -108,7 +108,7 @@ final class MobileTranscriber: ObservableObject {
     var currentText: String { export(current.lines) }
     var translationTargets: [AppLanguage] { Array(Set(translationRules.map(\.target))).sorted { $0.rawValue < $1.rawValue } }
 
-    private var assembler: SentenceAssembler { SentenceAssembler(languageCode: sessionLanguage) }
+    private var assembler: SentenceAssembler { SentenceAssembler(language: sessionLanguage) }
 
     init(directory: URL = VoicedDirectory.root, aiService: TranscriptAI? = nil, translationService: (any SentenceTranslating)? = nil) {
         dataRoot = directory
@@ -231,7 +231,8 @@ final class MobileTranscriber: ObservableObject {
                     throw NSError(domain: "Voiced", code: 3, userInfo: [NSLocalizedDescriptionKey: "请在系统设置 → Voiced 中允许麦克风访问。"])
                 }
                 let selected = engine
-                let language = RecognitionLanguage.choice(id: selected.specializedLanguage ?? languageID)
+                let chosen = RecognitionLanguage.choice(id: languageID)
+                let language = RecognitionLanguage.choices(for: selected).contains(chosen) ? chosen : RecognitionLanguage.defaultChoice(for: selected)
                 if whisper == nil || loadedEngine != selected {
                     whisper = nil
                     loadedEngine = nil
@@ -281,7 +282,7 @@ final class MobileTranscriber: ObservableObject {
                     current = TranscriptRecord(id: historyStore.unusedID(startedAt: startedAt), createdAt: startedAt, lines: [])
                 }
                 session = RecordingSession(startedAt: startedAt, baseLines: preview ? [] : current.lines)
-                sessionLanguage = language.code
+                sessionLanguage = language
                 lastFinishedDecode = 0
                 liveText = ""
                 previewText = ""

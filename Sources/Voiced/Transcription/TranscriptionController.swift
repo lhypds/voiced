@@ -306,7 +306,7 @@ final class TranscriptionController: ObservableObject {
     }
     var strings: AppStrings { AppStrings(language: appLanguage) }
     private var assembler: SentenceAssembler {
-        SentenceAssembler(languageCode: selectedLanguage.code)
+        SentenceAssembler(language: selectedLanguage)
     }
 
     var phaseLabel: String {

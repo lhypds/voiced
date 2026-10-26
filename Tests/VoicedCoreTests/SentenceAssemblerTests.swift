@@ -19,6 +19,19 @@ final class SentenceAssemblerTests: XCTestCase {
         XCTAssertEqual(lines[0].id, "a|b")
     }
 
+    func testChineseIsConvertedToThePinnedScript() {
+        let simplified = SentenceAssembler(language: RecognitionLanguage.choice(id: "zh"))
+        XCTAssertEqual(simplified.normalized("這個軟體很準確,對吧?"), "这个软体很准确，对吧？")
+        XCTAssertEqual(simplified.draft(from: ["語言", "識別"]), "语言，识别")
+        XCTAssertEqual(simplified.normalized("Hello world"), "Hello world")
+
+        let traditional = SentenceAssembler(language: RecognitionLanguage.choice(id: "zh-Hant"))
+        XCTAssertEqual(traditional.normalized("语言识别"), "語言識別")
+
+        XCTAssertEqual(cjk.normalized("語言識別"), "語言識別", "without a pinned script the text is kept")
+        XCTAssertEqual(SentenceAssembler(language: .automatic).normalized("語言识别"), "語言识别")
+    }
+
     func testLongPauseEndsSentenceAndAddsTerminator() {
         let lines = latin.sentences(from: [
             line("a", 0, 1, "First part"),

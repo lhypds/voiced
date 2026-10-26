@@ -19,9 +19,16 @@ public struct SentenceAssembler: Sendable {
 
     /// Whisper language code the speech is in, or nil for automatic detection.
     public let languageCode: String?
+    /// Script Chinese text is converted to, or nil to keep what Whisper wrote.
+    public let chineseScript: ChineseScript?
 
-    public init(languageCode: String?) {
+    public init(languageCode: String?, chineseScript: ChineseScript? = nil) {
         self.languageCode = languageCode
+        self.chineseScript = chineseScript
+    }
+
+    public init(language: RecognitionLanguage) {
+        self.init(languageCode: language.code, chineseScript: language.chineseScript)
     }
 
     /// Script the punctuation of `text` should follow. Decided from the text itself so English in a
@@ -31,9 +38,12 @@ public struct SentenceAssembler: Sendable {
     }
 
     /// Rewrites the punctuation of `text` to match its script: full width for Chinese (，。) and
-    /// Japanese (、。), half width for everything else.
+    /// Japanese (、。), half width for everything else. Chinese text is also converted to
+    /// `chineseScript` when one is set.
     public func normalized(_ text: String) -> String {
-        PunctuationNormalizer.normalize(text, languageCode: languageCode)
+        let punctuated = PunctuationNormalizer.normalize(text, languageCode: languageCode)
+        guard let chineseScript, script(of: punctuated) == .chinese else { return punctuated }
+        return chineseScript.converting(punctuated)
     }
 
     /// Merges consecutive segments until one ends with terminal punctuation or a long pause follows.
