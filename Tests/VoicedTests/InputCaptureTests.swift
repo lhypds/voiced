@@ -1,5 +1,6 @@
 import AVFoundation
 import XCTest
+@testable import VoicedCore
 @testable import Voiced
 
 final class InputCaptureResamplerTests: XCTestCase {
@@ -37,6 +38,25 @@ final class InputCaptureResamplerTests: XCTestCase {
     func testStereo48kBecomesMono() throws {
         let chunk = try XCTUnwrap(InputCapture.Resampler().chunk(from: sine(sampleRate: 48000, channels: 2, frames: 4800)))
         // 100 ms less the converter's priming latency, which the next chunk makes up.
+        XCTAssertGreaterThan(chunk.count, 1300)
+        XCTAssertLessThanOrEqual(chunk.count, 1600)
+        XCTAssertGreaterThan(rms(chunk), 0.25)
+    }
+
+    /// A built-in microphone array reports three channels, which the converter cannot map to
+    /// mono by itself; the resampler averages them first.
+    func testThreeChannel48kBecomesMono() throws {
+        let layout = try XCTUnwrap(AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | 3))
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, interleaved: false, channelLayout: layout)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800))
+        buffer.frameLength = 4800
+        for channel in 0..<3 {
+            let data = buffer.floatChannelData![channel]
+            for i in 0..<4800 {
+                data[i] = 0.5 * sin(2 * .pi * 440 * Float(i) / 48000)
+            }
+        }
+        let chunk = try XCTUnwrap(InputCapture.Resampler().chunk(from: buffer))
         XCTAssertGreaterThan(chunk.count, 1300)
         XCTAssertLessThanOrEqual(chunk.count, 1600)
         XCTAssertGreaterThan(rms(chunk), 0.25)

@@ -94,3 +94,9 @@ See [docs/Develop.md](docs/Develop.md) for tests, the file-based simulator, code
 - [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)
 - [Loopback](https://rogueamoeba.com/loopback/)
 - [BlackHole](https://github.com/ExistentialAudio/BlackHole)
+
+## iOS version
+
+A native iPhone / iPad app lives in [`iOS/`](iOS/README.md), with on-device microphone transcription, local history, and text sharing. Open `Voiced.xcworkspace` in Xcode, choose the **Voiced iOS** scheme, and select your free Apple ID's Personal Team to run on your own device. A paid Apple Developer Program membership is not required for personal device testing. See the [iOS setup guide](iOS/README.md) for signing instructions and current feature differences.
+
+Both native apps and the file-input simulator now depend on the shared `VoicedCore` Swift Package library. See [shared-core architecture](docs/Develop.md#shared-core) for the source layout and platform adapter boundaries.

@@ -1,3 +1,4 @@
+import VoicedCore
 import SwiftUI
 
 /// Popover listing saved transcripts. Choosing one puts it back on screen so recording continues into it.
@@ -9,24 +10,18 @@ struct HistoryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(strings.history)
-                    .font(.title3.weight(.bold))
-                Text(strings.historyHint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
+            Text(strings.history)
+                .font(.title3.weight(.bold))
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
 
             if controller.history.isEmpty {
-                Text(strings.historyEmpty)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 120)
-                    .padding(.bottom, 8)
+                // Nothing to list: the popover shows only its title.
+                Spacer().frame(height: 4)
             } else {
                 ScrollView {
-                    VStack(spacing: 0) {
+                    // One card per record, matching the rounded rows of the main window.
+                    VStack(spacing: Theme.rowGap) {
                         ForEach(controller.history) { record in
                             HistoryRow(
                                 record: record,
@@ -45,6 +40,8 @@ struct HistoryView: View {
                             )
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
                 }
                 .frame(maxHeight: 360)
             }
@@ -156,10 +153,13 @@ private struct HistoryRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .contentShape(Rectangle())
-            .background(isHovered ? Color.black.opacity(0.04) : .clear)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Theme.accent.opacity(isHovered ? Theme.rowFillHoverOpacity : Theme.rowFillOpacity))
+            )
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }

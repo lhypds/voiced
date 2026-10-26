@@ -1,22 +1,23 @@
+import VoicedCore
 import AppKit
 import SwiftUI
 
 /// Shared colours and spacing so the views agree on a single palette.
 enum Theme {
-    static let background = Color(red: 0.96, green: 0.96, blue: 0.94)
+    static let background = VoicedPalette.background
     /// Light orange used for the record button and timestamps.
-    static let accent = Color(red: 0.96, green: 0.64, blue: 0.38)
+    static let accent = VoicedPalette.accent
     /// Darker orange for the record button's lower edge and shadow.
-    static let accentDark = Color(red: 0.88, green: 0.50, blue: 0.24)
+    static let accentDark = VoicedPalette.accentDark
     /// Purple for everything the AI service produces: the AI settings page and the hint bubbles.
-    static let aiAccent = Color(red: 0.58, green: 0.40, blue: 0.88)
+    static let aiAccent = VoicedPalette.aiAccent
 
     static let contentPadding: CGFloat = 22
     static let rowSpacing: CGFloat = 22
     /// Vertical gap between transcript rows, and between the LIVE box and the first row.
     static let rowGap: CGFloat = 10
     /// Opacity of the accent colour behind every transcript row and the LIVE box.
-    static let rowFillOpacity: Double = 0.14
+    static let rowFillOpacity = VoicedPalette.rowFillOpacity
     /// Stronger fill while the pointer is over a row, so the click-to-copy target is clear.
     static let rowFillHoverOpacity: Double = 0.26
     static let bodyFontSize: CGFloat = 17

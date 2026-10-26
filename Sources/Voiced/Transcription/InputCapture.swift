@@ -1,3 +1,4 @@
+import VoicedCore
 import AVFoundation
 import Foundation
 @preconcurrency import WhisperKit
@@ -171,11 +172,26 @@ final class InputCapture: @unchecked Sendable {
         let hardware = input.inputFormat(forBus: 0)
         let layout = input.outputFormat(forBus: 0)
         guard hardware.sampleRate > 0, hardware.channelCount > 0 else { return nil }
+        let commonFormat: AVAudioCommonFormat = layout.commonFormat == .otherFormat ? .pcmFormatFloat32 : layout.commonFormat
+        if hardware.channelCount <= 2 {
+            return AVAudioFormat(
+                commonFormat: commonFormat,
+                sampleRate: hardware.sampleRate,
+                channels: hardware.channelCount,
+                interleaved: layout.isInterleaved
+            )
+        }
+        // A format of more than two channels cannot be made without a channel layout: a built-in
+        // microphone array reports three. The device's own layout, or else plain numbered
+        // channels, which the resampler folds into one.
+        let channelLayout = hardware.channelLayout
+            ?? AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | hardware.channelCount)
+        guard let channelLayout else { return nil }
         return AVAudioFormat(
-            commonFormat: layout.commonFormat == .otherFormat ? .pcmFormatFloat32 : layout.commonFormat,
+            commonFormat: commonFormat,
             sampleRate: hardware.sampleRate,
-            channels: hardware.channelCount,
-            interleaved: layout.isInterleaved
+            interleaved: layout.isInterleaved,
+            channelLayout: channelLayout
         )
     }
 
@@ -207,7 +223,7 @@ final class InputCapture: @unchecked Sendable {
         private var converter: AVAudioConverter?
 
         func chunk(from buffer: AVAudioPCMBuffer) -> [Float]? {
-            guard buffer.frameLength > 0 else { return nil }
+            guard buffer.frameLength > 0, let buffer = Self.foldedToMono(buffer) else { return nil }
             if buffer.format == target {
                 return AudioProcessor.convertBufferToArray(buffer: buffer)
             }
@@ -232,6 +248,42 @@ final class InputCapture: @unchecked Sendable {
             }
             guard status != .error, output.frameLength > 0 else { return nil }
             return AudioProcessor.convertBufferToArray(buffer: output)
+        }
+
+        /// A buffer of more than two channels averaged into one at its own rate. The converter
+        /// mixes mono and stereo down on its own, but has no mapping for numbered channels such
+        /// as a built-in microphone array's three, and would give silence. Nil when the samples
+        /// are not floats, which a tap in the node's own format never delivers.
+        private static func foldedToMono(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+            let channels = Int(buffer.format.channelCount)
+            guard channels > 2 else { return buffer }
+            guard let data = buffer.floatChannelData,
+                  let mono = AVAudioFormat(standardFormatWithSampleRate: buffer.format.sampleRate, channels: 1),
+                  let output = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength)
+            else { return nil }
+            output.frameLength = buffer.frameLength
+            let frames = Int(buffer.frameLength)
+            let out = output.floatChannelData![0]
+            let scale = 1 / Float(channels)
+            if buffer.format.isInterleaved {
+                let samples = data[0]
+                for frame in 0..<frames {
+                    var sum: Float = 0
+                    for channel in 0..<channels {
+                        sum += samples[frame * channels + channel]
+                    }
+                    out[frame] = sum * scale
+                }
+            } else {
+                for frame in 0..<frames {
+                    var sum: Float = 0
+                    for channel in 0..<channels {
+                        sum += data[channel][frame]
+                    }
+                    out[frame] = sum * scale
+                }
+            }
+            return output
         }
     }
 }

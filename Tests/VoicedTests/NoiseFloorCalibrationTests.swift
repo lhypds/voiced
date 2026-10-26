@@ -1,4 +1,5 @@
 import XCTest
+@testable import VoicedCore
 @testable import Voiced
 
 final class NoiseFloorCalibrationTests: XCTestCase {

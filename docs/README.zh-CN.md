@@ -88,3 +88,11 @@ Voiced 保存的所有内容都在 `~/.voiced` 下：
 - [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)
 - [Loopback](https://rogueamoeba.com/loopback/)
 - [BlackHole](https://github.com/ExistentialAudio/BlackHole)
+
+## iOS 版本
+
+同一仓库的 [`iOS/`](../iOS/README.md) 提供原生 iPhone / iPad 版本，支持麦克风本地转写、历史记录和文字分享。使用 Xcode 和免费 Apple ID 的 Personal Team 即可连接自己的设备运行，无需付费 Apple Developer Program；具体签名步骤与当前功能范围见 [iOS 说明](../iOS/README.md)。
+
+macOS、iOS 和文件模拟工具统一依赖 `VoicedCore` 共享库。识别、分句、设置、历史、录音保存及相关服务使用同一套函数，结构说明见 [开发文档](Develop.md#shared-core)。
+
+iOS 已补齐 AI 提示、摘要、翻译与朗读、音频回放、输入校准和识别设置入口。两端完整核对及保留差异见 [功能核对表](iOS-feature-parity.md)。

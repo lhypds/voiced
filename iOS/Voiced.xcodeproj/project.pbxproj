@@ -1,0 +1,333 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+A110CA7A10904B42BF000001 = {isa = PBXBuildFile; fileRef = A110CA7A10904B42BF000002; };
+7548441E38727C401796C506 = {isa = PBXBuildFile; fileRef = C22A2DFB042608F3CCE39954; };
+		A6ADE42A5AD3A65A8D7D3B6E = {isa = PBXBuildFile; fileRef = D62906BC89AD29A6DE8EC6C6; };
+		29E6FB5BBDBAC86C12E6E84E = {isa = PBXBuildFile; fileRef = 52CE9AB321C820B4E4F238E1; };
+		242273CF5ABA885F208ECE09 = {isa = PBXBuildFile; fileRef = 14B219DA3109CD54BD8D2D2D; };
+		22CBA69B73707D7105ED5D3A /* VoicedCore in Frameworks */ = {isa = PBXBuildFile; productRef = CED84CDAC19BA92C5DE221F6; };
+		2FD53BB2411E4913D9290EB2 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3272B772461E6C3950C5A221 /* WhisperKit */; };
+		3E4E1284DCC1D4E4F51ED4F6 /* Voiced/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 445C6151F52EBC64A8968845 /* Voiced/ContentView.swift */; };
+		47803FB0D1F725946209E4C3 /* Voiced/MobileTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD6E7587C3EF7108540BD000 /* Voiced/MobileTranscriber.swift */; };
+		6653031A2B47A4E03A59B634 /* Voiced/VoicedApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB4191C677B19EBC26EB02BA /* Voiced/VoicedApp.swift */; };
+		6699E691A0394FE96346D450 /* Voiced/AudioCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B460E8F3E9188FE1A7CFD558 /* Voiced/AudioCapture.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+A110CA7A10904B42BF000002 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Voiced/Assets.xcassets; sourceTree = "<group>"; };
+C22A2DFB042608F3CCE39954 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/UITestFixtures.swift; sourceTree = "<group>"; };
+		D62906BC89AD29A6DE8EC6C6 = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Voiced/Localizable.xcstrings; sourceTree = "<group>"; };
+		52CE9AB321C820B4E4F238E1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/MobileSettingsView.swift; sourceTree = "<group>"; };
+		14B219DA3109CD54BD8D2D2D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/MobileHistoryView.swift; sourceTree = "<group>"; };
+		445C6151F52EBC64A8968845 /* Voiced/ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/ContentView.swift; sourceTree = "<group>"; };
+		7D1043473D55BFA90E8530D3 /* Voiced.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Voiced.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB4191C677B19EBC26EB02BA /* Voiced/VoicedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/VoicedApp.swift; sourceTree = "<group>"; };
+		B460E8F3E9188FE1A7CFD558 /* Voiced/AudioCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/AudioCapture.swift; sourceTree = "<group>"; };
+		DD6E7587C3EF7108540BD000 /* Voiced/MobileTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/MobileTranscriber.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7561BFB015D8F536760CB671 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2FD53BB2411E4913D9290EB2 /* WhisperKit in Frameworks */,
+				22CBA69B73707D7105ED5D3A /* VoicedCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		B28B7AF69320201D1CF206EB = {
+			isa = PBXGroup;
+			children = (
+A110CA7A10904B42BF000002,
+4344D232D925D28AD56145E5,
+C22A2DFB042608F3CCE39954,
+				D62906BC89AD29A6DE8EC6C6,
+				52CE9AB321C820B4E4F238E1,
+				14B219DA3109CD54BD8D2D2D,
+				B460E8F3E9188FE1A7CFD558 /* Voiced/AudioCapture.swift */,
+				445C6151F52EBC64A8968845 /* Voiced/ContentView.swift */,
+				DD6E7587C3EF7108540BD000 /* Voiced/MobileTranscriber.swift */,
+				AB4191C677B19EBC26EB02BA /* Voiced/VoicedApp.swift */,
+				FBDC4F23F93125BBEEAE800C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		FBDC4F23F93125BBEEAE800C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+2E635C1267B14E15F71F5D1A,
+				7D1043473D55BFA90E8530D3 /* Voiced.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0E8A3AD980EC179856012B7E /* Voiced */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C57128001CE614BF8549D6BB /* Build configuration list for PBXNativeTarget "Voiced" */;
+			buildPhases = (
+				BCE16DD0260827ECF338C787 /* Sources */,
+				7561BFB015D8F536760CB671 /* Frameworks */,
+				0189424A5A60FED329FA868E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VoicedIOS;
+			packageProductDependencies = (
+				CED84CDAC19BA92C5DE221F6 /* VoicedCore */,
+				3272B772461E6C3950C5A221 /* WhisperKit */,
+			);
+			productName = Voiced;
+			productReference = 7D1043473D55BFA90E8530D3 /* Voiced.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98F54143AB4E86B28C3AFEE0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+                    95F9FC6E252E44B94B26FF0C = { CreatedOnToolsVersion = 26.6; TestTargetID = 0E8A3AD980EC179856012B7E; };
+					0E8A3AD980EC179856012B7E = {
+						CreatedOnToolsVersion = 26.6;
+					};
+				};
+			};
+			buildConfigurationList = 862894B703A6DEDF96A9DD6C /* Build configuration list for PBXProject "Voiced" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+				ja,
+				fr,
+				es,
+				de,
+			);
+			mainGroup = B28B7AF69320201D1CF206EB;
+			packageReferences = (
+				C7E01FF11241BE478A3D0C41 /* Local Voiced package */,
+				4FF15B936B8851E2CAA578B9 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */,
+			);
+			productRefGroup = FBDC4F23F93125BBEEAE800C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+95F9FC6E252E44B94B26FF0C,
+				0E8A3AD980EC179856012B7E /* Voiced */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0189424A5A60FED329FA868E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A110CA7A10904B42BF000001,
+				A6ADE42A5AD3A65A8D7D3B6E,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BCE16DD0260827ECF338C787 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+7548441E38727C401796C506,
+				29E6FB5BBDBAC86C12E6E84E,
+				242273CF5ABA885F208ECE09,
+				6699E691A0394FE96346D450 /* Voiced/AudioCapture.swift in Sources */,
+				3E4E1284DCC1D4E4F51ED4F6 /* Voiced/ContentView.swift in Sources */,
+				47803FB0D1F725946209E4C3 /* Voiced/MobileTranscriber.swift in Sources */,
+				6653031A2B47A4E03A59B634 /* Voiced/VoicedApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		639A7CA24D39909E713B47F7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 69Y2HD274X;
+				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_CFBundleDisplayName = Voiced;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Voiced uses your microphone to transcribe speech locally on your device.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.voiced.personal.ios;
+				PRODUCT_NAME = Voiced;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7082CC0B6FC1282FCEABD07A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 69Y2HD274X;
+				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_CFBundleDisplayName = Voiced;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Voiced uses your microphone to transcribe speech locally on your device.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.voiced.personal.ios;
+				PRODUCT_NAME = Voiced;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		89E1FD6268CC0F221A2BE178 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ONLY_ACTIVE_ARCH = YES;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		E6DE6C99132752C914FEF632 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		862894B703A6DEDF96A9DD6C /* Build configuration list for PBXProject "Voiced" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				89E1FD6268CC0F221A2BE178 /* Debug */,
+				E6DE6C99132752C914FEF632 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C57128001CE614BF8549D6BB /* Build configuration list for PBXNativeTarget "Voiced" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7082CC0B6FC1282FCEABD07A /* Debug */,
+				639A7CA24D39909E713B47F7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4FF15B936B8851E2CAA578B9 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCLocalSwiftPackageReference section */
+        C7E01FF11241BE478A3D0C41 = {isa = XCLocalSwiftPackageReference; relativePath = "../Shared/VoicedCore"; };
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+        CED84CDAC19BA92C5DE221F6 = {isa = XCSwiftPackageProductDependency; package = C7E01FF11241BE478A3D0C41; productName = VoicedCore; };
+		3272B772461E6C3950C5A221 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4FF15B936B8851E2CAA578B9 /* XCRemoteSwiftPackageReference "argmax-oss-swift" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+4344D232D925D28AD56145E5 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoicedUITests/FeatureParityUITests.swift; sourceTree = "<group>"; };
+67FB088D7B3BFC5E0C64E527 = { isa = PBXBuildFile; fileRef = 4344D232D925D28AD56145E5; };
+2E635C1267B14E15F71F5D1A = { isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = VoicedUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+55C2A1145FF0806565865D92 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (67FB088D7B3BFC5E0C64E527,); runOnlyForDeploymentPostprocessing = 0; };
+4C743359E8477277AB459C6E = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+A702DD3B07EFC14E8D7E3C75 = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+7DFA1C01224F79EDEC26861C = { isa = PBXContainerItemProxy; containerPortal = 98F54143AB4E86B28C3AFEE0; proxyType = 1; remoteGlobalIDString = 0E8A3AD980EC179856012B7E; remoteInfo = VoicedIOS; };
+F2911E6CDEAA0FE13B12A6A4 = { isa = PBXTargetDependency; target = 0E8A3AD980EC179856012B7E; targetProxy = 7DFA1C01224F79EDEC26861C; };
+7F929722E479EF6D8D76C2D6 = { isa = XCBuildConfiguration; name = Debug; buildSettings = {
+   PRODUCT_BUNDLE_IDENTIFIER = com.voiced.personal.ios.uitests;
+   PRODUCT_NAME = "$(TARGET_NAME)";
+   TEST_TARGET_NAME = VoicedIOS;
+   GENERATE_INFOPLIST_FILE = YES;
+   CODE_SIGN_STYLE = Automatic;
+   SWIFT_VERSION = 5.0;
+   IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+   TARGETED_DEVICE_FAMILY = "1,2";
+   SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+   LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+  }; };
+1EFEAF9DF0710C818461704F = { isa = XCBuildConfiguration; name = Release; buildSettings = {
+   PRODUCT_BUNDLE_IDENTIFIER = com.voiced.personal.ios.uitests;
+   PRODUCT_NAME = "$(TARGET_NAME)";
+   TEST_TARGET_NAME = VoicedIOS;
+   GENERATE_INFOPLIST_FILE = YES;
+   CODE_SIGN_STYLE = Automatic;
+   SWIFT_VERSION = 5.0;
+   IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+   TARGETED_DEVICE_FAMILY = "1,2";
+   SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+   LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
+  }; };
+E1984331FEF83049637531EF = { isa = XCConfigurationList; buildConfigurations = (7F929722E479EF6D8D76C2D6,1EFEAF9DF0710C818461704F,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+95F9FC6E252E44B94B26FF0C = { isa = PBXNativeTarget; name = VoicedUITests; productName = VoicedUITests; productType = "com.apple.product-type.bundle.ui-testing"; productReference = 2E635C1267B14E15F71F5D1A; buildConfigurationList = E1984331FEF83049637531EF; buildPhases = (55C2A1145FF0806565865D92,4C743359E8477277AB459C6E,A702DD3B07EFC14E8D7E3C75,); buildRules = (); dependencies = (F2911E6CDEAA0FE13B12A6A4,); };
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0 /* Project object */;
+}

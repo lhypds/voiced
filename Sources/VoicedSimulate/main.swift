@@ -1,3 +1,4 @@
+import VoicedCore
 // Development tool: feeds a 16 kHz speech file through LiveTranscriber at real-time pace, mirrors the
 // app's commit logic and verifies that pauses finalize the live sentence, committed lines never change
 // and the raw audio handed to the session recorder is exactly what was fed in.
@@ -167,7 +168,7 @@ let promptIndex = CommandLine.arguments.firstIndex(of: "--prompt-file")
 let promptText = promptIndex.flatMap { RecognitionPrompt.load(from: URL(fileURLWithPath: CommandLine.arguments[$0 + 1])) }
 let promptTokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: promptText, tokenizer: $0) }
 if let promptText { print("prompt (\(promptTokens?.count ?? 0) tokens): \(promptText)") }
-let options = DecodingOptions(task: .transcribe, language: language, temperatureFallbackCount: 1, usePrefillPrompt: true, detectLanguage: language == nil, skipSpecialTokens: true, withoutTimestamps: false, wordTimestamps: true, promptTokens: promptTokens, logProbThreshold: -0.8, noSpeechThreshold: 0.4)
+let options = TranscriptionLogic.decodingOptions(for: RecognitionLanguage(code: language, nativeName: langArgument), promptTokens: promptTokens)
 let assembler = SentenceAssembler(languageCode: language)
 var session = RecordingSession(startedAt: started, baseLines: [])
 var liveText = ""
@@ -177,13 +178,6 @@ var failures: [String] = []
 var lastFinishedDecode = 0
 var replacementCharacterHits = 0
 
-func lines(from segments: [TranscriptionSegment]) -> [TranscriptLine] {
-    segments.compactMap { seg in
-        let text = seg.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-        return TranscriptLine(id: "\(seg.id)-\(seg.start)-\(seg.end)", start: seg.start, end: seg.end, recordedAt: started, text: text)
-    }
-}
 @MainActor func record(_ reason: String) {
     let transcript = session.transcript.map(\.text)
     if let previous = transcriptHistory.last, !transcript.starts(with: previous) {
@@ -209,8 +203,7 @@ func lines(from segments: [TranscriptionSegment]) -> [TranscriptLine] {
             replacementCharacterHits += 1
             print("\(stamp()) segment with U+FFFD: \"\(segment.text)\"")
         }
-        let segmentLines = lines(from: segments)
-        _ = session.update(latest: assembler.sentences(from: segmentLines), completed: assembler.sentences(from: segmentLines, includeTrailing: false))
+        session.update(segments: segments, assembler: assembler)
         liveText = assembler.draft(from: session.pendingLines.map(\.text))
         print("\(stamp()) decoded: \(segments.map { String(format: "[%.1f-%.1f lp=%.2f] %@", $0.start, $0.end, $0.avgLogprob, $0.text.trimmingCharacters(in: .whitespaces)) })")
         record("decoded")
@@ -240,7 +233,7 @@ let captured = CapturedAudio()
 let driver = Driver()
 let voiceDetector = try await makeVoiceDetector()
 if voiceDetector != nil { print("voice detector on") }
-let transcriber = LiveTranscriber(whisperKit: whisperKit, options: options, inputDeviceID: 0, silenceThreshold: 0.12, silenceDelay: 2, speechEnergyFloor: speechEnergyFloor, voiceDetector: voiceDetector, delegate: driver, audioProcessor: audio, audioSink: { captured.append($0) }, log: { message in
+let transcriber = LiveTranscriber(whisperKit: whisperKit, options: options, inputDeviceID: 0, silenceThreshold: LiveTranscriber.defaultSilenceThreshold, silenceDelay: LiveTranscriber.defaultSilenceDelay, speechEnergyFloor: speechEnergyFloor, voiceDetector: voiceDetector, delegate: driver, audioProcessor: audio, audioSink: { captured.append($0) }, log: { message in
     print("\(stamp()) LT fed=\(String(format: "%.1f", audio.fedSeconds))s \(message)")
 })
 

@@ -1,3 +1,4 @@
+import VoicedCore
 import Foundation
 import WhisperKit
 
@@ -105,11 +106,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
     func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) -> Float {
         lastFinishedDecode = max(lastFinishedDecode, decode)
         guard self.transcriber === transcriber, var session else { return 0 }
-        let segmentLines = TranscriptionController.transcriptLines(from: segments, recordingStartedAt: session.startedAt)
-        _ = session.update(
-            latest: assembler.sentences(from: segmentLines),
-            completed: assembler.sentences(from: segmentLines, includeTrailing: false)
-        )
+        session.update(segments: segments, assembler: assembler)
         // Keep the streamed preview when every segment was dropped, as the transcript does.
         let draft = assembler.draft(from: session.pendingLines.map(\.text))
         if !draft.isEmpty {

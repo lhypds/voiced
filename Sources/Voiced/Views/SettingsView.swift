@@ -1,3 +1,4 @@
+import VoicedCore
 import AppKit
 import SwiftUI
 import WhisperKit
@@ -52,6 +53,8 @@ struct SettingsView: View {
     @State private var section: SettingsSection = .general
     @State private var isResetConfirmationPresented = false
     @State private var isEngineHelpPresented = false
+    /// Whether the API key shows as text rather than dots. Starts hidden and is never saved.
+    @State private var isAPIKeyRevealed = false
 
     private var strings: AppStrings { controller.strings }
 
@@ -479,13 +482,17 @@ struct SettingsView: View {
                     Text(strings.openAIAPIKey)
                         .font(.body)
                     getAPIKeyLink
+                    Spacer()
+                    revealAPIKeyButton
                 }
-                // A box three lines tall under the title. The key wraps wherever it reaches the
-                // edge, not at its hyphens, and Return does nothing: a key has no line breaks.
+                // A box three lines tall under the title. The key is a secret: unless the eye
+                // above reveals it, every character shows as a dot and it cannot be copied out.
+                // It wraps wherever it reaches the edge, and Return does nothing: a key has no
+                // line breaks.
                 CharacterWrappingTextView(text: Binding(
                     get: { controller.openAIAPIKey },
                     set: { controller.openAIAPIKey = $0 }
-                ), lines: 3)
+                ), lines: 3, isRevealed: isAPIKeyRevealed)
                 .padding(8)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -503,7 +510,6 @@ struct SettingsView: View {
                 Toggle(strings.aiHints, isOn: $controller.aiHintsEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .disabled(!controller.canHint)
             }
             if let error = controller.hintError {
                 Text(strings.aiHintFailed(error))
@@ -814,6 +820,21 @@ struct SettingsView: View {
         .foregroundStyle(Theme.accent)
     }
 
+    /// Shows or hides the API key in the box under it.
+    private var revealAPIKeyButton: some View {
+        Button {
+            isAPIKeyRevealed.toggle()
+        } label: {
+            Image(systemName: isAPIKeyRevealed ? "eye.slash" : "eye")
+                .foregroundStyle(Theme.accent)
+                // Both symbols take the same room, so the title row does not shift on a click.
+                .frame(width: 22)
+        }
+        .buttonStyle(.plain)
+        .help(isAPIKeyRevealed ? strings.hideAPIKey : strings.showAPIKey)
+        .accessibilityLabel(isAPIKeyRevealed ? strings.hideAPIKey : strings.showAPIKey)
+    }
+
     private var engineHelpButton: some View {
         Button {
             isEngineHelpPresented.toggle()
@@ -1094,35 +1115,49 @@ private struct LevelMeter: View {
 
 // MARK: - Components
 
-/// A plain text box that wraps its text by character rather than at word or hyphen boundaries,
-/// for a value such as an API key that has no words. Line breaks cannot be typed or pasted in.
+/// A secret text box several lines tall, for a value such as an API key: unless revealed, every
+/// character is drawn as a dot and copying and cutting do nothing. The text wraps by character
+/// since a key has no words. Line breaks cannot be typed or pasted in.
 private struct CharacterWrappingTextView: NSViewRepresentable {
     @Binding var text: String
     let lines: Int
+    /// Shows the text as it is, and lets it be copied.
+    var isRevealed = false
 
     private static let font = NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular)
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
+        let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        let textView = scrollView.documentView as! NSTextView
+        let textView = SecretTextView(frame: .zero)
+        textView.isRevealed = isRevealed
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        scrollView.documentView = textView
         textView.delegate = context.coordinator
         textView.font = Self.font
         textView.drawsBackground = false
         textView.isRichText = false
         textView.usesFontPanel = false
+        textView.allowsUndo = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
         // Accessing the TextKit 1 layout manager opts the view out of TextKit 2, which breaks
-        // lines by the text's paragraph style and ignores the container's mode.
-        _ = textView.layoutManager
+        // lines by the text's paragraph style and ignores the container's mode. TextKit 1 is
+        // also what lets the delegate below draw each character as a dot.
+        textView.layoutManager?.delegate = context.coordinator
         textView.textContainer?.lineBreakMode = .byCharWrapping
         textView.defaultParagraphStyle = Self.paragraphStyle
         textView.typingAttributes = Self.attributes
@@ -1138,10 +1173,20 @@ private struct CharacterWrappingTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
-        let textView = scrollView.documentView as! NSTextView
+        let textView = scrollView.documentView as! SecretTextView
         if textView.string != text {
             textView.string = text
             Self.restyle(textView)
+        }
+        if textView.isRevealed != isRevealed {
+            textView.isRevealed = isRevealed
+            // The glyphs were made as dots or as letters; they are made again the other way.
+            if let layoutManager = textView.layoutManager {
+                let all = NSRange(location: 0, length: (textView.string as NSString).length)
+                layoutManager.invalidateGlyphs(forCharacterRange: all, changeInLength: 0, actualCharacterRange: nil)
+                layoutManager.invalidateLayout(forCharacterRange: all, actualCharacterRange: nil)
+            }
+            textView.needsDisplay = true
         }
     }
 
@@ -1172,7 +1217,34 @@ private struct CharacterWrappingTextView: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    /// Keeps the secret on the screen while hidden: what it shows cannot be copied, cut or
+    /// dragged out. Revealed, it behaves as any text box. Pasting and typing always work.
+    final class SecretTextView: NSTextView {
+        var isRevealed = false
+
+        override func copy(_ sender: Any?) {
+            if isRevealed { super.copy(sender) }
+        }
+
+        override func cut(_ sender: Any?) {
+            if isRevealed { super.cut(sender) }
+        }
+
+        override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            if !isRevealed, item.action == #selector(copy(_:)) || item.action == #selector(cut(_:)) { return false }
+            return super.validateUserInterfaceItem(item)
+        }
+
+        override var writablePasteboardTypes: [NSPasteboard.PasteboardType] {
+            isRevealed ? super.writablePasteboardTypes : []
+        }
+
+        override func dragSelection(with event: NSEvent, offset mouseOffset: NSSize, slideBack: Bool) -> Bool {
+            isRevealed ? super.dragSelection(with: event, offset: mouseOffset, slideBack: slideBack) : false
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate, NSLayoutManagerDelegate {
         var parent: CharacterWrappingTextView
         private var clickMonitor: Any?
 
@@ -1206,6 +1278,35 @@ private struct CharacterWrappingTextView: NSViewRepresentable {
                 NSEvent.removeMonitor(clickMonitor)
                 self.clickMonitor = nil
             }
+        }
+
+        /// Lays out a dot in place of every character. The font is monospaced, so the dots take
+        /// the room the characters would and the text wraps the same.
+        func layoutManager(
+            _ layoutManager: NSLayoutManager,
+            shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+            properties: UnsafePointer<NSLayoutManager.GlyphProperty>,
+            characterIndexes: UnsafePointer<Int>,
+            font: NSFont,
+            forGlyphRange glyphRange: NSRange
+        ) -> Int {
+            // Zero keeps the glyphs the layout manager made: the letters themselves.
+            guard !parent.isRevealed else { return 0 }
+            var bullet: [UniChar] = Array("•".utf16)
+            var bulletGlyph = CGGlyph(0)
+            guard CTFontGetGlyphsForCharacters(font as CTFont, &bullet, &bulletGlyph, 1) else { return 0 }
+            let count = glyphRange.length
+            let dots = [CGGlyph](repeating: bulletGlyph, count: count)
+            dots.withUnsafeBufferPointer { buffer in
+                layoutManager.setGlyphs(
+                    buffer.baseAddress!,
+                    properties: properties,
+                    characterIndexes: characterIndexes,
+                    font: font,
+                    forGlyphRange: glyphRange
+                )
+            }
+            return count
         }
 
         func textDidChange(_ notification: Notification) {

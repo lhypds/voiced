@@ -1,3 +1,4 @@
+import VoicedCore
 import SwiftUI
 
 struct ContentView: View {
@@ -229,7 +230,9 @@ struct ContentView: View {
                     }
                     .animation(.easeOut(duration: 0.25), value: controller.hints)
                     .padding(.horizontal, Theme.contentPadding)
-                    .padding(.top, Self.rowEdgeGap)
+                    // Under the search field the first row keeps the gap the rows keep between
+                    // themselves, as the field is drawn like a row; under the header, the wider one.
+                    .padding(.top, isSearchPresented ? Theme.rowGap : Self.rowEdgeGap)
                     // Room to scroll the last row clear of the record button, leaving the same
                     // gap above the button as between the header and the first row.
                     .padding(.bottom, Self.listBottomInset + bottomExtraInset)
@@ -431,7 +434,8 @@ struct ContentView: View {
                         )
                     )
                     .shadow(color: Theme.accentDark.opacity(0.2), radius: 4, x: 0, y: 2)
-                Image(systemName: controller.isRecording ? "stop.fill" : "mic.fill")
+                // A stop sign while the model loads too: a click then cancels the load.
+                Image(systemName: controller.isRecording || controller.isPreparing ? "stop.fill" : "mic.fill")
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundStyle(.white)
             }
@@ -439,8 +443,13 @@ struct ContentView: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(!controller.canRecord)
-        .help(controller.isRecording ? strings.stopRecognition : strings.startRecognition)
+        .help(recordButtonHelp)
+    }
+
+    private var recordButtonHelp: String {
+        if controller.isRecording { return strings.stopRecognition }
+        if controller.isPreparing { return strings.cancel }
+        return strings.startRecognition
     }
 
     /// A small dot to the right of the record button; the phase text lives in its tooltip.

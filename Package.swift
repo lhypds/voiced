@@ -9,25 +9,33 @@ let package = Package(
         .executable(name: "Voiced", targets: ["Voiced"])
     ],
     dependencies: [
+        .package(path: "Shared/VoicedCore"),
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.1")
     ],
     targets: [
         .executableTarget(
             name: "Voiced",
             dependencies: [
+                .product(name: "VoicedCore", package: "voicedcore"),
                 .product(name: "WhisperKit", package: "argmax-oss-swift")
             ]
         ),
         .executableTarget(
             name: "VoicedSimulate",
             dependencies: [
+                .product(name: "VoicedCore", package: "voicedcore"),
                 .product(name: "WhisperKit", package: "argmax-oss-swift")
             ]
+        ),
+        .testTarget(
+            name: "VoicedCoreTests",
+            dependencies: [.product(name: "VoicedCore", package: "voicedcore"), .product(name: "WhisperKit", package: "argmax-oss-swift")]
         ),
         .testTarget(
             name: "VoicedTests",
             dependencies: [
                 "Voiced",
+                .product(name: "VoicedCore", package: "voicedcore"),
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
             ]
         ),

@@ -1,3 +1,4 @@
+import VoicedCore
 import AppKit
 import Combine
 import CoreAudio
@@ -16,17 +17,19 @@ final class TranscriptionController: ObservableObject {
     enum Phase: Equatable {
         case downloading(Double)
         case loading
+        /// Nothing is running. The model may not be in memory yet: it is loaded, and downloaded
+        /// first if needed, when recognition or a preview is started, not at launch.
         case ready
         case recording
         case failed(Failure)
     }
 
     /// Relative buffer energy above this level counts as speech.
-    private static let voiceActivityThreshold: Float = 0.12
+    private static let voiceActivityThreshold = LiveTranscriber.defaultSilenceThreshold
     /// A pause this long turns the sentence in progress into a final transcript line.
-    private static let silenceCommitDelay: TimeInterval = 2
+    private static let silenceCommitDelay = LiveTranscriber.defaultSilenceDelay
 
-    @Published private(set) var phase: Phase = .loading
+    @Published private(set) var phase: Phase = .ready
     /// The component WhisperKit is loading while `phase` is `.loading`, once it has started on one.
     @Published private(set) var loadingComponent: ModelComponent?
     /// When the current load began, for showing how long it has been running.
@@ -52,7 +55,7 @@ final class TranscriptionController: ObservableObject {
         didSet { settings.detectionLanguages = detectionLanguages }
     }
     @Published var appLanguage: AppLanguage {
-        didSet { settings.appLanguage = appLanguage }
+        didSet { settings.appLanguage = appLanguage; configureAI() }
     }
     @Published var timestampMode: TimestampMode {
         didSet { settings.timestampMode = timestampMode }
@@ -111,39 +114,29 @@ final class TranscriptionController: ObservableObject {
     @Published private(set) var translationError: String?
     /// The OpenAI API key as entered; empty when none is set. Saved on every change.
     @Published var openAIAPIKey: String {
-        didSet { settings.openAIAPIKey = openAIAPIKey }
+        didSet { settings.openAIAPIKey = openAIAPIKey; configureAI() }
     }
     /// Records whose summary is being requested right now.
-    @Published private(set) var summarizingRecordIDs: Set<String> = []
+    var summarizingRecordIDs: Set<String> { ai.summarizingRecordIDs }
     /// Records that have a `summary.txt`, so the history can offer to open it.
     @Published private(set) var summarizedRecordIDs: Set<String> = []
     /// Why the last summary of a record failed, by record id; cleared when it is asked for again.
-    @Published private(set) var summaryErrors: [String: String] = [:]
+    var summaryErrors: [String: String] { ai.summaryErrors }
     /// Whether newly recognized lines are sent to the AI service for hint bubbles.
     @Published var aiHintsEnabled: Bool {
-        didSet {
-            settings.aiHints = aiHintsEnabled
-            if aiHintsEnabled {
-                // Only what is said from now on gets hints; the lines already on screen are old news.
-                hintedLineIDs.formUnion(lines.map(\.id))
-            } else {
-                hintTask?.cancel()
-                hintTask = nil
-                hintError = nil
-            }
-        }
+        didSet { settings.aiHints = aiHintsEnabled; configureAI() }
     }
     /// The language hints are written in; nil follows the interface language.
     @Published var aiHintLanguage: AppLanguage? {
-        didSet { settings.aiHintLanguage = aiHintLanguage }
+        didSet { settings.aiHintLanguage = aiHintLanguage; configureAI() }
     }
     /// The model hints are asked from, as typed; the default stands in for a blank name.
     @Published var aiHintModel: String {
-        didSet { settings.aiHintModel = aiHintModel }
+        didSet { settings.aiHintModel = aiHintModel; configureAI() }
     }
     /// Whether the model may search the web while writing hints.
     @Published var aiHintWebSearchEnabled: Bool {
-        didSet { settings.aiHintWebSearch = aiHintWebSearchEnabled }
+        didSet { settings.aiHintWebSearch = aiHintWebSearchEnabled; configureAI() }
     }
     /// Whether the history offers summaries at all.
     @Published var aiSummaryEnabled: Bool {
@@ -156,9 +149,9 @@ final class TranscriptionController: ObservableObject {
     /// The AI's notes on things mentioned and questions asked: the latest answer's, oldest
     /// first. A new answer replaces them, and each goes away on its own when it is dismissed or
     /// has been shown long enough to be read, so the list never piles up.
-    @Published private(set) var hints: [TranscriptHint] = []
+    var hints: [TranscriptHint] { ai.hints }
     /// Why the last hint request failed; cleared by the next one that succeeds or when hints are turned off.
-    @Published private(set) var hintError: String?
+    var hintError: String? { ai.hintError }
     /// The languages the rules translate into, each once, in the rules' order: the ones a voice
     /// can be picked for.
     var translationTargets: [AppLanguage] {
@@ -224,23 +217,14 @@ final class TranscriptionController: ObservableObject {
 
     private let settings: AppSettings
     private let historyStore: TranscriptHistoryStore
-    /// Makes the summarizer for a key and model name, so tests can stand in for the service.
-    private let makeSummarizer: (String, String) -> any TranscriptSummarizing
-    /// Makes the hint provider for a key, model name and whether it may search the web, so
-    /// tests can stand in for the service.
-    private let makeHintProvider: (String, String, Bool) -> any TranscriptHinting
-    /// The hint request in flight, at most one at a time.
-    private var hintTask: Task<Void, Never>?
     /// The background compile of the other downloaded models, while one runs.
     private var warmupTask: Task<Void, Never>?
-    /// Lines already sent for hints, or shown before hints were on, so each is judged at most once.
-    private var hintedLineIDs: Set<String> = []
-    /// Topics of the hints made for this transcript, the newest last, including ones no longer
-    /// shown, so the service does not explain a thing again once its bubble has gone.
-    private var explainedTopics: [String] = []
     private let noiseProfileURL: URL
     private let promptFileURL: URL
     private var whisperKit: WhisperKit?
+    /// Identifies the model load under way. A cancelled or superseded load cannot be stopped,
+    /// so it checks this when it finishes and leaves the state alone if it is no longer current.
+    private var preparationID = UUID()
     private var transcriber: LiveTranscriber?
     private var startTask: Task<Void, Never>?
     /// Present only while recording.
@@ -266,6 +250,8 @@ final class TranscriptionController: ObservableObject {
     /// Lines recognized in this recording whose translation has not been read aloud yet. Lines
     /// already on screen before it, such as a resumed record's, are never read.
     private var unspokenLineIDs: Set<String> = []
+    private let ai: TranscriptAI
+    private var aiForwarding: AnyCancellable?
     private let speaker = TranslationSpeaker()
     /// Plays the current record's audio back when a row is clicked.
     private let playback = AudioPlayback()
@@ -281,14 +267,6 @@ final class TranscriptionController: ObservableObject {
     private var previewForwarding: AnyCancellable?
 
     var isRecording: Bool { phase == .recording }
-    var canRecord: Bool {
-        switch phase {
-        case .ready, .recording: true
-        // A failed recording leaves the model loaded, so the next click simply tries again.
-        case .failed(.recognition), .failed(.noInput): whisperKit != nil
-        case .downloading, .loading, .failed(.model): false
-        }
-    }
     var canPreview: Bool { phase == .ready && selectedDeviceID != nil }
     var canCalibrateNoise: Bool { canPreview && !preview.isActive && !isCalibratingNoise }
     var isNoiseReductionActive: Bool { noiseReductionEnabled && noiseProfile != nil }
@@ -351,8 +329,7 @@ final class TranscriptionController: ObservableObject {
     ) {
         self.settings = settings
         self.historyStore = historyStore
-        self.makeSummarizer = makeSummarizer
-        self.makeHintProvider = makeHintProvider
+        self.ai = TranscriptAI(makeHintProvider: makeHintProvider, makeSummarizer: makeSummarizer)
         self.noiseProfileURL = noiseProfileURL
         self.promptFileURL = promptFileURL
         // A default argument is evaluated outside the main actor, which the system translator needs.
@@ -400,7 +377,9 @@ final class TranscriptionController: ObservableObject {
         if voiceFilterEnabled {
             prepareVoiceFilter()
         }
-        Task { await prepare() }
+        configureAI()
+        aiForwarding = ai.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        refreshAudioDevices()
     }
 
     /// The system's on-device translation, where the system has one.
@@ -413,9 +392,13 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - Model lifecycle
 
-    /// Refreshes the device list and loads the selected engine's model, downloading it first if needed.
-    func prepare() async {
-        refreshAudioDevices()
+    /// Loads the selected engine's model, downloading it first if needed, and reports whether it
+    /// is ready for the caller to go on. False when the load failed, or when it was cancelled or
+    /// superseded meanwhile: the caller's action is then dropped, as the user asked.
+    @discardableResult
+    func prepare() async -> Bool {
+        let id = UUID()
+        preparationID = id
         let engine = selectedEngine
 
         do {
@@ -426,26 +409,52 @@ final class TranscriptionController: ObservableObject {
                 phase = .downloading(0)
                 modelFolder = try await WhisperModelStore.download(engine) { [weak self] fraction in
                     Task { @MainActor [weak self] in
-                        self?.phase = .downloading(fraction)
+                        guard let self, self.preparationID == id, case .downloading = self.phase else { return }
+                        self.phase = .downloading(fraction)
                     }
                 }
+                guard preparationID == id else { return false }
             }
 
             phase = .loading
             loadingComponent = nil
             loadingStartedAt = Date()
-            whisperKit = try await WhisperModelStore.load(modelFolder: modelFolder) { [weak self] component in
+            let loaded = try await WhisperModelStore.load(modelFolder: modelFolder) { [weak self] component in
                 Task { @MainActor [weak self] in
-                    self?.loadingComponent = component
+                    guard let self, self.preparationID == id else { return }
+                    self.loadingComponent = component
                 }
             }
-            phase = .ready
             // Loading compiled the model for the Neural Engine if the system had not yet.
             settings.markCompiled(engine)
+            guard preparationID == id else {
+                // The load could not be stopped, so its result is kept when it is still the
+                // right model and none has been loaded since: the next click then starts at once.
+                if whisperKit == nil, engine == selectedEngine {
+                    whisperKit = loaded
+                }
+                return false
+            }
+            whisperKit = loaded
+            phase = .ready
+            loadingComponent = nil
+            loadingStartedAt = nil
             warmUpOtherEngines()
+            return true
         } catch {
+            guard preparationID == id else { return false }
             phase = .failed(.model(error.localizedDescription))
+            loadingComponent = nil
+            loadingStartedAt = nil
+            return false
         }
+    }
+
+    /// Drops the load under way and goes back to rest. The load itself runs on; see `prepare`.
+    func cancelPreparation() {
+        guard isPreparing else { return }
+        preparationID = UUID()
+        phase = .ready
         loadingComponent = nil
         loadingStartedAt = nil
     }
@@ -486,13 +495,15 @@ final class TranscriptionController: ObservableObject {
         Task { await prepare() }
     }
 
+    /// Switches the engine. Its model is loaded when recognition or a preview is next started.
     func selectEngine(_ engine: RecognitionEngine) {
-        guard engine != selectedEngine, !isRecording else { return }
+        guard engine != selectedEngine, !isRecording, !isPreparing else { return }
         selectedEngine = engine
         selectedLanguage = RecognitionLanguage.defaultChoice(for: engine)
         whisperKit = nil
-        phase = .loading
-        Task { await prepare() }
+        if case .failed(.model) = phase {
+            phase = .ready
+        }
     }
 
     /// Puts every preference back to its default, as on a first launch, and applies it. The
@@ -592,12 +603,28 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - Recording
 
+    /// The record button: stops a recording, cancels a model load, or otherwise starts.
     func toggleRecording() {
-        isRecording ? stopRecording() : startRecording()
+        if isRecording {
+            stopRecording()
+        } else if isPreparing {
+            cancelPreparation()
+        } else {
+            startRecording()
+        }
     }
 
+    /// Starts recognition, loading the model first when it is not in memory yet.
     func startRecording() {
-        guard let whisperKit, !isRecording else { return }
+        guard !isRecording, !isPreparing else { return }
+        guard let whisperKit else {
+            Task {
+                if await prepare() {
+                    startRecording()
+                }
+            }
+            return
+        }
         guard let selectedDeviceID else {
             phase = .failed(.noInput)
             return
@@ -678,9 +705,18 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - Preview
 
-    /// Recognizes from the selected input with the current settings without touching the transcript.
+    /// Recognizes from the selected input with the current settings without touching the
+    /// transcript, loading the model first when it is not in memory yet.
     func startPreview() {
-        guard let whisperKit, canPreview, let selectedDeviceID else { return }
+        guard canPreview, let selectedDeviceID else { return }
+        guard let whisperKit else {
+            Task {
+                if await prepare() {
+                    startPreview()
+                }
+            }
+            return
+        }
         preview.start(
             whisperKit: whisperKit,
             options: currentDecodingOptions(whisperKit: whisperKit),
@@ -840,12 +876,7 @@ final class TranscriptionController: ObservableObject {
     }
 
     private func copyTranscript(_ lines: [TranscriptLine]) {
-        let text = lines.map { line in
-            let texts = displayTexts(for: line)
-            let entry = "[\(timestamp(for: line))] \(texts.primary)"
-            return texts.secondary.map { entry + "\n" + $0 } ?? entry
-        }
-        .joined(separator: "\n")
+        let text = TranscriptionLogic.export(lines, mode: timestampMode, showDate: showTimestampDate, displayTexts: displayTexts)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
@@ -1058,63 +1089,19 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - AI hints
 
-    /// How many new lines one request covers at most. Older unjudged lines are let go, so a
-    /// backlog after a slow answer does not grow into ever larger requests.
-    private static let hintBatchSize = 8
-    /// How many earlier topics are listed for the service to avoid repeating.
-    private static let rememberedTopicCount = 30
+    /// The shared service owns hint filtering, request cancellation and duplicate prevention.
+    func dismiss(_ hint: TranscriptHint) { ai.dismiss(hint) }
 
-    func dismiss(_ hint: TranscriptHint) {
-        hints.removeAll { $0.id == hint.id }
+    private func configureAI() {
+        ai.configure(.init(apiKey: openAIAPIKey, hintsEnabled: aiHintsEnabled, hintModel: aiHintModel,
+                           webSearch: aiHintWebSearchEnabled, hintLanguage: aiHintLanguage ?? appLanguage), existingLines: lines)
     }
 
-    /// Forgets the hints and the lines judged so far, for a transcript that starts over.
-    private func clearHints() {
-        hintTask?.cancel()
-        hintTask = nil
-        hints = []
-        hintedLineIDs = []
-        explainedTopics = []
-    }
+    private func clearHints() { ai.reset() }
 
-    /// Sends the lines not judged yet to the AI service, one request at a time, and shows the
-    /// hints it answers with. Only lines `HintTrigger` finds worth asking about are sent; the
-    /// rest are judged on the machine alone. Lines are judged once, whatever the outcome, so a
-    /// failing service is asked once per new sentence rather than again and again.
     private func requestHints() {
-        guard aiHintsEnabled, let key = trimmedAPIKey, hintTask == nil else { return }
-        let pending = lines.filter { !hintedLineIDs.contains($0.id) }
-        guard !pending.isEmpty else { return }
-        hintedLineIDs.formUnion(pending.map(\.id))
-        let worthAsking = pending.filter { HintTrigger.shouldAsk($0.text) }
-        guard !worthAsking.isEmpty else { return }
-        let batch = Array(worthAsking.suffix(Self.hintBatchSize))
-        let context = lines.prefix(while: { $0.id != batch[0].id }).suffix(OpenAIHintProvider.contextLineCount)
-        let explained = explainedTopics
-        let provider = makeHintProvider(key, OpenAIChatCompletion.modelName(aiHintModel), aiHintWebSearchEnabled)
-        let language = aiHintLanguage ?? appLanguage
-        hintTask = Task { [weak self] in
-            var found: [TranscriptHint] = []
-            do {
-                found = try await provider.hints(for: batch, context: Array(context), explained: explained, in: language)
-                self?.hintError = nil
-            } catch is CancellationError {
-                // Hints were turned off or the transcript was cleared; that answer is not wanted.
-                return
-            } catch {
-                self?.hintError = error.localizedDescription
-            }
-            guard let self, !Task.isCancelled else { return }
-            hintTask = nil
-            let shown = Set(lines.map(\.id))
-            let kept = found.filter { shown.contains($0.lineID) }
-            // The newest answer takes the screen; what was up before has had its moment.
-            if !kept.isEmpty {
-                hints = kept
-            }
-            explainedTopics = Array((explainedTopics + kept.map(\.topic)).suffix(Self.rememberedTopicCount))
-            requestHints()
-        }
+        configureAI()
+        ai.update(lines)
     }
 
     // MARK: - History
@@ -1127,7 +1114,7 @@ final class TranscriptionController: ObservableObject {
         liveText = ""
         currentRecordID = record.id
         clearHints()
-        hintedLineIDs = Set(record.lines.map(\.id))
+        ai.reset(existingLines: record.lines)
         translateVisibleLines()
     }
 
@@ -1146,32 +1133,13 @@ final class TranscriptionController: ObservableObject {
     /// interface language. Nothing happens while the record is already being summarized,
     /// summaries are off or there is no key.
     func summarize(_ record: TranscriptRecord) {
-        guard canSummarize, let key = trimmedAPIKey, !summarizingRecordIDs.contains(record.id) else { return }
-        summarizingRecordIDs.insert(record.id)
-        summaryErrors[record.id] = nil
-        let summarizer = makeSummarizer(key, OpenAIChatCompletion.modelName(summaryModel))
-        let language = appLanguage
-        let store = historyStore
+        guard canSummarize, !summarizingRecordIDs.contains(record.id) else { return }
         Task { [weak self] in
-            let outcome: Result<Void, Error>
-            do {
-                let summary = try await summarizer.summarize(record.lines, in: language)
-                try store.saveSummary(summary, id: record.id)
-                outcome = .success(())
-            } catch {
-                outcome = .failure(error)
-            }
             guard let self else { return }
-            summarizingRecordIDs.remove(record.id)
-            switch outcome {
-            case .success:
+            if await ai.summarize(record, apiKey: openAIAPIKey, model: summaryModel, language: appLanguage,
+                                  enabled: aiSummaryEnabled, store: historyStore) != nil {
                 summarizedRecordIDs.insert(record.id)
                 openSummary(record)
-            case .failure(let error):
-                // Only if the record is still listed: deleted meanwhile, there is no row to show it on.
-                if history.contains(where: { $0.id == record.id }) {
-                    summaryErrors[record.id] = error.localizedDescription
-                }
             }
         }
     }
@@ -1184,7 +1152,7 @@ final class TranscriptionController: ObservableObject {
         }
         history.removeAll { $0.id == record.id }
         summarizedRecordIDs.remove(record.id)
-        summaryErrors[record.id] = nil
+        ai.forget(recordID: record.id)
         if record.id == currentRecordID {
             stopPlayback()
             currentRecordID = nil
@@ -1252,32 +1220,13 @@ final class TranscriptionController: ObservableObject {
 
     // MARK: - WhisperKit adapters
 
-    private static func decodingOptions(for language: RecognitionLanguage, promptTokens: [Int]?) -> DecodingOptions {
-        DecodingOptions(
-            task: .transcribe,
-            language: language.code,
-            temperatureFallbackCount: 1,
-            usePrefillPrompt: true,
-            detectLanguage: language.isAutomatic,
-            skipSpecialTokens: true,
-            withoutTimestamps: false,
-            // Word timings let sentences be cut inside a Whisper segment, at punctuation. Models
-            // fine-tuned on Chinese, and any model given a prompt, tend to return one long
-            // punctuated segment per window instead of one segment per clause.
-            wordTimestamps: true,
-            promptTokens: promptTokens,
-            logProbThreshold: -0.8,
-            noSpeechThreshold: 0.4
-        )
-    }
-
     /// Decoding options for a run starting now: the selected language plus whatever is in
     /// `~/.voiced/prompt.txt` at this moment.
     private func currentDecodingOptions(whisperKit: WhisperKit) -> DecodingOptions {
         let prompt = RecognitionPrompt.load(from: promptFileURL)
         let tokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
         (whisperKit.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages = selectedLanguage.isAutomatic && !detectionLanguages.isEmpty ? Set(detectionLanguages) : nil
-        return Self.decodingOptions(for: selectedLanguage, promptTokens: tokens)
+        return TranscriptionLogic.decodingOptions(for: selectedLanguage, promptTokens: tokens)
     }
 
     /// Creates `prompt.txt` with its template when needed and opens it in the default text editor.
@@ -1290,22 +1239,6 @@ final class TranscriptionController: ObservableObject {
         }
     }
 
-    static func transcriptLines(
-        from segments: [TranscriptionSegment],
-        recordingStartedAt: Date
-    ) -> [TranscriptLine] {
-        segments.compactMap { segment in
-            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return TranscriptLine(
-                id: "\(segment.id)-\(segment.start)-\(segment.end)",
-                start: segment.start,
-                end: segment.end,
-                recordedAt: recordingStartedAt.addingTimeInterval(TimeInterval(segment.start)),
-                text: text
-            )
-        }
-    }
 }
 
 // MARK: - LiveTranscriberDelegate
@@ -1326,11 +1259,7 @@ extension TranscriptionController: LiveTranscriberDelegate {
         lastFinishedDecode = max(lastFinishedDecode, decode)
         guard self.transcriber === transcriber, var session else { return 0 }
         let assembler = assembler
-        let segmentLines = Self.transcriptLines(from: segments, recordingStartedAt: session.startedAt)
-        _ = session.update(
-            latest: assembler.sentences(from: segmentLines),
-            completed: assembler.sentences(from: segmentLines, includeTrailing: false)
-        )
+        session.update(segments: segments, assembler: assembler)
         // When every segment of this decode was dropped as noise or a hallucination, right after a
         // pause, there is no pending text yet. Keep the streamed preview on screen instead of
         // blanking the row; the next decode or the pause commit replaces it.

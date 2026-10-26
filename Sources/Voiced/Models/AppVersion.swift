@@ -1,3 +1,4 @@
+import VoicedCore
 import Foundation
 
 enum AppVersion {

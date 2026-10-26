@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+@testable import VoicedCore
 @testable import Voiced
 
 final class AppDelegateTests: XCTestCase {

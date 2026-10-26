@@ -2,8 +2,9 @@ import AppKit
 import Foundation
 
 let arguments = CommandLine.arguments
-guard arguments.count == 2 else {
-    fatalError("Usage: swift generate-icon.swift <output.png>")
+let isIOS = arguments.contains("--ios")
+guard arguments.count == (isIOS ? 3 : 2) else {
+    fatalError("Usage: swift generate-icon.swift <output.png> [--ios]")
 }
 
 let size = 1024
@@ -27,16 +28,16 @@ NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
 NSGraphicsContext.current?.imageInterpolation = .high
 
 let canvas = NSRect(x: 0, y: 0, width: size, height: size)
-NSColor.clear.setFill()
+(isIOS ? NSColor.white : NSColor.clear).setFill()
 canvas.fill()
 
-let tileRect = canvas.insetBy(dx: 72, dy: 72)
-let tile = NSBezierPath(roundedRect: tileRect, xRadius: 218, yRadius: 218)
+let tileRect = isIOS ? canvas : canvas.insetBy(dx: 72, dy: 72)
+let tile = isIOS ? NSBezierPath(rect: tileRect) : NSBezierPath(roundedRect: tileRect, xRadius: 218, yRadius: 218)
 let shadow = NSShadow()
 shadow.shadowColor = NSColor.black.withAlphaComponent(0.24)
 shadow.shadowBlurRadius = 36
 shadow.shadowOffset = NSSize(width: 0, height: -20)
-shadow.set()
+if !isIOS { shadow.set() }
 NSColor.white.setFill()
 tile.fill()
 

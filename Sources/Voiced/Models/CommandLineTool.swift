@@ -1,3 +1,4 @@
+import VoicedCore
 import AppKit
 import Foundation
 

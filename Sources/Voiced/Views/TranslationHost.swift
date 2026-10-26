@@ -1,3 +1,4 @@
+import VoicedCore
 import SwiftUI
 import Translation
 

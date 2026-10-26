@@ -88,39 +88,48 @@ Model variants are listed in `RecognitionEngine.swift`, each with the Hugging Fa
 - `TranscriptionController.translateVisibleLines` translates the visible lines that lack a translation in the target language, newest first and one at a time; it runs after every commit, when a record is resumed and whenever the translation settings change. `RecordingSession` knows nothing of translations: each commit rebuilds the transcript, and `keepingTranslations(from:)` copies the translations over by line id and text. A translation is stored on the line (`TranslatedText`, with its language code) and saved to `transcript.json` with the record; an empty one records that the line was already in the target language, so it is neither shown nor retried. A line the framework rejects is skipped until the translator is next configured, and the error is shown under the setting.
 - Lines written before translation existed have no `translation` key and decode as untranslated.
 
+## Shared core
+
+`Shared/VoicedCore/Package.swift` exports the `VoicedCore` library for macOS 14+ and iOS 17+. Both apps and `VoicedSimulate` depend on that library. The root `Package.swift` is macOS-only; the iOS project references only `../Shared/VoicedCore`, so Xcode never needs to index desktop executable sources for iOS. Open the repository’s `Voiced.xcworkspace` and choose **Voiced iOS** for iPhone builds. The auto-generated Swift Package executable scheme **Voiced** is macOS-only. Do not copy core source files into platform targets or reimplement recognition rules in their controllers.
+
+| Responsibility | Shared implementation | Platform adapter |
+| --- | --- | --- |
+| Audio input | `AudioCapturing`, `MicrophoneAudioSource`, denoising, energy calculation | macOS `InputCapture`; iOS `AudioCapture` |
+| Recognition | `LiveTranscriber`, `TranscriptionLogic`, model stores, language decoder | Device selection, permission requests and lifecycle |
+| Sentence commits | `RecordingSession.update(segments:assembler:)`, `SentenceAssembler`, punctuation and hallucination filtering | Publish transcript and draft text to the UI |
+| Data | `TranscriptRecord`, `TranscriptLine`, `TranscriptHistoryStore`, `SessionRecorder`, `AppSettings` | Share sheets / clipboard / file-opening UI |
+| Other services | Apple translation service (macOS 15 / iOS 18), rules, speech playback, OpenAI summary/hint clients and hint-trigger policy | Feature controls and framework session hosting |
+| Visual palette | `VoicedPalette` | Native SwiftUI layout and typography |
+
+The core has no dependency on either application. A capture adapter implements `AudioCapturing` and delivers 16 kHz mono float chunks; `MicrophoneAudioSource` handles buffering and processing, and `LiveTranscriber` drives the same decoder loop on both platforms. Both controllers use `TranscriptionLogic.decodingOptions`, then call `RecordingSession.update(segments:assembler:)` for results and `commitTrailing(finalize:)` on pauses or stop.
+
+The apps now share `TranscriptAI` for hint filtering, bounded context, duplicate prevention, cancellation, summary persistence and deletion races. Each native controller supplies its current settings and lines; summaries remain explicit user actions. The iOS settings UI exposes AI, translation and speech, audio calibration/filtering, previews, prompts and the native recording/history flows. See the [feature parity audit](iOS-feature-parity.md) for remaining platform differences and validation boundaries.
+
+The file layout is the same on both platforms: settings JSON plus `history/<id>/transcript.json` and WAV recordings. macOS retains `~/.voiced`; iOS uses its sandbox's `Library/Application Support/Voiced`. `MobileDataMigration` imports the initial iOS history/settings without overwriting migrated records and retains the original history as a backup. The common format does not automatically sync devices.
+
+Core tests live in `Tests/VoicedCoreTests` and depend only on the library. Platform tests remain in `Tests/VoicedTests`. Run `swift test` for both, or `swift test --filter VoicedCoreTests` for the shared logic. Migration and audio-adapter tests use temporary files and fake capture, with no microphone or model download required.
+
 ## Code layout
 
 ```
-Sources/Voiced/
-  VoicedApp.swift              App entry point
-  AppLocalization.swift        UI strings (English / Chinese / Japanese / French / Spanish / German)
-  Models/                      Plain data types: TranscriptLine (with its optional TranslatedText), RecognitionEngine, RecognitionLanguage
-    TranscriptRecord.swift     A history record: lines plus one entry per recording session (with its offset in the shared WAV); its id is its directory name
-    AppSettings.swift          Preferences, stored as JSON in ~/.voiced/settings.json
-    VoicedDirectory.swift      Layout of ~/.voiced and migration of data from older versions
-  Transcription/
-    LiveTranscriber.swift      Streaming recognition loop with its own audio buffer: silence detection, dropping committed audio,
-                               hands every captured sample to an audio sink before it can be dropped
-    SessionRecorder.swift      Saves a session's raw audio as <unix time>.wav in the record's directory, or appends to the record's file
-    WAVWriter.swift            Streaming 16-bit PCM WAV writer; header kept valid after every write, can reopen its own files to append
-    HallucinationFilter.swift  Known hallucinated phrases
-    RecognitionPrompt.swift    Reads ~/.voiced/prompt.txt and turns it into Whisper prompt tokens
-    SentenceAssembler.swift    Merges recognition segments into sentences (pure function, unit tested)
-    RecordingSession.swift     Commit state for one recording
-    RecognitionPreview.swift   Throwaway recognition run for the Settings sheet (input level and preview text)
-    NoiseFloorCalibration.swift Sets the energy threshold from a short recording of the background noise
-    SpectralDenoiser.swift     Noise profile and streaming spectral subtraction (Accelerate FFT)
-    InputCapture.swift         Audio capture on the app's own AVAudioEngine, resampled to 16 kHz; survives a Bluetooth headset switching its sample rate
-    MicrophoneAudioSource.swift Capture source for the transcriber, with the denoiser in front when a noise profile exists
-    VoiceDetector.swift        Silero VAD speech detection (Core ML) and the per-chunk verdicts the transcriber keeps
-    VoiceDetectorModelStore.swift  Cache check and download of the voice detector model
-    WhisperModelStore.swift    Model cache check, download and loading
-    TranscriptHistoryStore.swift  Reads and writes history (~/.voiced/history/<unix time>/transcript.json, one directory per record)
-    SentenceTranslator.swift   On-device translation of committed lines through the Translation framework (macOS 15+)
-    TranscriptionController.swift  Connects recognition events to the UI
-  Views/                       ContentView, SettingsView, HistoryView, Theme; TranslationHost runs the translator's session on the main window
-Sources/VoicedSimulate/        Development tool that drives the pipeline with an audio file (sources are symlinks)
-Tests/VoicedTests/             Unit tests for the pure logic above
+Shared/VoicedCore/             Independent cross-platform Swift Package
+  Sources/VoicedCore/           Shared library implementation
+  AppLocalization.swift        Language definitions and existing app strings
+  VoicedPalette.swift          One native color palette
+  Models/                      Settings, records, language/model choices, paths, migrations
+  Platform/                    System spelling adapter (NSSpellChecker / UITextChecker)
+  Transcription/               Live recognition, audio-source interface and buffer, sentence
+                               assembly, model loading, history, WAV recording, playback,
+                               translation service/rules, AI clients and hint policy
+Sources/Voiced/                macOS entry point, views, controller, Core Audio capture,
+                               input monitoring/calibration and Translation framework host
+Sources/VoicedSimulate/        File-input adapter and pipeline driver; imports VoicedCore
+                               directly, with no source symlinks
+iOS/Voiced/                   iOS SwiftUI views, lifecycle controller and AVAudioSession capture
+iOS/Voiced.xcodeproj/         iOS app target with local VoicedCore package dependency
+Voiced.xcworkspace/           Repository entry point; use the Voiced iOS scheme
+Tests/VoicedCoreTests/         Shared logic, audio-adapter and migration tests
+Tests/VoicedTests/             macOS integration and platform tests
 Scripts/                       App bundling and icon generation
-Support/                       Info.plist and the app icon
+Support/                       macOS Info.plist and app icon
 ```
