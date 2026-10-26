@@ -2,10 +2,110 @@ import AVFoundation
 import SwiftUI
 import VoicedCore
 
+/// The API key's box. SwiftUI's fields cannot do what it needs: the key wraps at any character,
+/// never at a word end or a hyphen; Return ends editing instead of adding a line; and while
+/// hidden it shows one dot per character over as many lines as the key takes, where a secure
+/// field keeps one line and cuts it short. Hidden edits are applied to the real key by range,
+/// as each dot stands for one character.
+private struct APIKeyField: UIViewRepresentable {
+    @Binding var text: String
+    let isRevealed: Bool
+    let font: UIFont
+
+    /// Room between the box's edge and the text; the whole box, inset included, takes taps.
+    static let inset = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.delegate = context.coordinator
+        view.backgroundColor = .clear
+        view.textContainerInset = Self.inset
+        view.textContainer.lineFragmentPadding = 0
+        view.autocapitalizationType = .none
+        view.autocorrectionType = .no
+        view.spellCheckingType = .no
+        view.smartDashesType = .no
+        view.smartQuotesType = .no
+        view.smartInsertDeleteType = .no
+        view.keyboardType = .asciiCapable
+        view.returnKeyType = .done
+        view.accessibilityIdentifier = "openai-api-key"
+        view.accessibilityLabel = "OpenAI API 密钥"
+        // The frame SwiftUI gives decides the size, never the text.
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
+        context.coordinator.render(in: view)
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: APIKeyField
+
+        init(_ parent: APIKeyField) { self.parent = parent }
+
+        private var displayed: String {
+            parent.isRevealed ? parent.text : String(repeating: "•", count: (parent.text as NSString).length)
+        }
+
+        private var attributes: [NSAttributedString.Key: Any] {
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byCharWrapping
+            return [.font: parent.font, .foregroundColor: UIColor(MobileTheme.ink), .paragraphStyle: style]
+        }
+
+        /// Shows the key, or its dots, keeping the caret where it was.
+        func render(in view: UITextView, caret: Int? = nil) {
+            let text = displayed
+            let attributes = attributes
+            view.typingAttributes = attributes
+            guard view.text != text || caret != nil || view.font != parent.font else { return }
+            let selection = caret.map { NSRange(location: $0, length: 0) } ?? view.selectedRange
+            view.attributedText = NSAttributedString(string: text, attributes: attributes)
+            let length = (text as NSString).length
+            view.selectedRange = NSRange(location: min(selection.location, length), length: 0)
+        }
+
+        func textView(_ view: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
+            if replacement == "\n" {
+                view.resignFirstResponder()
+                return false
+            }
+            let key = parent.text as NSString
+            guard NSMaxRange(range) <= key.length else { return false }
+            // A pasted key may carry a line break; it is never part of the key.
+            let inserted = replacement.filter { !$0.isNewline }
+            parent.text = key.replacingCharacters(in: range, with: inserted)
+            render(in: view, caret: range.location + (inserted as NSString).length)
+            return false
+        }
+    }
+}
+
 struct MobileSettingsView: View {
     @EnvironmentObject private var model: MobileTranscriber
     @Environment(\.dismiss) private var dismiss
     @State private var confirmReset = false
+    /// Whether the API key shows as text. Starts hidden and is never saved.
+    @State private var isAPIKeyRevealed = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private static let apiKeyLines = 4
+    /// The key's font: monospaced at the caption size the reader has chosen, small enough that
+    /// a whole key fits in the box's four lines on a phone.
+    private static var apiKeyFont: UIFont {
+        UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .regular)
+    }
+    /// Four lines of the key's font plus the box's inset, read again when the text size changes.
+    private var apiKeyBoxHeight: CGFloat {
+        _ = dynamicTypeSize
+        return ceil(Self.apiKeyFont.lineHeight * CGFloat(Self.apiKeyLines)) + APIKeyField.inset.top + APIKeyField.inset.bottom
+    }
 
     var body: some View {
         NavigationStack {
@@ -21,6 +121,10 @@ struct MobileSettingsView: View {
                     NavigationLink { about } label: { settingsLabel("关于 Voiced", symbol: "info", color: MobileTheme.accent) }
                 }.listRowBackground(Color.white)
             }
+            // The default inset-grouped spacing sat the cards close under the large title and far
+            // apart from each other; these give both gaps about the same room.
+            .listSectionSpacing(24)
+            .contentMargins(.top, 12, for: .scrollContent)
             .settingsSurface(title: "设置", large: true)
             .toolbar { Button("完成") { dismiss() }.fontWeight(.semibold).foregroundStyle(MobileTheme.accent) }
         }
@@ -285,8 +389,43 @@ struct MobileSettingsView: View {
     private var ai: some View {
         Form {
             Section {
-                SecureField("OpenAI API 密钥", text: $model.apiKey).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Link("获取 API 密钥", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                // As on macOS: what the field is for on the first line, with where to get a key, and
+                // the field on the second, so the title stays once a key has been entered.
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text("OpenAI API 密钥")
+                        Link("获取密钥", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                            .font(.footnote).foregroundStyle(MobileTheme.accent)
+                            // Only the link opens the page, not a tap anywhere on the row.
+                            .buttonStyle(.borderless)
+                        Spacer()
+                        // Shows or hides the key, as the eye on macOS does.
+                        Button { isAPIKeyRevealed.toggle() } label: {
+                            Image(systemName: isAPIKeyRevealed ? "eye.slash" : "eye")
+                                .foregroundStyle(MobileTheme.accent)
+                                // Both symbols take the same room, so the row does not shift.
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(isAPIKeyRevealed ? "隐藏密钥" : "显示密钥")
+                        .accessibilityIdentifier("reveal-api-key")
+                    }
+                    // A box four lines tall in both states. The key, or one dot per character while
+                    // hidden, wraps at any character inside it. Its height never follows the text.
+                    APIKeyField(text: $model.apiKey, isRevealed: isAPIKeyRevealed, font: Self.apiKeyFont)
+                        .frame(maxWidth: .infinity, minHeight: apiKeyBoxHeight, maxHeight: apiKeyBoxHeight)
+                        .overlay(alignment: .topLeading) {
+                            if model.apiKey.isEmpty {
+                                Text(verbatim: "sk-…").font(Font(Self.apiKeyFont)).foregroundStyle(.tertiary)
+                                    .padding(EdgeInsets(top: APIKeyField.inset.top, leading: APIKeyField.inset.left,
+                                                        bottom: 0, trailing: 0))
+                                    .allowsHitTesting(false).accessibilityHidden(true)
+                            }
+                        }
+                        .background(MobileTheme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .padding(.vertical, 6)
             } footer: { Text("密钥保存在此设备的设置中。开启 AI 提示后，仅值得询问的新句子及前文会发送给 OpenAI；摘要只在点击生成时发送整段文字。API 使用由你的 OpenAI 账户计费。") }
                 .listRowBackground(Color.white)
             Section {

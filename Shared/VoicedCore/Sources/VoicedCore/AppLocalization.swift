@@ -150,6 +150,31 @@ public struct AppStrings: Sendable {
     public var stopPreview: String { value("停止预览", "プレビュー停止", "Stop preview", "Arrêter l'aperçu", "Detener vista previa", "Vorschau beenden") }
     public var previewListening: String { value("正在聆听，请播放或说话…", "聞き取り中。音声を流すか話してください…", "Listening. Play audio or speak…", "À l'écoute. Lancez un son ou parlez…", "Escuchando. Reproduce audio o habla…", "Höre zu. Audio abspielen oder sprechen…") }
     public var general: String { value("通用", "一般", "General", "Général", "General", "Allgemein") }
+    public var aboutVoiced: String { value("关于 Voiced", "Voiced について", "About Voiced", "À propos de Voiced", "Acerca de Voiced", "Über Voiced") }
+    public var versionLabel: String { value("版本", "バージョン", "Version", "Version", "Versión", "Version") }
+    public var speechRecognitionLabel: String { value("语音识别", "音声認識", "Speech recognition", "Reconnaissance vocale", "Reconocimiento de voz", "Spracherkennung") }
+    public var dataAndPrivacy: String { value("数据与隐私", "データとプライバシー", "Data & Privacy", "Données et confidentialité", "Datos y privacidad", "Daten & Datenschutz") }
+    /// What stays on the Mac and what leaves it, matching the note in the iOS app.
+    public var privacyOnDevice: String {
+        value(
+            "语音识别、降噪、翻译和录音都在这台 Mac 上完成并保存。AI 提示和摘要仅在开启或点击时，把相应文字发送给 OpenAI。",
+            "音声認識、ノイズ除去、翻訳、録音はこの Mac 上で処理・保存されます。AI ヒントと要約は、オンにしたときやクリックしたときだけ、該当するテキストを OpenAI に送信します。",
+            "Speech recognition, noise reduction, translation and recordings are processed and kept on this Mac. AI hints and summaries send the relevant text to OpenAI only when turned on or clicked.",
+            "La reconnaissance vocale, la réduction du bruit, la traduction et les enregistrements sont traités et conservés sur ce Mac. Les indices et résumés IA n'envoient le texte concerné à OpenAI que lorsqu'ils sont activés ou demandés.",
+            "El reconocimiento de voz, la reducción de ruido, la traducción y las grabaciones se procesan y guardan en este Mac. Las pistas y resúmenes de IA envían el texto correspondiente a OpenAI solo cuando se activan o se piden.",
+            "Spracherkennung, Rauschunterdrückung, Übersetzung und Aufnahmen werden auf diesem Mac verarbeitet und gespeichert. KI-Hinweise und Zusammenfassungen senden den betreffenden Text nur dann an OpenAI, wenn sie eingeschaltet oder angeklickt werden."
+        )
+    }
+    public var privacyStorage: String {
+        value(
+            "设置、转写和录音保存在 ~/.voiced 文件夹中。删除 App 不会删除这些数据；删除该文件夹即可全部清除。",
+            "設定、文字起こし、録音は ~/.voiced フォルダに保存されます。App を削除してもこれらは残ります。フォルダを削除するとすべて消去されます。",
+            "Settings, transcripts and recordings are kept in the ~/.voiced folder. Deleting the app leaves them in place; deleting that folder removes them all.",
+            "Les réglages, transcriptions et enregistrements sont conservés dans le dossier ~/.voiced. Supprimer l'app ne les efface pas ; supprimer ce dossier efface tout.",
+            "Los ajustes, transcripciones y grabaciones se guardan en la carpeta ~/.voiced. Eliminar la app no los borra; eliminar esa carpeta lo borra todo.",
+            "Einstellungen, Transkripte und Aufnahmen liegen im Ordner ~/.voiced. Das Löschen der App entfernt sie nicht; das Löschen dieses Ordners entfernt alles."
+        )
+    }
     public var audioInput: String { value("音频输入", "オーディオ入力", "Audio Input", "Entrée audio", "Entrada de audio", "Audioeingang") }
     public var recognition: String { value("识别", "認識", "Recognition", "Reconnaissance", "Reconocimiento", "Erkennung") }
     public var settings: String { value("设置", "設定", "Settings", "Réglages", "Ajustes", "Einstellungen") }
@@ -161,9 +186,6 @@ public struct AppStrings: Sendable {
     public var commandNeedsAppBundle: String { value("只能从 Voiced.app 安装命令。", "コマンドは Voiced.app からのみインストールできます。", "The command can only be installed from Voiced.app.", "La commande ne peut être installée que depuis Voiced.app.", "El comando solo se puede instalar desde Voiced.app.", "Der Befehl kann nur aus Voiced.app installiert werden.") }
     public func commandInstallFailed(_ detail: String) -> String {
         value("安装失败：\(detail)", "インストールに失敗：\(detail)", "Installation failed: \(detail)", "Échec de l'installation : \(detail)", "Error de instalación: \(detail)", "Installation fehlgeschlagen: \(detail)")
-    }
-    public func version(_ number: String) -> String {
-        value("版本 \(number)", "バージョン \(number)", "Version \(number)", "Version \(number)", "Versión \(number)", "Version \(number)")
     }
     public var languageChangeHint: String { value("选择会立即生效并自动保存。", "選択内容はすぐに反映され、自動的に保存されます。", "Changes apply immediately and are saved automatically.", "Les changements s'appliquent immédiatement et sont enregistrés.", "Los cambios se aplican de inmediato y se guardan automáticamente.", "Änderungen gelten sofort und werden automatisch gespeichert.") }
     public var detectionLanguages: String { value("检测范围", "検出対象", "Detect among", "Détecter parmi", "Detectar entre", "Erkennen unter") }
@@ -243,6 +265,19 @@ public struct AppStrings: Sendable {
     public var emptyTitle: String { value("点击麦克风开始识别", "マイクをクリックして認識を開始", "Click the microphone to start", "Cliquez sur le micro pour commencer", "Haz clic en el micrófono para empezar", "Auf das Mikrofon klicken, um zu starten") }
     public var noInput: String { value("未选择输入", "入力が未選択", "No input selected", "Aucune entrée sélectionnée", "Sin entrada seleccionada", "Kein Eingang gewählt") }
     public var chooseInput: String { value("请选择音频输入设备", "音声入力デバイスを選択してください", "Select an audio input device", "Sélectionnez un périphérique d'entrée audio", "Selecciona un dispositivo de entrada de audio", "Audioeingang auswählen") }
+
+    public var searchHistory: String { value("搜索全部历史记录", "すべての履歴を検索", "Search all history", "Rechercher dans tout l'historique", "Buscar en todo el historial", "Gesamten Verlauf durchsuchen") }
+
+    public func matchCount(_ count: Int) -> String {
+        value(
+            "\(count) 处匹配",
+            "\(count) 件一致",
+            count == 1 ? "1 match" : "\(count) matches",
+            count == 1 ? "1 correspondance" : "\(count) correspondances",
+            count == 1 ? "1 coincidencia" : "\(count) coincidencias",
+            count == 1 ? "1 Treffer" : "\(count) Treffer"
+        )
+    }
 
     public func lineCount(_ count: Int) -> String {
         value(

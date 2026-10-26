@@ -1,27 +1,60 @@
 import SwiftUI
 import VoicedCore
 
+/// The saved transcripts. The search field above them looks through every record's lines;
+/// choosing a result opens the record with the same search on the main screen.
 struct MobileHistoryView: View {
     @EnvironmentObject private var model: MobileTranscriber
     @Environment(\.dismiss) private var dismiss
-    private var records: [TranscriptRecord] { model.records }
+    /// Called with the search a result was chosen with, before the history closes.
+    var openSearch: (String) -> Void = { _ in }
+    @State private var query = ""
+
+    /// Each record with what of it matches the search; every record, unmatched, while the search is empty.
+    private var rows: [(record: TranscriptRecord, match: HistorySearchResult?)] {
+        guard HistorySearch.normalized(query) != nil else { return model.records.map { ($0, nil) } }
+        return HistorySearch.results(in: model.records, for: query).map { ($0.record, $0) }
+    }
 
     var body: some View {
         NavigationStack {
+            let rows = rows
             List {
+                // The search field is the first card: tinted like the records and like the search on
+                // the main screen, and as far from the first record as the records are from each other.
+                if !model.records.isEmpty {
+                    Section { searchField }
+                }
                 // One section per record so the inset-grouped list draws each record as its own card.
-                ForEach(records) { record in
+                ForEach(rows, id: \.record.id) { row in
+                    let record = row.record
                     Section {
                         Button {
                             model.resume(record)
+                            if row.match != nil, let search = HistorySearch.normalized(query) {
+                                openSearch(search)
+                            }
                             dismiss()
                         } label: {
                             // Cards size to their content: a one-line preview stays compact, and the
                             // summary status row only appears when there is something to show.
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(record.createdAt.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption).foregroundStyle(MobileTheme.accent).lineLimit(1)
-                                Text(record.preview.isEmpty ? model.localized("仅录音") : record.preview)
+                                HStack(spacing: 8) {
+                                    Text(record.createdAt.formatted(date: .abbreviated, time: .shortened))
+                                    if let match = row.match {
+                                        Text(model.strings.matchCount(match.matchCount))
+                                    }
+                                }
+                                .font(.caption).foregroundStyle(MobileTheme.accent).lineLimit(1)
+                                // While searching, the first matching line with the match picked
+                                // out, in place of the record's opening line.
+                                Group {
+                                    if let match = row.match {
+                                        Text(HistorySearch.highlighted(match.matchedText, query: query, color: MobileTheme.accentDark))
+                                    } else {
+                                        Text(record.preview.isEmpty ? model.localized("仅录音") : record.preview)
+                                    }
+                                }
                                     .font(.body).lineLimit(2)
                                 if model.hasSummary(record) || model.ai.summarizingRecordIDs.contains(record.id) {
                                     // A plain HStack instead of Label: inside a List, Label pads the icon out to a
@@ -63,6 +96,7 @@ struct MobileHistoryView: View {
             }
             // Inset-grouped sections default to a wide gap; tighten it so records read as a list of cards,
             // and push the first card down so it does not crowd the large title.
+            .scrollDismissesKeyboard(.interactively)
             .listSectionSpacing(12)
             .contentMargins(.top, 8, for: .scrollContent)
             .scrollContentBackground(.hidden).background(MobileTheme.background)
@@ -83,6 +117,34 @@ struct MobileHistoryView: View {
             }
             .onDisappear { model.stopPlayback() }
         }.tint(MobileTheme.accent).modifier(MobileErrorAlert(model: model))
+    }
+
+    /// Drawn like the search field on the main screen: an orange symbol, the text, and a clear button.
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(MobileTheme.accent)
+            TextField(model.strings.searchHistory, text: $query)
+                .textFieldStyle(.plain).font(.body)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .accessibilityIdentifier("history-search")
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16)).foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(model.strings.close)
+                .accessibilityIdentifier("history-search-clear")
+            }
+        }
+        .frame(minHeight: 44)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 10))
+        .listRowBackground(MobileTheme.card)
     }
 
     private func delete(_ record: TranscriptRecord) {

@@ -1,12 +1,27 @@
 import VoicedCore
 import SwiftUI
 
-/// Popover listing saved transcripts. Choosing one puts it back on screen so recording continues into it.
+/// Popover listing saved transcripts. Choosing one puts it back on screen so recording continues
+/// into it. The field at the top searches every record's lines; choosing a result opens the record
+/// with the same search in the main window, so the matching lines are what shows.
 struct HistoryView: View {
     @ObservedObject var controller: TranscriptionController
     @Binding var isPresented: Bool
+    /// Opens the main window's search with this text, after a search result was chosen.
+    var openSearch: (String) -> Void = { _ in }
+
+    @State private var query = ""
+    @FocusState private var isSearchFocused: Bool
 
     private var strings: AppStrings { controller.strings }
+
+    /// Each record with what of it matches the search; every record, unmatched, while the search is empty.
+    private var rows: [(record: TranscriptRecord, match: HistorySearchResult?)] {
+        guard HistorySearch.normalized(query) != nil else {
+            return controller.history.map { ($0, nil) }
+        }
+        return HistorySearch.results(in: controller.history, for: query).map { ($0.record, $0) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -19,35 +34,85 @@ struct HistoryView: View {
                 // Nothing to list: the popover shows only its title.
                 Spacer().frame(height: 4)
             } else {
-                ScrollView {
-                    // One card per record, matching the rounded rows of the main window.
-                    VStack(spacing: Theme.rowGap) {
-                        ForEach(controller.history) { record in
-                            HistoryRow(
-                                record: record,
-                                isCurrent: record.id == controller.currentRecordID,
-                                summary: summaryState(of: record),
-                                strings: strings,
-                                select: {
-                                    controller.resume(record)
-                                    isPresented = false
-                                },
-                                copy: { controller.copyTranscript(of: record) },
-                                openFolder: { controller.openRecordFolder(record) },
-                                summarize: { controller.summarize(record) },
-                                openSummary: { controller.openSummary(record) },
-                                delete: { controller.deleteRecord(record) }
-                            )
+                searchField
+                let rows = rows
+                if rows.isEmpty {
+                    // Nothing matches: nothing is listed under the field.
+                    Spacer().frame(height: 4)
+                } else {
+                    ScrollView {
+                        // One card per record, matching the rounded rows of the main window.
+                        VStack(spacing: Theme.rowGap) {
+                            ForEach(rows, id: \.record.id) { row in
+                                let record = row.record
+                                HistoryRow(
+                                    record: record,
+                                    match: row.match,
+                                    query: query,
+                                    isCurrent: record.id == controller.currentRecordID,
+                                    summary: summaryState(of: record),
+                                    strings: strings,
+                                    select: {
+                                        controller.resume(record)
+                                        if row.match != nil, let search = HistorySearch.normalized(query) {
+                                            openSearch(search)
+                                        }
+                                        isPresented = false
+                                    },
+                                    copy: { controller.copyTranscript(of: record) },
+                                    openFolder: { controller.openRecordFolder(record) },
+                                    summarize: { controller.summarize(record) },
+                                    openSummary: { controller.openSummary(record) },
+                                    delete: { controller.deleteRecord(record) }
+                                )
+                            }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
+                    .frame(maxHeight: 360)
                 }
-                .frame(maxHeight: 360)
             }
         }
         .frame(width: 340)
         .background(Theme.background)
+    }
+
+    /// A rounded field under the title, drawn like the search field of the main window.
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            TextField(strings.searchHistory, text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .focused($isSearchFocused)
+                // Escape empties the field first; with nothing in it, the popover closes as usual.
+                .onExitCommand {
+                    if query.isEmpty { isPresented = false } else { query = "" }
+                }
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                    isSearchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(strings.close)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Theme.accent.opacity(Theme.rowFillOpacity))
+        )
+        .padding(.horizontal, 16)
     }
 
     private func summaryState(of record: TranscriptRecord) -> HistoryRow.SummaryState {
@@ -72,6 +137,9 @@ private struct HistoryRow: View {
     }
 
     let record: TranscriptRecord
+    /// What of the record matches the search, while there is one.
+    let match: HistorySearchResult?
+    let query: String
     let isCurrent: Bool
     let summary: SummaryState
     let strings: AppStrings
@@ -103,7 +171,7 @@ private struct HistoryRow: View {
                     Text(Self.dateFormatter.string(from: record.updatedAt))
                         .font(.system(.caption, design: .monospaced).weight(.medium))
                         .foregroundStyle(Theme.accent)
-                    Text(strings.lineCount(record.lines.count))
+                    Text(match.map { strings.matchCount($0.matchCount) } ?? strings.lineCount(record.lines.count))
                         .font(.caption)
                         .foregroundStyle(Theme.accent)
                     if isCurrent {
@@ -139,7 +207,15 @@ private struct HistoryRow: View {
                     .opacity(isHovered || showsCopied ? 1 : 0)
                     .allowsHitTesting(isHovered)
                 }
-                Text(record.preview)
+                // While searching, the first matching line with the match picked out, in place
+                // of the record's opening line.
+                Group {
+                    if let match {
+                        Text(HistorySearch.highlighted(match.matchedText, query: query, color: Theme.accentDark))
+                    } else {
+                        Text(record.preview)
+                    }
+                }
                     .font(.system(size: 14))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)

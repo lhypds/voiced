@@ -97,7 +97,11 @@ struct ContentView: View {
             }
             .disabled(controller.isRecording)
             .popover(isPresented: $isHistoryPresented, arrowEdge: .bottom) {
-                HistoryView(controller: controller, isPresented: $isHistoryPresented)
+                HistoryView(controller: controller, isPresented: $isHistoryPresented) { query in
+                    // The chosen record shows only its lines that match, as the history did.
+                    searchQuery = query
+                    isSearchPresented = true
+                }
             }
             ToolbarIconButton(systemName: "gearshape", help: strings.settings) {
                 isSettingsPresented = true
@@ -142,7 +146,7 @@ struct ContentView: View {
                 .fill(Theme.accent.opacity(Theme.rowFillOpacity))
         )
         .padding(.horizontal, Theme.contentPadding - 8)
-        .padding(.top, Self.rowEdgeGap - Self.headerBottomInset)
+        .padding(.top, Self.headerGap)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 
@@ -230,9 +234,9 @@ struct ContentView: View {
                     }
                     .animation(.easeOut(duration: 0.25), value: controller.hints)
                     .padding(.horizontal, Theme.contentPadding)
-                    // Under the search field the first row keeps the gap the rows keep between
-                    // themselves, as the field is drawn like a row; under the header, the wider one.
-                    .padding(.top, isSearchPresented ? Theme.rowGap : Self.rowEdgeGap)
+                    // The first row sits the same gap below the search field, or the header
+                    // buttons, as the rows keep between themselves.
+                    .padding(.top, isSearchPresented ? Theme.rowGap : Self.headerGap)
                     // Room to scroll the last row clear of the record button, leaving the same
                     // gap above the button as between the header and the first row.
                     .padding(.bottom, Self.listBottomInset + bottomExtraInset)
@@ -254,9 +258,12 @@ struct ContentView: View {
         }
     }
 
-    /// Gap between the list's edge and the nearest row: below the header at rest, and above the
-    /// record button when scrolled to the end.
+    /// Gap between the list's bottom edge and the last row, above the record button when
+    /// scrolled to the end.
     private static let rowEdgeGap: CGFloat = 14
+    /// Space added under the header so the header buttons and what comes next, the search field
+    /// or the first row, are as far apart as two rows; the header's own bottom inset makes up the rest.
+    private static let headerGap: CGFloat = Theme.rowGap - headerBottomInset
     /// Rows fade out over this strip at the top edge once they scroll under the header.
     private static let topFadeHeight: CGFloat = 120
     /// Rows are fully hidden across the lower half of the button area…
@@ -409,9 +416,15 @@ struct ContentView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, Self.preparationBannerPadding)
         .frame(width: 300)
+        // The row tint over the window's own colour: the same shade as before, but solid, so
+        // rows scrolling beneath the banner do not show through it.
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Theme.accent.opacity(Theme.rowFillOpacity))
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Theme.background)
+                )
         )
         .background(
             GeometryReader { geometry in

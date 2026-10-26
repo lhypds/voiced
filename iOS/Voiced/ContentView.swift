@@ -76,12 +76,26 @@ struct ContentView: View {
     @State private var searching = false
     @State private var query = ""
     @FocusState private var searchFocused: Bool
+    /// The search a history result was chosen with, put into the field once the history closes.
+    @State private var searchFromHistory: String?
     @ScaledMetric private var titleSize = 34
+    /// Space between two transcript cards, and between the search field and the first card.
+    private static let rowGap: CGFloat = 10
+    /// Cards fade out over this strip at the top once they scroll under the header.
+    private static let topFadeHeight: CGFloat = 72
+    /// Cards fade out over this strip above the recording controls.
+    private static let bottomFadeHeight: CGFloat = 24
+    /// Scroll offset for the top fade, kept out of plain state so scrolling redraws the fade alone.
+    @State private var scrollFade = ScrollFadeState()
     @State private var showsCopiedToast = false
     @State private var copiedToastResetTask: Task<Void, Never>?
 
     private var lines: [TranscriptLine] {
-        model.current.lines.reversed().filter { query.isEmpty || $0.text.localizedStandardContains(query) }
+        // A translation counts too, as in the history's search, which can open a record by one.
+        model.current.lines.reversed().filter {
+            query.isEmpty || $0.text.localizedStandardContains(query)
+                || $0.translation?.text.localizedStandardContains(query) == true
+        }
     }
 
     var body: some View {
@@ -111,18 +125,23 @@ struct ContentView: View {
                         .buttonStyle(.plain).accessibilityLabel("取消")
                     }
                     .padding(.leading, 12).padding(.trailing, 6).padding(.vertical, 6)
-                    .background(MobileTheme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    // Fully rounded ends, the shape iOS gives a search field.
+                    .background(MobileTheme.card, in: Capsule())
                     .frame(maxWidth: 820).frame(maxWidth: .infinity)
                     .padding(.horizontal, 20)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .onAppear { searchFocused = true }
                 }
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: Self.rowGap) {
                         if model.recording || model.stopping || (!model.liveText.isEmpty && query.isEmpty) {
                             transcriptCard(label: "LIVE", text: model.liveText, live: true)
                         }
-                        ForEach(model.hints) { hint in HintCard(hint: hint) { model.ai.dismiss(hint) } }
+                        ForEach(model.hints) { hint in
+                            HintCard(hint: hint, labelWidth: timestampColumnWidth, stacked: dynamicTypeSize.isAccessibilitySize) {
+                                model.ai.dismiss(hint)
+                            }
+                        }
                         if let message = model.hintError { Text(message).font(.caption).foregroundStyle(.red) }
                         if let message = model.translationError { Text(message).font(.caption).foregroundStyle(.red) }
                         ForEach(lines) { line in
@@ -130,10 +149,26 @@ struct ContentView: View {
                                                                 showDate: model.showDate), text: model.displayTexts(line).primary, secondary: model.displayTexts(line).secondary, line: line)
                         }
                     }
-                    .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 20)
+                    // Under the search field the first card keeps the gap the cards keep between
+                    // themselves; under the header, the wider one.
+                    // The last card rests just above the bottom fade, so it is only dimmed while
+                    // more of the list lies below it.
+                    .padding(.horizontal, 20).padding(.top, searching ? Self.rowGap : 16).padding(.bottom, Self.bottomFadeHeight)
                     .frame(maxWidth: 820).frame(maxWidth: .infinity)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .modifier(ScrollOffsetReader(fade: scrollFade, limit: Self.topFadeHeight))
+                // As on macOS: cards fade out under the header once scrolled, and toward the
+                // recording controls at the bottom.
+                .mask(
+                    VStack(spacing: 0) {
+                        TopFade(fade: scrollFade)
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                            .frame(height: Self.bottomFadeHeight)
+                    }
+                )
+                // After the mask, so the toast itself is never faded.
                 .overlay(alignment: .bottom) { if showsCopiedToast { copiedToast } }
                 recordingControls
             }
@@ -152,8 +187,20 @@ struct ContentView: View {
             .modifier(MobileTranslationHost(translator: model.translator))
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showSettings, onDismiss: { model.stopInputMeter(); if model.previewActive || model.busy || model.calibrating { model.stop() }; model.savePrompt() }) { MobileSettingsView().environmentObject(model) }
-            .sheet(isPresented: $showHistory, onDismiss: { query = ""; searching = false; searchFocused = false }) {
-                MobileHistoryView().environmentObject(model)
+            .sheet(isPresented: $showHistory, onDismiss: {
+                // A record opened from a history search shows only its matching lines; any other
+                // way of closing the history starts from a clear search.
+                if let search = searchFromHistory {
+                    query = search
+                    searching = true
+                } else {
+                    query = ""
+                    searching = false
+                }
+                searchFromHistory = nil
+                searchFocused = false
+            }) {
+                MobileHistoryView(openSearch: { searchFromHistory = $0 }).environmentObject(model)
             }
             .modifier(MobileErrorAlert(model: model, enabled: !showSettings && !showHistory))
         }
@@ -200,7 +247,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) { timestampLabel(label, live: live); transcriptText(text, secondary: secondary) }
             } else {
                 HStack(alignment: .center, spacing: 16) {
-                    timestampLabel(label, live: live).frame(width: model.showDate && model.timestampID == "current" ? 84 : 55, alignment: .leading)
+                    timestampLabel(label, live: live).frame(width: timestampColumnWidth, alignment: .leading)
                     transcriptText(text, secondary: secondary).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -220,9 +267,14 @@ struct ContentView: View {
         }
     }
 
+    /// Wide enough for the timestamp in its current form; the AI notes use it for their label too.
+    private var timestampColumnWidth: CGFloat {
+        model.showDate && model.timestampID == "current" ? 84 : 55
+    }
+
     private func transcriptText(_ primary: String, secondary: String?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(primary).font(.body)
+            Text(primary).font(.body.bold())
             if let secondary { Text(secondary).font(.subheadline).foregroundStyle(.secondary) }
         }
     }
@@ -310,7 +362,10 @@ struct ContentView: View {
             }
         }
         .padding(16).frame(maxWidth: 340)
+        // The tint over the screen's own colour: the same shade, but solid, so the transcript
+        // does not show through the banner.
         .background(MobileTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+        .background(MobileTheme.background, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var recordingControls: some View {
@@ -377,27 +432,97 @@ extension View {
     }
 }
 
+/// An AI note laid out like a transcript card, as on macOS: "AI" where a card has its timestamp,
+/// the topic in purple and the note beside it. It has no close button: it leaves on its own once
+/// it has been on screen long enough to read. A tap keeps it until tapped again.
 private struct HintCard: View {
     let hint: TranscriptHint
+    /// Width of the transcript cards' timestamp column, so the texts line up.
+    let labelWidth: CGFloat
+    /// At accessibility text sizes the label sits above the text, as on the transcript cards.
+    let stacked: Bool
     let dismiss: () -> Void
     @State private var pinned = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label("AI", systemImage: "sparkles").font(.caption.weight(.bold))
-                Text(hint.topic).font(.subheadline.weight(.semibold))
-                Spacer()
-                Button(action: dismiss) { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("关闭提示")
-            }.foregroundStyle(VoicedPalette.aiAccent)
-            Text(hint.text).font(.subheadline).textSelection(.enabled)
-            if pinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(VoicedPalette.aiAccent) }
+        Group {
+            if stacked {
+                VStack(alignment: .leading, spacing: 8) { label; content }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    label.frame(width: labelWidth, alignment: .leading)
+                    content.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
         .padding(16).frame(maxWidth: .infinity, alignment: .leading)
         .background(VoicedPalette.aiAccent.opacity(0.1), in: RoundedRectangle(cornerRadius: 18))
+        .contentShape(RoundedRectangle(cornerRadius: 18))
         .onTapGesture { pinned.toggle() }
         .task(id: pinned) {
             guard !pinned else { return }
             do { try await Task.sleep(for: .seconds(hint.readingTime)); dismiss() } catch {}
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(pinned ? "已固定，轻点后自动消失" : "轻点可固定")
+    }
+
+    /// "AI" and its symbol, in the timestamp's font; a pin under them while the note is kept.
+    private var label: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text("AI").font(.system(.caption, design: .monospaced, weight: .bold))
+                Image(systemName: "sparkles").font(.caption.weight(.semibold))
+            }
+            if pinned { Image(systemName: "pin.fill").font(.caption2) }
+        }
+        .foregroundStyle(VoicedPalette.aiAccent)
+    }
+
+    /// A little smaller than the transcript's text, as on macOS; the purple topic tells them apart.
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(hint.topic).font(.subheadline).foregroundStyle(VoicedPalette.aiAccent)
+            Text(hint.text).font(.subheadline).foregroundStyle(MobileTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .textSelection(.enabled)
+    }
+}
+
+/// How far the transcript list has scrolled down from its top, as far as the top fade cares.
+/// Observable so that only the view reading `offset` redraws when it changes.
+@Observable
+private final class ScrollFadeState {
+    var offset: CGFloat = 0
+}
+
+/// The top of the list's mask: the fade only exists once cards have scrolled under the edge,
+/// growing with the scroll offset so the newest cards are not dimmed at rest.
+private struct TopFade: View {
+    let fade: ScrollFadeState
+
+    var body: some View {
+        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+            .frame(height: fade.offset)
+    }
+}
+
+/// Reports how far a scroll view has scrolled down from its top, in whole points and clamped to
+/// `0...limit`. Needs iOS 18; on iOS 17 the offset stays at zero, which only disables the top fade.
+private struct ScrollOffsetReader: ViewModifier {
+    let fade: ScrollFadeState
+    let limit: CGFloat
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                min(max(geometry.contentOffset.y + geometry.contentInsets.top, 0), limit).rounded()
+            } action: { _, new in
+                fade.offset = new
+            }
+        } else {
+            content
         }
     }
 }

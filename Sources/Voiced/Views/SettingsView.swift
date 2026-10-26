@@ -10,6 +10,7 @@ enum SettingsSection: CaseIterable, Identifiable {
     case recognition
     case translation
     case ai
+    case about
 
     var id: Self { self }
 
@@ -20,6 +21,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .recognition: "waveform"
         case .translation: "translate"
         case .ai: "sparkles"
+        case .about: "info"
         }
     }
 
@@ -31,6 +33,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .recognition: Color(red: 0.25, green: 0.52, blue: 0.96)
         case .translation: Color(red: 0.30, green: 0.72, blue: 0.42)
         case .ai: Theme.aiAccent
+        case .about: Theme.accent
         }
     }
 
@@ -41,6 +44,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .recognition: strings.recognition
         case .translation: strings.translation
         case .ai: strings.ai
+        case .about: strings.aboutVoiced
         }
     }
 }
@@ -113,14 +117,8 @@ struct SettingsView: View {
                 }
             }
 
+            // The version is on the About page.
             Spacer(minLength: 0)
-
-            if let version = AppVersion.current {
-                Text(strings.version(version))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 8)
-            }
         }
         .padding(.horizontal, 12)
         .padding(.top, Theme.contentPadding)
@@ -160,6 +158,7 @@ struct SettingsView: View {
                     case .recognition: recognitionPage
                     case .translation: translationPage
                     case .ai: aiPage
+                    case .about: aboutPage
                     }
                 }
                 .padding(.horizontal, Theme.contentPadding)
@@ -808,6 +807,41 @@ struct SettingsView: View {
         .foregroundStyle(controller.canCalibrateNoise ? Theme.accent : Color.secondary)
         .disabled(!controller.canCalibrateNoise)
         .help(strings.calibrateNoiseHint)
+    }
+
+    /// The version and engine, then what stays on the Mac and what is sent away, as the iOS app's
+    /// About page tells it.
+    @ViewBuilder
+    private var aboutPage: some View {
+        SettingsGroup {
+            SettingsRow(title: strings.versionLabel) {
+                Text(AppVersion.current ?? "—")
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            Divider()
+            SettingsRow(title: strings.speechRecognitionLabel) {
+                Text("WhisperKit · Core ML")
+                    .foregroundStyle(.secondary)
+            }
+        }
+
+        SettingsGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(strings.dataAndPrivacy)
+                    .font(.body)
+                Text(strings.privacyOnDevice)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(strings.privacyStorage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 14)
+        }
     }
 
     /// Opens OpenAI's API key page in the browser, next to the key field's title.
