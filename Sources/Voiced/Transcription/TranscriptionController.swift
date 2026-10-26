@@ -64,6 +64,18 @@ final class TranscriptionController: ObservableObject {
     @Published var keepWindowOnTop: Bool {
         didSet { settings.keepWindowOnTop = keepWindowOnTop }
     }
+    /// What a click on a transcript row does.
+    @Published var lineClickAction: LineClickAction {
+        didSet {
+            settings.lineClickAction = lineClickAction
+            if lineClickAction != .play {
+                stopPlayback()
+            }
+        }
+    }
+    /// The line whose audio is being heard: the one clicked, then each later line as playback
+    /// reaches it. Nil while nothing plays.
+    @Published private(set) var playingLineID: String?
     @Published private(set) var selectedEngine: RecognitionEngine {
         didSet { settings.recognitionEngine = selectedEngine }
     }
@@ -255,6 +267,13 @@ final class TranscriptionController: ObservableObject {
     /// already on screen before it, such as a resumed record's, are never read.
     private var unspokenLineIDs: Set<String> = []
     private let speaker = TranslationSpeaker()
+    /// Plays the current record's audio back when a row is clicked.
+    private let playback = AudioPlayback()
+    /// Where each visible line starts in the file being played, in file order, so the playing
+    /// line can follow the playback.
+    private var playbackCues: [(id: String, time: TimeInterval)] = []
+    /// Moves `playingLineID` along with the playback while it runs.
+    private var playbackTracker: Task<Void, Never>?
     /// Silences every capture while `speaker` plays, so the speech is not recognized as input.
     private let inputMute = InputMute()
     /// Forwards the preview's changes as this object's own: views read `preview.isActive` through
@@ -358,6 +377,7 @@ final class TranscriptionController: ObservableObject {
         timestampMode = settings.timestampMode
         showTimestampDate = settings.showTimestampDate
         keepWindowOnTop = settings.keepWindowOnTop
+        lineClickAction = settings.lineClickAction
         selectedEngine = settings.recognitionEngine
         speechEnergyFloor = settings.speechEnergyFloor
         translationEnabled = settings.translation
@@ -370,6 +390,9 @@ final class TranscriptionController: ObservableObject {
         configureTranslator()
         speaker.onPlayingChange = { [inputMute] playing in
             inputMute.isMuted = playing
+        }
+        playback.onFinish = { [weak self] in
+            self?.stopPlayback()
         }
         previewForwarding = preview.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -480,6 +503,7 @@ final class TranscriptionController: ObservableObject {
         settings.reset()
         appLanguage = settings.appLanguage
         keepWindowOnTop = settings.keepWindowOnTop
+        lineClickAction = settings.lineClickAction
         timestampMode = settings.timestampMode
         showTimestampDate = settings.showTimestampDate
         speechEnergyFloor = settings.speechEnergyFloor
@@ -579,6 +603,8 @@ final class TranscriptionController: ObservableObject {
             return
         }
         preview.stop()
+        // The playback would come back in through the input.
+        stopPlayback()
 
         let startedAt = Date()
         session = RecordingSession(startedAt: startedAt, baseLines: lines)
@@ -799,6 +825,7 @@ final class TranscriptionController: ObservableObject {
         if isRecording {
             stopRecording()
         }
+        stopPlayback()
         lines = []
         liveText = ""
         currentRecordID = nil
@@ -807,7 +834,12 @@ final class TranscriptionController: ObservableObject {
         pendingRecord = (historyStore.unusedID(startedAt: now), now)
     }
 
-    func copyTranscript() {
+    /// Copies the saved record's whole transcript, one timestamped line per sentence.
+    func copyTranscript(of record: TranscriptRecord) {
+        copyTranscript(record.lines)
+    }
+
+    private func copyTranscript(_ lines: [TranscriptLine]) {
         let text = lines.map { line in
             let texts = displayTexts(for: line)
             let entry = "[\(timestamp(for: line))] \(texts.primary)"
@@ -826,6 +858,62 @@ final class TranscriptionController: ObservableObject {
 
     func timestamp(for line: TranscriptLine) -> String {
         line.timestamp(mode: timestampMode, showDate: showTimestampDate)
+    }
+
+    // MARK: - Playback
+
+    /// Stops the playback while one runs, whichever line was clicked; otherwise plays the
+    /// current record's audio from the moment `line` was spoken, on through the lines after it.
+    /// Nothing plays while recording, when the line's audio is not saved, or when the file
+    /// cannot be played.
+    func togglePlayback(of line: TranscriptLine) {
+        if playingLineID != nil {
+            stopPlayback()
+            return
+        }
+        guard !isRecording, let record = currentRecord, let position = record.audioPosition(of: line) else { return }
+        let url = historyStore.recordDirectory(id: record.id).appendingPathComponent(position.file)
+        do {
+            try playback.play(url, from: position.time)
+        } catch {
+            return
+        }
+        playingLineID = line.id
+        playbackCues = lines.compactMap { line in
+            guard let cue = record.audioPosition(of: line), cue.file == position.file else { return nil }
+            return (line.id, cue.time)
+        }
+        .sorted { $0.time < $1.time }
+        playbackTracker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self, !Task.isCancelled else { return }
+                followPlayback()
+            }
+        }
+    }
+
+    func stopPlayback() {
+        playbackTracker?.cancel()
+        playbackTracker = nil
+        playback.stop()
+        playbackCues = []
+        if playingLineID != nil {
+            playingLineID = nil
+        }
+    }
+
+    private var currentRecord: TranscriptRecord? {
+        currentRecordID.flatMap { id in history.first(where: { $0.id == id }) }
+    }
+
+    /// Marks the last line that starts at or before the playback's position as the one playing.
+    /// Lines starting a little later still count: the file's time is read a moment after the
+    /// line's own clock, so the line being heard would otherwise flip to its predecessor.
+    private func followPlayback() {
+        guard let time = playback.currentTime else { return }
+        guard let id = playbackCues.last(where: { $0.time <= time + 0.05 })?.id, id != playingLineID else { return }
+        playingLineID = id
     }
 
     /// Stores the session and refreshes the visible lines.
@@ -1034,6 +1122,7 @@ final class TranscriptionController: ObservableObject {
     /// Puts a saved transcript back on screen so the next recording appends to it.
     func resume(_ record: TranscriptRecord) {
         guard !isRecording else { return }
+        stopPlayback()
         lines = record.lines
         liveText = ""
         currentRecordID = record.id
@@ -1097,6 +1186,7 @@ final class TranscriptionController: ObservableObject {
         summarizedRecordIDs.remove(record.id)
         summaryErrors[record.id] = nil
         if record.id == currentRecordID {
+            stopPlayback()
             currentRecordID = nil
             if !isRecording {
                 lines = []

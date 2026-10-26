@@ -16,6 +16,16 @@ enum TranslationEmphasis: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+/// What a click on a transcript row does.
+enum LineClickAction: String, CaseIterable, Identifiable, Sendable {
+    /// Copies the row's text to the clipboard.
+    case copy
+    /// Plays the record's audio from the moment the row was spoken; a second click stops it.
+    case play
+
+    var id: String { rawValue }
+}
+
 /// A line's translation into one language. Empty `text` records that the line was already in
 /// that language, so nothing is shown and the line is not translated again.
 struct TranslatedText: Equatable, Codable, Sendable {
@@ -72,6 +82,11 @@ struct TranscriptLine: Identifiable, Equatable, Codable, Sendable {
         TranscriptLine(id: id, start: start, end: end, recordedAt: recordedAt, text: newText)
     }
 
+    /// The same line under another id.
+    func replacingID(_ newID: String) -> TranscriptLine {
+        TranscriptLine(id: newID, start: start, end: end, recordedAt: recordedAt, text: text, translation: translation)
+    }
+
     func translated(_ translation: TranslatedText) -> TranscriptLine {
         TranscriptLine(id: id, start: start, end: end, recordedAt: recordedAt, text: text, translation: translation)
     }
@@ -109,6 +124,21 @@ struct TranscriptLine: Identifiable, Equatable, Codable, Sendable {
 }
 
 extension Array where Element == TranscriptLine {
+    /// These lines with every repeated id given a `#2`-style suffix, so each row has its own
+    /// identity on screen. Files written before ids were kept unique can repeat one.
+    func withUniqueIDs() -> [TranscriptLine] {
+        var taken: Set<String> = []
+        return map { line in
+            var id = line.id
+            var attempt = 2
+            while !taken.insert(id).inserted {
+                id = "\(line.id)#\(attempt)"
+                attempt += 1
+            }
+            return id == line.id ? line : line.replacingID(id)
+        }
+    }
+
     /// These lines, carrying over the translations of `previous` lines with the same id and text.
     /// The recording session rebuilds the transcript without translations on every commit; the
     /// translations live in the lines the controller shows.

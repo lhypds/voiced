@@ -67,22 +67,38 @@ struct RecordingSession {
                 committedEnd = max(committedEnd, line.end)
                 continue
             }
-            committedLines.append(line)
+            committedLines.append(uniquelyIdentified(line))
             committedEnd = line.end
             added = true
         }
         return added
     }
 
-    /// Whether `line` is the end of the last committed line transcribed again. The audio cut after a
-    /// commit can leave the tail of the last word in the buffer when the boundary sat a little early,
-    /// and the next decode then returns that tail as a short line of its own. Such a line starts
-    /// before the committed end, inside the overlap tolerance; a genuine repetition starts after it.
+    /// Whether `line` is committed speech transcribed again. The audio cut after a commit can leave
+    /// the tail of the last word in the buffer when the boundary sat a little early, and the next
+    /// decode then returns that tail as a short line of its own. Such a line starts before the
+    /// committed end, inside the overlap tolerance; a genuine repetition starts after it. A line
+    /// that also ends by the committed end covers no new audio at all, whatever it says: the
+    /// decoder sometimes stamps a hallucinated word with no duration right at the cut, and every
+    /// decode of the buffer after it returns that same word again.
     private func isRepeatedTail(_ line: TranscriptLine) -> Bool {
-        guard line.start < committedEnd, let previous = committedLines.last else { return false }
+        guard let previous = committedLines.last else { return false }
+        if line.end <= committedEnd { return true }
+        guard line.start < committedEnd else { return false }
         let tail = Self.letters(of: line.text)
         guard !tail.isEmpty else { return true }
         return Self.letters(of: previous.text).hasSuffix(tail)
+    }
+
+    /// `line` with an id no line of the transcript has yet. Ids are built from the decode's
+    /// segment numbers and times, which start over with every session of a record, so a resumed
+    /// record can meet the same id twice; two rows with one id share their state on screen.
+    private func uniquelyIdentified(_ line: TranscriptLine) -> TranscriptLine {
+        let taken = Set(transcript.map(\.id))
+        guard taken.contains(line.id) else { return line }
+        var attempt = 2
+        while taken.contains("\(line.id)#\(attempt)") { attempt += 1 }
+        return line.replacingID("\(line.id)#\(attempt)")
     }
 
     private static func letters(of text: String) -> String {

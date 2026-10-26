@@ -103,6 +103,33 @@ final class RecordingSessionRepeatedTailTests: XCTestCase {
         XCTAssertEqual(session.transcript.map(\.text), ["好。", "好。"])
     }
 
+    func testLineEndingAtTheCommittedEndIsNotCommittedAgain() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let first = line("a", 0, 5, "哎呀，你真是要把我给逼死。")
+        _ = session.update(latest: [first], completed: [first])
+
+        // A hallucinated word with no duration, stamped exactly at the cut: it comes back in
+        // every decode of the buffer after it, and starts at the committed end rather than before it.
+        let ghost = line("0-5.0-5.0", 5, 5, "我。")
+        XCTAssertFalse(session.update(latest: [ghost], completed: [ghost]), "no audio lies between the committed end and the line's end")
+        XCTAssertFalse(session.update(latest: [ghost], completed: [ghost]))
+        XCTAssertFalse(session.commitTrailing())
+
+        XCTAssertEqual(session.transcript.map(\.text), ["哎呀，你真是要把我给逼死。"])
+        XCTAssertEqual(session.committedEnd, 5)
+    }
+
+    func testCommittedLinesGetIDsUnusedInTheTranscript() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [line("0-0.0-2.0", 0, 2, "Earlier.")])
+
+        // A resumed record's new session counts its times from zero again.
+        let same = line("0-0.0-2.0", 0, 2, "Again.")
+        _ = session.update(latest: [same], completed: [same])
+
+        XCTAssertEqual(session.transcript.map(\.id), ["0-0.0-2.0", "0-0.0-2.0#2"])
+        XCTAssertEqual(session.transcript.map(\.text), ["Earlier.", "Again."])
+    }
+
     func testDifferentTextStartingInsideTheToleranceIsKept() {
         var session = RecordingSession(startedAt: Date(), baseLines: [])
         let first = line("a", 0, 5, "那不仅代码量会非常大。")

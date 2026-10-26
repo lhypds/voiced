@@ -37,6 +37,7 @@ struct HistoryView: View {
                                     controller.resume(record)
                                     isPresented = false
                                 },
+                                copy: { controller.copyTranscript(of: record) },
                                 openFolder: { controller.openRecordFolder(record) },
                                 summarize: { controller.summarize(record) },
                                 openSummary: { controller.openSummary(record) },
@@ -78,12 +79,18 @@ private struct HistoryRow: View {
     let summary: SummaryState
     let strings: AppStrings
     let select: () -> Void
+    /// Puts the record's whole transcript on the clipboard.
+    let copy: () -> Void
     let openFolder: () -> Void
     let summarize: () -> Void
     let openSummary: () -> Void
     let delete: () -> Void
 
     @State private var isHovered = false
+    /// The copy symbol shows a checkmark for a moment after a copy: the popover covers the
+    /// window's own "Copied" toast, so the row confirms it itself.
+    @State private var showsCopied = false
+    @State private var copiedResetTask: Task<Void, Never>?
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -128,10 +135,11 @@ private struct HistoryRow: View {
                         } else if summary.isOffered && !summary.isRunning {
                             rowAction("sparkles", help: strings.summarize, action: summarize)
                         }
+                        rowAction(showsCopied ? "checkmark" : "doc.on.doc", help: strings.copyAll, action: copyTranscript)
                         rowAction("folder", help: strings.openFolder, action: openFolder)
                         rowAction("trash", help: strings.delete, action: delete)
                     }
-                    .opacity(isHovered ? 1 : 0)
+                    .opacity(isHovered || showsCopied ? 1 : 0)
                     .allowsHitTesting(isHovered)
                 }
                 Text(record.preview)
@@ -163,8 +171,20 @@ private struct HistoryRow: View {
                 Button(strings.summarize, action: summarize)
                     .disabled(summary.isRunning)
             }
+            Button(strings.copyAll, action: copyTranscript)
             Button(strings.openFolder, action: openFolder)
             Button(strings.delete, role: .destructive, action: delete)
+        }
+    }
+
+    private func copyTranscript() {
+        copy()
+        showsCopied = true
+        copiedResetTask?.cancel()
+        copiedResetTask = Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            guard !Task.isCancelled else { return }
+            showsCopied = false
         }
     }
 

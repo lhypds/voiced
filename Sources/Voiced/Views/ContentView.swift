@@ -7,8 +7,14 @@ struct ContentView: View {
     /// brings their window to the front.
     @State private var settingsFocusRequest = 0
     @State private var isHistoryPresented = false
-    /// How far the transcript list has been scrolled down from its top.
-    @State private var transcriptScrollOffset: CGFloat = 0
+    /// Whether the search field sits under the header. Opening it focuses the field.
+    @State private var isSearchPresented = false
+    @State private var searchQuery = ""
+    @FocusState private var isSearchFocused: Bool
+    /// How far the transcript list has been scrolled down from its top. An observable object
+    /// rather than plain state: only the top fade reads it, so scrolling redraws the fade alone
+    /// and never rebuilds the rows.
+    @State private var scrollFade = ScrollFadeState()
     @State private var showsCopiedToast = false
     /// Measured height of the model banner above the record button, 0 while there is none.
     @State private var preparationBannerHeight: CGFloat = 0
@@ -19,6 +25,9 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if isSearchPresented {
+                searchField
+            }
             // The list runs underneath the record button and fades out as rows slide beneath it.
             ZStack(alignment: .bottom) {
                 transcriptList
@@ -35,6 +44,11 @@ struct ContentView: View {
             if showsCopiedToast {
                 copiedToast
             }
+        }
+        .animation(.easeOut(duration: 0.15), value: isSearchPresented)
+        // A new record empties the list, which leaves nothing to search in.
+        .onChange(of: controller.lines.isEmpty) { _, isEmpty in
+            if isEmpty { closeSearch() }
         }
         .background(Theme.background)
         .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
@@ -68,9 +82,13 @@ struct ContentView: View {
                 ToolbarIconButton(systemName: "arrow.clockwise", help: strings.retry, action: controller.retryPreparation)
             }
             ToolbarIconButton(systemName: "plus", help: strings.newRecord, action: controller.startNewRecord)
-            ToolbarIconButton(systemName: "doc.on.doc", help: strings.copyAll) {
-                controller.copyTranscript()
-                showCopiedToast()
+            ToolbarIconButton(systemName: "magnifyingglass", help: strings.search) {
+                if isSearchPresented {
+                    closeSearch()
+                } else {
+                    isSearchPresented = true
+                    isSearchFocused = true
+                }
             }
             .disabled(controller.lines.isEmpty)
             ToolbarIconButton(systemName: "clock.arrow.circlepath", help: strings.history) {
@@ -91,6 +109,75 @@ struct ContentView: View {
         .padding(.top, Self.headerTopInset)
     }
 
+    // MARK: - Search
+
+    /// A rounded field under the header, tinted like a transcript row. Typing narrows the list to
+    /// the sentences containing the text; Escape closes the field and shows everything again.
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            TextField("", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15))
+                .focused($isSearchFocused)
+                .onExitCommand(perform: closeSearch)
+            Button(action: closeSearch) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(strings.close)
+        }
+        // The box spans the same width as the transcript rows, which reach 8 pt past the text
+        // columns on each side, and its symbol lines up with their timestamps.
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Theme.accent.opacity(Theme.rowFillOpacity))
+        )
+        .padding(.horizontal, Theme.contentPadding - 8)
+        .padding(.top, Self.rowEdgeGap - Self.headerBottomInset)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func closeSearch() {
+        isSearchPresented = false
+        isSearchFocused = false
+        searchQuery = ""
+    }
+
+    /// The text being searched for, or nil while the field is closed or empty.
+    private var activeSearch: String? {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return isSearchPresented && !query.isEmpty ? query : nil
+    }
+
+    /// The committed lines shown, newest first: all of them, or the ones whose text in either
+    /// language contains the search, ignoring case. Each comes with the texts its row shows,
+    /// worked out here once so the rows compare by value and skip their own body when unchanged.
+    private var visibleRows: [TranscriptRowModel] {
+        let query = activeSearch
+        return controller.lines.reversed().compactMap { line in
+            let texts = controller.displayTexts(for: line)
+            if let query,
+               !texts.primary.localizedCaseInsensitiveContains(query),
+               texts.secondary?.localizedCaseInsensitiveContains(query) != true {
+                return nil
+            }
+            return TranscriptRowModel(
+                line: line,
+                timestamp: controller.timestamp(for: line),
+                primaryText: texts.primary,
+                secondaryText: texts.secondary
+            )
+        }
+    }
+
     // MARK: - Transcript
 
     /// The hint is shown only while idle with nothing on screen; recording shows the LIVE row at once.
@@ -103,37 +190,41 @@ struct ContentView: View {
         if isTranscriptEmpty {
             Color.clear
         } else {
+            let rows = visibleRows
             VStack(spacing: 0) {
                 // The LIVE row leads the list and committed sentences follow newest first, so the
                 // newest text sits at the top without any scrolling.
-                // A plain VStack: a LazyVStack estimates the heights of rows it has not built, so its
-                // content size can flip between estimates. Together with the scroll offset reader that
-                // kept SwiftUI relaying out in a loop and hung the app. A session's few hundred rows
-                // lay out cheaply without laziness.
+                // Lazy, so a long meeting's thousands of rows are only laid out as they scroll
+                // into view. A LazyVStack once hung the app: its content size flipped between
+                // height estimates while the scroll offset, then plain state, rebuilt the whole
+                // list on every point scrolled. The offset now reaches only the top fade, so
+                // scrolling never touches the rows.
                 ScrollView {
-                    VStack(alignment: .leading, spacing: Theme.rowGap) {
+                    LazyVStack(alignment: .leading, spacing: Theme.rowGap) {
                         // The AI's notes lead the list, newest first, above the LIVE row. Each
                         // leaves once it has been on screen long enough to be read.
-                        ForEach(controller.hints.reversed()) { hint in
-                            HintRow(hint: hint, timestampWidth: timestampWidth, dismissHelp: strings.close) {
-                                controller.dismiss(hint)
+                        // While searching, only the matching sentences are listed: the hints and
+                        // the LIVE row would push the results down.
+                        if activeSearch == nil {
+                            ForEach(controller.hints.reversed()) { hint in
+                                HintRow(hint: hint, timestampWidth: timestampWidth, dismissHelp: strings.close) {
+                                    controller.dismiss(hint)
+                                }
+                            }
+                            if controller.isRecording || !controller.liveText.isEmpty {
+                                LiveRow(text: controller.liveText, timestampWidth: timestampWidth)
                             }
                         }
-                        if controller.isRecording || !controller.liveText.isEmpty {
-                            LiveRow(text: controller.liveText, timestampWidth: timestampWidth)
-                        }
-                        ForEach(controller.lines.reversed()) { line in
-                            let texts = controller.displayTexts(for: line)
+                        ForEach(rows) { row in
                             TranscriptRow(
-                                timestamp: controller.timestamp(for: line),
-                                text: texts.primary,
-                                secondaryText: texts.secondary,
+                                model: row,
                                 timestampWidth: timestampWidth,
-                                onCopy: {
-                                    controller.copy(line)
-                                    showCopiedToast()
-                                }
+                                isPlaying: controller.playingLineID == row.id,
+                                onTap: { tap(row.line) }
                             )
+                            // Compared by value, closure aside, so a row whose texts are the same
+                            // keeps its body when the list is rebuilt for a new LIVE text or line.
+                            .equatable()
                         }
                     }
                     .animation(.easeOut(duration: 0.25), value: controller.hints)
@@ -144,13 +235,10 @@ struct ContentView: View {
                     .padding(.bottom, Self.listBottomInset + bottomExtraInset)
                 }
                 .scrollIndicators(.hidden)
-                .modifier(ScrollOffsetReader(offset: $transcriptScrollOffset, limit: Self.topFadeHeight))
+                .modifier(ScrollOffsetReader(fade: scrollFade, limit: Self.topFadeHeight))
                 .mask(
                     VStack(spacing: 0) {
-                        // The top fade only exists once rows have scrolled under the edge, growing
-                        // with the scroll offset so the newest rows are not dimmed at rest.
-                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                            .frame(height: transcriptScrollOffset)
+                        TopFade(fade: scrollFade)
                         Color.black
                         LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                             .frame(height: Self.bottomFadeHeight)
@@ -183,6 +271,18 @@ struct ContentView: View {
 
     private var timestampWidth: CGFloat {
         controller.timestampMode == .current && controller.showTimestampDate ? 78 : 66
+    }
+
+    /// A click plays from the line when clicking plays and nothing is being recognized, and stops
+    /// the playback, whichever row is clicked, while one runs. While recording a click copies,
+    /// as it always did.
+    private func tap(_ line: TranscriptLine) {
+        if controller.lineClickAction == .play, !controller.isRecording {
+            controller.togglePlayback(of: line)
+        } else {
+            controller.copy(line)
+            showCopiedToast()
+        }
     }
 
     private var emptyState: some View {
@@ -452,18 +552,35 @@ private struct ToolbarIconButton: View {
     private static let disabledOpacity: Double = 0.6
 }
 
-private struct TranscriptRow: View {
+/// What a transcript row shows for one line: the line itself, for the tap, and the texts already
+/// worked out from it, so the row can be compared by value.
+private struct TranscriptRowModel: Identifiable, Equatable {
+    let line: TranscriptLine
     let timestamp: String
-    let text: String
+    let primaryText: String
     /// The sentence in the other language, shown small and grey under the main text.
     let secondaryText: String?
+
+    var id: String { line.id }
+}
+
+private struct TranscriptRow: View, Equatable {
+    let model: TranscriptRowModel
     let timestampWidth: CGFloat
-    let onCopy: () -> Void
+    /// Whether the row's audio is being heard; the row then keeps its hover tint.
+    let isPlaying: Bool
+    let onTap: () -> Void
 
     @State private var isHovering = false
 
+    /// Everything but the tap closure, which SwiftUI could not compare and which only ever
+    /// does the same thing for the same line.
+    static func == (lhs: TranscriptRow, rhs: TranscriptRow) -> Bool {
+        lhs.model == rhs.model && lhs.timestampWidth == rhs.timestampWidth && lhs.isPlaying == rhs.isPlaying
+    }
+
     private var timestampPieces: [String] {
-        timestamp.split(separator: " ").map(String.init)
+        model.timestamp.split(separator: " ").map(String.init)
     }
 
     var body: some View {
@@ -480,9 +597,9 @@ private struct TranscriptRow: View {
             .foregroundStyle(Theme.accent)
             .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
             VStack(alignment: .leading, spacing: Theme.secondaryTextGap) {
-                Text(text)
+                Text(model.primaryText)
                     .font(.system(size: Theme.bodyFontSize))
-                if let secondaryText {
+                if let secondaryText = model.secondaryText {
                     Text(secondaryText)
                         .font(.system(size: Theme.secondaryFontSize))
                         .foregroundStyle(.secondary)
@@ -494,12 +611,12 @@ private struct TranscriptRow: View {
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Theme.accent.opacity(isHovering ? Theme.rowFillHoverOpacity : Theme.rowFillOpacity))
+                .fill(Theme.accent.opacity(isHovering || isPlaying ? Theme.rowFillHoverOpacity : Theme.rowFillOpacity))
         )
         .padding(.horizontal, -8)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .onTapGesture(perform: onCopy)
+        .onTapGesture(perform: onTap)
     }
 }
 
@@ -595,13 +712,32 @@ private struct LiveRow: View {
     }
 }
 
+/// How far the transcript list has scrolled down from its top, as far as the top fade cares.
+/// Observable so that only the view reading `offset` redraws when it changes.
+@Observable
+private final class ScrollFadeState {
+    var offset: CGFloat = 0
+}
+
+/// The top of the list's mask: the fade only exists once rows have scrolled under the edge,
+/// growing with the scroll offset so the newest rows are not dimmed at rest. Reading the offset
+/// here, in its own view, keeps the rest of the window out of each scroll update.
+private struct TopFade: View {
+    let fade: ScrollFadeState
+
+    var body: some View {
+        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+            .frame(height: fade.offset)
+    }
+}
+
 /// Reports how far a scroll view has scrolled down from its top, in whole points and clamped to
 /// `0...limit`. Needs macOS 15; on macOS 14 the offset stays at zero, which only disables the top fade.
 ///
-/// Every new value is a state change that relays out the window, so the value only changes when the
-/// fade would visibly change: scrolling deep into the list or sub-point jitter writes nothing.
+/// The value only changes when the fade would visibly change: scrolling deep into the list or
+/// sub-point jitter writes nothing.
 private struct ScrollOffsetReader: ViewModifier {
-    @Binding var offset: CGFloat
+    let fade: ScrollFadeState
     let limit: CGFloat
 
     func body(content: Content) -> some View {
@@ -609,7 +745,7 @@ private struct ScrollOffsetReader: ViewModifier {
             content.onScrollGeometryChange(for: CGFloat.self) { geometry in
                 min(max(geometry.contentOffset.y + geometry.contentInsets.top, 0), limit).rounded()
             } action: { _, new in
-                offset = new
+                fade.offset = new
             }
         } else {
             content

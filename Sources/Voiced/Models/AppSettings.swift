@@ -16,6 +16,7 @@ struct AppSettings {
         case noiseReduction
         case voiceFilter
         case keepWindowOnTop
+        case lineClickAction
         case translation
         case translationLanguage
         case translationEmphasis
@@ -97,6 +98,12 @@ struct AppSettings {
     var keepWindowOnTop: Bool {
         get { file[Key.keepWindowOnTop.rawValue] as? Bool ?? true }
         nonmutating set { set(newValue, for: .keepWindowOnTop) }
+    }
+
+    /// What a click on a transcript row does. Copying by default, as it always did.
+    var lineClickAction: LineClickAction {
+        get { rawValue(.lineClickAction) ?? .copy }
+        nonmutating set { set(newValue.rawValue, for: .lineClickAction) }
     }
 
     /// Whether committed lines are translated. Off by default: the system translation has to

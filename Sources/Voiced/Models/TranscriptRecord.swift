@@ -53,13 +53,29 @@ struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         lines.first?.text ?? ""
     }
 
+    /// Where in the saved audio `line` was spoken: the file's name in the record's directory and
+    /// the seconds into it. The line belongs to the last session started by the time it was
+    /// recorded, and sits `line.start` seconds after that session's start in the file. Nil for a
+    /// line recorded outside every session or in one that left no audio behind; a session still
+    /// running is not listed yet.
+    func audioPosition(of line: TranscriptLine) -> (file: String, time: TimeInterval)? {
+        // Dates lose their fraction of a second on disk, so the session's start is compared in
+        // whole seconds: the line's own start is always at or after it.
+        guard let session = sessions.last(where: { $0.startedAt.timeIntervalSince(line.recordedAt) < 1 }),
+              let file = session.audioFile else { return nil }
+        if let endedAt = session.endedAt, line.recordedAt.timeIntervalSince(endedAt) >= 1 {
+            return nil
+        }
+        return (file, (session.audioOffset ?? 0) + TimeInterval(max(0, line.start)))
+    }
+
     /// Files written before sessions were tracked have no `sessions` key, and their ids are UUIDs.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
-        lines = try container.decode([TranscriptLine].self, forKey: .lines)
+        lines = try container.decode([TranscriptLine].self, forKey: .lines).withUniqueIDs()
         sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
     }
 }

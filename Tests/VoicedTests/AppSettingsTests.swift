@@ -27,6 +27,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.showTimestampDate)
         XCTAssertFalse(settings.noiseReduction)
         XCTAssertTrue(settings.keepWindowOnTop)
+        XCTAssertEqual(settings.lineClickAction, .copy)
         XCTAssertFalse(settings.translation)
         XCTAssertNil(settings.translationLanguage, "the interface language stands in until one is picked")
         XCTAssertEqual(settings.translationEmphasis, .original)
@@ -151,6 +152,7 @@ final class AppSettingsTests: XCTestCase {
         settings.timestampMode = .relative
         settings.showTimestampDate = false
         settings.keepWindowOnTop = false
+        settings.lineClickAction = .play
         settings.translation = true
         settings.translationLanguage = .german
         settings.translationEmphasis = .translation
@@ -168,6 +170,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.timestampMode, .relative)
         XCTAssertFalse(reloaded.showTimestampDate)
         XCTAssertFalse(reloaded.keepWindowOnTop)
+        XCTAssertEqual(reloaded.lineClickAction, .play)
         XCTAssertTrue(reloaded.translation)
         XCTAssertEqual(reloaded.translationLanguage, .german)
         XCTAssertEqual(reloaded.translationEmphasis, .translation)
@@ -186,12 +189,14 @@ final class AppSettingsTests: XCTestCase {
         settings.showTimestampDate = true
         settings.noiseReduction = false
         settings.keepWindowOnTop = true
+        settings.lineClickAction = .play
         settings.translation = true
         settings.translationLanguage = .chinese
         settings.translationEmphasis = .translation
         settings.speakTranslation = true
 
         XCTAssertEqual(try storedValue("appLanguage") as? String, "english")
+        XCTAssertEqual(try storedValue("lineClickAction") as? String, "play")
         XCTAssertEqual(try storedValue("translation") as? Bool, true)
         XCTAssertEqual(try storedValue("translationLanguage") as? String, "chinese")
         XCTAssertEqual(try storedValue("translationEmphasis") as? String, "translation")
@@ -206,13 +211,14 @@ final class AppSettingsTests: XCTestCase {
 
     func testUnknownStoredValuesFallBackToDefaults() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data(#"{"appLanguage": "klingon", "recognitionLanguage": "xx", "translationLanguage": "klingon", "translationEmphasis": "both"}"#.utf8).write(to: fileURL)
+        try Data(#"{"appLanguage": "klingon", "recognitionLanguage": "xx", "translationLanguage": "klingon", "translationEmphasis": "both", "lineClickAction": "sing"}"#.utf8).write(to: fileURL)
 
         let settings = AppSettings(fileURL: fileURL)
         XCTAssertEqual(settings.appLanguage, AppLanguage.systemDefault)
         XCTAssertEqual(settings.recognitionLanguage, .automatic)
         XCTAssertNil(settings.translationLanguage)
         XCTAssertEqual(settings.translationEmphasis, .original)
+        XCTAssertEqual(settings.lineClickAction, .copy)
     }
 
     func testCorruptFileFallsBackToDefaults() throws {

@@ -189,6 +189,20 @@ struct SettingsView: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
+
+            Divider()
+
+            SettingsRow(title: strings.lineClick, hint: strings.lineClickHint) {
+                HStack(spacing: 12) {
+                    RadioChoice(strings.copyText, selected: controller.lineClickAction == .copy) {
+                        controller.lineClickAction = .copy
+                    }
+                    RadioChoice(strings.playAudio, selected: controller.lineClickAction == .play) {
+                        controller.lineClickAction = .play
+                    }
+                }
+                .fixedSize()
+            }
         }
 
         SettingsGroup {

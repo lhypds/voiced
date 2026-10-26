@@ -96,6 +96,10 @@ struct AppStrings: Sendable {
     var interfaceLanguageHint: String? { language == .english ? nil : "Language" }
     var keepWindowOnTop: String { value("窗口置顶", "ウインドウを最前面に固定", "Keep window on top", "Fenêtre toujours visible", "Ventana siempre visible", "Fenster im Vordergrund") }
     var keepWindowOnTopHint: String { value("切换到其他应用时窗口仍保持在最前面。", "他のアプリに切り替えてもウインドウを前面に表示し続けます。", "The window stays in front when you switch to other apps.", "La fenêtre reste au premier plan quand vous passez à d'autres apps.", "La ventana se mantiene delante al cambiar a otras apps.", "Das Fenster bleibt vorne, wenn du zu anderen Apps wechselst.") }
+    var lineClick: String { value("点击条目", "項目をクリック", "Clicking a row", "Clic sur une ligne", "Clic en una fila", "Klick auf eine Zeile") }
+    var lineClickHint: String { value("复制该条内容，或从那一刻起播放录音，播放中点击任意条目停止。识别过程中始终复制。", "その項目をコピーするか、その時点から録音を再生します。再生中はどの項目をクリックしても停止。認識中は常にコピーします。", "Copies the row's text, or plays the recording from that moment; while it plays, a click on any row stops it. While recognizing, it always copies.", "Copie le texte de la ligne, ou lit l'enregistrement à partir de ce moment ; pendant la lecture, un clic sur n'importe quelle ligne l'arrête. Pendant la reconnaissance, copie toujours.", "Copia el texto de la fila o reproduce la grabación desde ese momento; mientras suena, un clic en cualquier fila la detiene. Durante el reconocimiento siempre copia.", "Kopiert den Text der Zeile oder spielt die Aufnahme ab diesem Moment ab; während sie läuft, stoppt ein Klick auf eine beliebige Zeile. Während der Erkennung wird immer kopiert.") }
+    var copyText: String { value("复制内容", "内容をコピー", "Copy text", "Copier le texte", "Copiar texto", "Text kopieren") }
+    var playAudio: String { value("播放音频", "音声を再生", "Play audio", "Lire l'audio", "Reproducir audio", "Audio abspielen") }
     var timestamp: String { value("时间戳", "タイムスタンプ", "Timestamp", "Horodatage", "Marca de tiempo", "Zeitstempel") }
     var relativeTime: String { value("相对时间", "相対時間", "Relative", "Relatif", "Relativo", "Relativ") }
     var currentTime: String { value("当前时间", "現在時刻", "Clock time", "Heure", "Hora", "Uhrzeit") }
@@ -194,6 +198,7 @@ struct AppStrings: Sendable {
     var results: String { "Voiced" }
     var copyAll: String { value("复制全部", "すべてコピー", "Copy all", "Tout copier", "Copiar todo", "Alles kopieren") }
     var copied: String { value("已复制", "コピーしました", "Copied", "Copié", "Copiado", "Kopiert") }
+    var search: String { value("搜索", "検索", "Search", "Rechercher", "Buscar", "Suchen") }
     var newRecord: String { value("新建", "新規", "New", "Nouveau", "Nuevo", "Neu") }
     var history: String { value("历史记录", "履歴", "History", "Historique", "Historial", "Verlauf") }
     var historyHint: String { value("选择一条记录后继续识别", "履歴を選ぶと続きから認識します", "Pick a transcript to keep recognizing into it", "Choisissez une transcription pour continuer à y reconnaître", "Elige una transcripción para seguir reconociendo en ella", "Transkript wählen, um darin weiter zu erkennen") }
