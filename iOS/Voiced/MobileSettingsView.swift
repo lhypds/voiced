@@ -116,21 +116,38 @@ struct MobileSettingsView: View {
                     NavigationLink { recognition } label: { settingsLabel("识别", symbol: "waveform", color: .blue) }
                     NavigationLink { translation } label: { settingsLabel("翻译", symbol: "character.bubble.fill", color: .green) }
                     NavigationLink { ai } label: { settingsLabel("AI", symbol: "sparkles", color: VoicedPalette.aiAccent) }
-                }.listRowBackground(Color.white)
+                } header: { pageTitle }
+                .listRowBackground(Color.white)
                 Section {
                     NavigationLink { about } label: { settingsLabel("关于 Voiced", symbol: "info", color: MobileTheme.accent) }
                 }.listRowBackground(Color.white)
             }
-            // The default inset-grouped spacing sat the cards close under the large title and far
-            // apart from each other; these give both gaps about the same room.
+            // The cards sit as far below the title as they are apart from each other.
             .listSectionSpacing(24)
-            .contentMargins(.top, 12, for: .scrollContent)
-            .settingsSurface(title: "设置", large: true)
+            .contentMargins(.top, 0, for: .scrollContent)
+            .settingsSurface(title: "设置")
+            // The page draws its own title (see `pageTitle`); the bar shows none, but the pages
+            // pushed from here still offer "设置" on their back buttons.
+            .toolbar { ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) } }
             .toolbar { Button("完成") { dismiss() }.fontWeight(.semibold).foregroundStyle(MobileTheme.accent) }
         }
-        .tint(MobileTheme.accent).foregroundStyle(MobileTheme.ink).preferredColorScheme(.light)
+        .tint(MobileTheme.accent).preferredColorScheme(.light)
         .environment(\.locale, Locale(identifier: model.appLanguage.code))
         .modifier(MobileErrorAlert(model: model))
+    }
+
+    /// "设置" in the wordmark's face and colour, as large as the wordmark on the main screen. Drawn
+    /// in the list rather than as the bar's large title: the page's dark text would turn that dark.
+    private var pageTitle: some View {
+        Text("设置")
+            .font(.custom("GillSans-Bold", size: 34, relativeTo: .largeTitle))
+            .foregroundStyle(MobileTheme.accent)
+            .textCase(nil)
+            .accessibilityAddTraits(.isHeader)
+            // Flush with the cards' left edge, as the bar's large title was, and 24 pt above them:
+            // the section header keeps about 14 pt under its content by itself.
+            .padding(.leading, -16)
+            .padding(.bottom, 10)
     }
 
     private func settingsLabel(_ title: String, symbol: String, color: Color) -> some View {
@@ -279,7 +296,8 @@ struct MobileSettingsView: View {
     private var promptEditor: some View {
         Form {
             Section {
-                TextEditor(text: $model.promptText).font(.body.monospaced()).frame(minHeight: 320)
+                // A fixed height keeps the row from resizing with the text; the editor scrolls instead.
+                TextEditor(text: $model.promptText).font(.footnote.monospaced()).frame(height: 320)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
             } footer: { Text("每行一个人名、产品名或术语；# 开头的行被忽略。下一次识别或预览生效，最多使用前 223 个 token。") }
                 .listRowBackground(Color.white)
@@ -393,11 +411,14 @@ struct MobileSettingsView: View {
                 // the field on the second, so the title stays once a key has been entered.
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
-                        Text("OpenAI API 密钥")
-                        Link("获取密钥", destination: URL(string: "https://platform.openai.com/api-keys")!)
-                            .font(.footnote).foregroundStyle(MobileTheme.accent)
-                            // Only the link opens the page, not a tap anywhere on the row.
-                            .buttonStyle(.borderless)
+                        // The smaller link sits on the title's baseline, not centred beside it.
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("OpenAI API 密钥")
+                            Link("获取密钥", destination: URL(string: "https://platform.openai.com/api-keys")!)
+                                .font(.footnote).foregroundStyle(MobileTheme.accent)
+                                // Only the link opens the page, not a tap anywhere on the row.
+                                .buttonStyle(.borderless)
+                        }
                         Spacer()
                         // Shows or hides the key, as the eye on macOS does.
                         Button { isAPIKeyRevealed.toggle() } label: {
@@ -408,7 +429,8 @@ struct MobileSettingsView: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .accessibilityLabel(isAPIKeyRevealed ? "隐藏密钥" : "显示密钥")
+                        // Through the string catalog: a plain String label would stay Chinese.
+                        .accessibilityLabel(Text(LocalizedStringKey(isAPIKeyRevealed ? "隐藏密钥" : "显示密钥")))
                         .accessibilityIdentifier("reveal-api-key")
                     }
                     // A box four lines tall in both states. The key, or one dot per character while

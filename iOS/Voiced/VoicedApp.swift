@@ -13,7 +13,11 @@ struct VoicedIOSApp: App {
         let scrolled = UINavigationBarAppearance()
         scrolled.configureWithDefaultBackground()
         scrolled.backgroundColor = UIColor(MobileTheme.background)
-        scrolled.largeTitleTextAttributes = [.foregroundColor: UIColor(MobileTheme.accent)]
+        // Large titles (Settings, History) in the wordmark's face and colour: Gill Sans Bold at the
+        // wordmark's 34 pt, following the reader's text size as the wordmark does.
+        let titleFont = UIFont(name: "GillSans-Bold", size: 34).map { UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: $0) }
+            ?? UIFont.preferredFont(forTextStyle: .largeTitle)
+        scrolled.largeTitleTextAttributes = [.foregroundColor: UIColor(MobileTheme.accent), .font: titleFont]
         scrolled.titleTextAttributes = [.foregroundColor: UIColor(MobileTheme.ink)]
         // At the scroll edge the bar must stay transparent: on iOS 26 an opaque bar background is
         // painted over the large title area, so a themed background there hides the title entirely.

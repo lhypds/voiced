@@ -125,7 +125,9 @@ struct MobileHistoryView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(MobileTheme.accent)
-            TextField(model.strings.searchHistory, text: $query)
+            // No placeholder, as in the main screen's search field; the name stays for VoiceOver.
+            TextField("", text: $query)
+                .accessibilityLabel(model.strings.searchHistory)
                 .textFieldStyle(.plain).font(.body)
                 .submitLabel(.search)
                 .autocorrectionDisabled()

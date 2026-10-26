@@ -203,6 +203,15 @@ struct ContentView: View {
                 MobileHistoryView(openSearch: { searchFromHistory = $0 }).environmentObject(model)
             }
             .modifier(MobileErrorAlert(model: model, enabled: !showSettings && !showHistory))
+            // As on macOS: a record left with nothing to search, a new one say, closes the search.
+            .onChange(of: model.current.lines.isEmpty) { _, isEmpty in
+                guard isEmpty, searching else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    query = ""
+                    searching = false
+                    searchFocused = false
+                }
+            }
         }
         // Keep the home canvas at its full height while the search keyboard overlays it.
         // In particular, the centered prompt and microphone must not follow the keyboard.
@@ -234,8 +243,11 @@ struct ContentView: View {
             Button { withAnimation(.easeInOut(duration: 0.2)) { searching.toggle(); if !searching { query = "" } } } label: {
                 Image(systemName: "magnifyingglass")
             }.accessibilityLabel("搜索转写")
+                // As on macOS: nothing to search until the record has a sentence.
+                .disabled(model.current.lines.isEmpty)
             Button { showHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
-                .accessibilityLabel("历史记录").disabled(model.locked)
+                // Grey with nothing in the history yet, as well as while recording.
+                .accessibilityLabel("历史记录").disabled(model.locked || model.records.isEmpty)
             Button { showSettings = true } label: { Image(systemName: "gearshape") }
                 .accessibilityLabel("设置").disabled(model.busy || model.stopping || model.calibrating)
         }.buttonStyle(OrangeButtonStyle())
@@ -423,7 +435,10 @@ struct ContentView: View {
 
 extension View {
     func settingsSurface(title: String, large: Bool = false) -> some View {
-        self.scrollContentBackground(.hidden)
+        // The page's text is ink, set here on the page rather than on the whole navigation stack,
+        // where it would also turn the orange large title dark.
+        self.foregroundStyle(MobileTheme.ink)
+            .scrollContentBackground(.hidden)
             .background(MobileTheme.background.ignoresSafeArea())
             .navigationTitle(Text(LocalizedStringKey(title)))
             .navigationBarTitleDisplayMode(large ? .large : .inline)
@@ -464,7 +479,7 @@ private struct HintCard: View {
             do { try await Task.sleep(for: .seconds(hint.readingTime)); dismiss() } catch {}
         }
         .accessibilityElement(children: .combine)
-        .accessibilityHint(pinned ? "已固定，轻点后自动消失" : "轻点可固定")
+        .accessibilityHint(Text(LocalizedStringKey(pinned ? "已固定，轻点后自动消失" : "轻点可固定")))
     }
 
     /// "AI" and its symbol, in the timestamp's font; a pin under them while the note is kept.

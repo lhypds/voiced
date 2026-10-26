@@ -10,22 +10,25 @@ final class FeatureParityUITests: XCTestCase {
     }
 
     func testSearchKeyboardKeepsMicrophoneInPlace() {
-        app.launchArguments.append("--ui-empty")
         app.launch()
         let microphone = app.buttons["开始录音"]
         XCTAssertTrue(microphone.waitForExistence(timeout: 15))
         let originalY = microphone.frame.midY
-        let prompt = app.staticTexts["empty-transcript-prompt"]
-        XCTAssertTrue(prompt.exists)
-        let originalPromptY = prompt.frame.midY
         app.buttons["搜索转写"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(microphone.frame.midY, originalY, accuracy: 1)
-        XCTAssertEqual(prompt.frame.midY, originalPromptY, accuracy: 1)
         app.buttons["取消"].tap()
         XCTAssertTrue(microphone.waitForExistence(timeout: 5))
         XCTAssertEqual(microphone.frame.midY, originalY, accuracy: 1)
-        XCTAssertEqual(prompt.frame.midY, originalPromptY, accuracy: 1)
+    }
+
+    func testSearchIsGreyWithNothingToSearch() {
+        app.launchArguments.append("--ui-empty")
+        app.launch()
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["搜索转写"].isEnabled)
+        // The fixture's saved record is still in the history.
+        XCTAssertTrue(app.buttons["历史记录"].isEnabled)
     }
 
     func testRecordingShowsLiveAndCommittedTextWithoutIdlePrompt() {
@@ -97,6 +100,8 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["正在加载模型 3/3：音频编码器"].exists)
         XCTAssertFalse(app.buttons["停止录音"].exists)
     }
+
+
 
     private func openSettings() {
         app.launch()

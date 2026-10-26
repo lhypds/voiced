@@ -25,8 +25,10 @@ struct HistoryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // In the wordmark's face and colour, as the Settings sidebar's title is.
             Text(strings.history)
-                .font(.title3.weight(.bold))
+                .font(.custom("GillSans-Bold", size: 24))
+                .foregroundStyle(Theme.accent)
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
 
@@ -158,9 +160,10 @@ private struct HistoryRow: View {
     @State private var copiedResetTask: Task<Void, Never>?
 
     private static let dateFormatter: DateFormatter = {
+        // A fixed, compact "2026-10-27 12:12" keeps the date on one line beside the sentence count.
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter
     }()
 
