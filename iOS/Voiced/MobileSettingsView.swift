@@ -303,7 +303,7 @@ struct MobileSettingsView: View {
                 Button("刷新输入设备") { model.refreshInputs() }.disabled(model.locked)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(model.strings.inputLevel).font(.caption).foregroundStyle(.secondary)
-                    ProgressView(value: min(Double(model.inputLevelMonitor.level) * 8, 1))
+                    LevelMeter(level: model.inputLevelMonitor.level, threshold: model.speechEnergyFloor).frame(height: 6)
                 }
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -334,7 +334,7 @@ struct MobileSettingsView: View {
                 if model.noiseProfile != nil {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(model.strings.denoisedLevel).font(.caption).foregroundStyle(.secondary)
-                        ProgressView(value: min(Double(model.inputLevelMonitor.denoisedLevel) * 8, 1))
+                        LevelMeter(level: model.inputLevelMonitor.denoisedLevel, threshold: model.speechEnergyFloor).frame(height: 6)
                     }
                 }
                 HStack { Text("噪声样本"); Spacer(); Text(LocalizedStringKey(model.noiseProfile == nil ? "未采集" : "已采集")).foregroundStyle(.secondary) }
