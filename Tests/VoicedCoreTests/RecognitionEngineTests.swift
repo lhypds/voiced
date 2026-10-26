@@ -13,7 +13,7 @@ final class RecognitionEngineTests: XCTestCase {
     }
 
     func testOpenAIFoldersCarryThePrefixTheDownloaderAdds() {
-        for engine in [RecognitionEngine.turbo, .accurate] {
+        for engine in [RecognitionEngine.turbo, .accurate, .medium, .small] {
             XCTAssertEqual(engine.modelFolderName, "openai_whisper-" + engine.modelVariant)
         }
     }

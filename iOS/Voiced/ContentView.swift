@@ -83,8 +83,14 @@ struct ContentView: View {
     private static let rowGap: CGFloat = 10
     /// Cards fade out over this strip at the top once they scroll under the header.
     private static let topFadeHeight: CGFloat = 72
-    /// Cards fade out over this strip above the recording controls.
-    private static let bottomFadeHeight: CGFloat = 24
+    /// The microphone button's diameter, and the space the recording controls keep above and below it.
+    private static let micSize: CGFloat = 84
+    private static let controlsTopPadding: CGFloat = 24
+    private static let controlsBottomPadding: CGFloat = 4
+    /// The list reaches under the recording controls down to the middle of the microphone…
+    private static let controlsOverlap: CGFloat = micSize / 2 + controlsBottomPadding
+    /// …and its cards fade out from the top of the controls to there.
+    private static let bottomFadeHeight: CGFloat = controlsTopPadding + micSize / 2
     /// Scroll offset for the top fade, kept out of plain state so scrolling redraws the fade alone.
     @State private var scrollFade = ScrollFadeState()
     @State private var showsCopiedToast = false
@@ -153,7 +159,8 @@ struct ContentView: View {
                     // themselves; under the header, the wider one.
                     // The last card rests just above the bottom fade, so it is only dimmed while
                     // more of the list lies below it.
-                    .padding(.horizontal, 20).padding(.top, searching ? Self.rowGap : 16).padding(.bottom, Self.bottomFadeHeight)
+                    .padding(.horizontal, 20).padding(.top, searching ? Self.rowGap : 16)
+                    .padding(.bottom, Self.bottomFadeHeight + Self.controlsOverlap)
                     .frame(maxWidth: 820).frame(maxWidth: .infinity)
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -166,10 +173,13 @@ struct ContentView: View {
                         Color.black
                         LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                             .frame(height: Self.bottomFadeHeight)
+                        Color.clear.frame(height: Self.controlsOverlap)
                     }
                 )
-                // After the mask, so the toast itself is never faded.
-                .overlay(alignment: .bottom) { if showsCopiedToast { copiedToast } }
+                // After the mask, so the toast itself is never faded; it stays above the controls.
+                .overlay(alignment: .bottom) { if showsCopiedToast { copiedToast.padding(.bottom, Self.controlsOverlap) } }
+                // Drawn under the controls that follow, down to the middle of the microphone.
+                .padding(.bottom, -Self.controlsOverlap)
                 recordingControls
             }
             // Apply this inside NavigationStack too: its content receives its own keyboard safe area.
@@ -407,28 +417,23 @@ struct ContentView: View {
                             .font(.system(size: 33, weight: .semibold))
                     }
                 }
-                .buttonStyle(OrangeButtonStyle(size: 84))
+                .buttonStyle(OrangeButtonStyle(size: Self.micSize))
                 .disabled(model.stopping)
                 .accessibilityLabel(model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")
                 .accessibilityValue(Text(LocalizedStringKey(model.status)))
                 HStack {
                     Circle().fill(model.busy ? Color.red : model.recording ? Color.green : MobileTheme.accent.opacity(0.35))
-                        .frame(width: 9, height: 9)
+                        .frame(width: 7, height: 7)
                         .scaleEffect(model.recording ? 1 + CGFloat(min(model.level * 5, 0.5)) : 1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.top, 24).padding(.bottom, 4)
+        .padding(.top, Self.controlsTopPadding).padding(.bottom, Self.controlsBottomPadding)
         .overlay(alignment: .top) {
             if model.stopping {
                 Text(LocalizedStringKey(model.status)).font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 24)
             }
-        }
-        .background {
-            LinearGradient(stops: [.init(color: MobileTheme.background.opacity(0), location: 0),
-                                   .init(color: MobileTheme.background, location: 0.25)],
-                           startPoint: .top, endPoint: .bottom).ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -495,11 +500,12 @@ private struct HintCard: View {
         .foregroundStyle(VoicedPalette.aiAccent)
     }
 
-    /// A little smaller than the transcript's text, as on macOS; the purple topic tells them apart.
+    /// A little smaller than the transcript's text, as on macOS, and bold like it; the purple
+    /// topic tells them apart.
     private var content: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(hint.topic).font(.subheadline).foregroundStyle(VoicedPalette.aiAccent)
-            Text(hint.text).font(.subheadline).foregroundStyle(MobileTheme.ink)
+            Text(hint.topic).font(.subheadline.bold()).foregroundStyle(VoicedPalette.aiAccent)
+            Text(hint.text).font(.subheadline.bold()).foregroundStyle(MobileTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .textSelection(.enabled)
