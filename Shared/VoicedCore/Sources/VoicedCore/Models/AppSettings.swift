@@ -13,6 +13,7 @@ public struct AppSettings {
         case showTimestampDate
         case recognitionEngine
         case speechEnergyFloor
+        case inputGain
         case noiseReduction
         case voiceFilter
         case keepWindowOnTop
@@ -66,7 +67,7 @@ public struct AppSettings {
     }
 
     public var recognitionEngine: RecognitionEngine {
-        get { rawValue(.recognitionEngine) ?? .turbo }
+        get { rawValue(.recognitionEngine) ?? .platformDefault }
         nonmutating set { set(newValue.rawValue, for: .recognitionEngine) }
     }
 
@@ -216,6 +217,12 @@ public struct AppSettings {
             return Float(stored).clamped(to: LiveTranscriber.speechEnergyFloorRange)
         }
         nonmutating set { set(Double(newValue.clamped(to: LiveTranscriber.speechEnergyFloorRange)), for: .speechEnergyFloor) }
+    }
+
+    /// Input boost in decibels, applied through `InputGain`. 0 dB by default; clamped to its range.
+    public var inputGain: Float {
+        get { Float(file[Key.inputGain.rawValue] as? Double ?? 0).clamped(to: InputGain.range) }
+        nonmutating set { set(Double(newValue.clamped(to: InputGain.range)), for: .inputGain) }
     }
 
     /// The engines whose models the Neural Engine has compiled on the given macOS build, as

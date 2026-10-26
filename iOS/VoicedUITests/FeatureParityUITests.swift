@@ -176,6 +176,13 @@ final class FeatureParityUITests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
         app.swipeUp()
         XCTAssertTrue(app.buttons["开始预览"].exists)
+        XCTAssertFalse(app.sliders["能量阈值"].exists)
+    }
+
+    func testAudioInputOffersGainAndEnergyThreshold() {
+        openSettings()
+        app.buttons["音频输入"].tap()
+        XCTAssertTrue(app.sliders["输入增益"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.sliders["能量阈值"].exists)
     }
 

@@ -172,6 +172,13 @@ final class TranscriptionController: ObservableObject {
             preview.setSpeechEnergyFloor(speechEnergyFloor)
         }
     }
+    /// Input boost in decibels; takes effect immediately, even mid-recording.
+    @Published var inputGain: Float {
+        didSet {
+            settings.inputGain = inputGain
+            InputGain.shared.decibels = inputGain
+        }
+    }
     /// Trial recognition shown in the settings sheet so the user can tune the threshold.
     let preview = RecognitionPreview()
     /// Level of the selected input, shown under the input picker while the settings sheet is open.
@@ -357,6 +364,8 @@ final class TranscriptionController: ObservableObject {
         lineClickAction = settings.lineClickAction
         selectedEngine = settings.recognitionEngine
         speechEnergyFloor = settings.speechEnergyFloor
+        inputGain = settings.inputGain
+        InputGain.shared.decibels = settings.inputGain
         translationEnabled = settings.translation
         // Before rules, every line went into one language.
         translationRules = settings.translationRules?.withoutRepeatedSources
@@ -518,6 +527,7 @@ final class TranscriptionController: ObservableObject {
         timestampMode = settings.timestampMode
         showTimestampDate = settings.showTimestampDate
         speechEnergyFloor = settings.speechEnergyFloor
+        inputGain = settings.inputGain
         noiseReductionEnabled = settings.noiseReduction
         voiceFilterEnabled = settings.voiceFilter
         if settings.recognitionEngine != selectedEngine {

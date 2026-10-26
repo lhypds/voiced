@@ -272,6 +272,19 @@ struct SettingsView: View {
 
             Divider()
 
+            SettingsRow(title: strings.inputGain, hint: strings.inputGainHint, accessory: resetGainButton) {
+                HStack(spacing: 8) {
+                    Slider(value: $controller.inputGain, in: InputGain.range, step: 1)
+                        .frame(width: 110)
+                    Text(String(format: "%+.0f dB", controller.inputGain))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 38, alignment: .trailing)
+                }
+            }
+
+            Divider()
+
             SettingsRow(title: strings.energyThreshold, hint: strings.energyThresholdHint, accessory: resetThresholdButton) {
                 VStack(alignment: .trailing, spacing: 6) {
                     HStack(spacing: 8) {
@@ -778,6 +791,18 @@ struct SettingsView: View {
         if controller.speechEnergyFloor != LiveTranscriber.defaultSpeechEnergyFloor {
             Button(strings.resetToDefault) {
                 controller.speechEnergyFloor = LiveTranscriber.defaultSpeechEnergyFloor
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundStyle(Theme.accent)
+        }
+    }
+
+    @ViewBuilder
+    private var resetGainButton: some View {
+        if controller.inputGain != 0 {
+            Button(strings.resetToDefault) {
+                controller.inputGain = 0
             }
             .buttonStyle(.plain)
             .font(.caption)

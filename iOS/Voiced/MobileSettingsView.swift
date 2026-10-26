@@ -243,18 +243,6 @@ struct MobileSettingsView: View {
                 Text("建议优先使用 Turbo。首次选择模型时需联网下载，首次加载可能需要几分钟；完成后可离线识别。")
             }.listRowBackground(Color.white)
             Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("能量阈值")
-                        Spacer()
-                        Text(model.speechEnergyFloor, format: .number.precision(.fractionLength(3))).monospacedDigit().foregroundStyle(.secondary)
-                    }
-                    Slider(value: $model.speechEnergyFloor, in: LiveTranscriber.speechEnergyFloorRange).accessibilityLabel("能量阈值")
-                }.padding(.vertical, 4)
-                Button("恢复默认阈值") { model.speechEnergyFloor = LiveTranscriber.defaultSpeechEnergyFloor }
-            } footer: { Text("低于此音量的声音不会触发识别。声音较轻或距离较远时可适当调低。") }
-                .listRowBackground(Color.white)
-            Section {
                 Button {
                     if model.previewActive || model.busy { model.stop() } else { model.startPreview() }
                 } label: {
@@ -317,8 +305,30 @@ struct MobileSettingsView: View {
                     Text(model.strings.inputLevel).font(.caption).foregroundStyle(.secondary)
                     ProgressView(value: min(Double(model.inputLevelMonitor.level) * 8, 1))
                 }
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text(model.strings.inputGain)
+                        Spacer()
+                        Text(String(format: "%+.0f dB", model.inputGain)).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    Slider(value: $model.inputGain, in: InputGain.range, step: 1).accessibilityLabel(model.strings.inputGain)
+                    Text(model.strings.inputGainHint).font(.caption).foregroundStyle(.secondary)
+                }.padding(.vertical, 4)
+                if model.inputGain != 0 { Button(model.strings.resetToDefault) { model.inputGain = 0 } }
                 LabeledContent { Text("前台录音") } label: { Text("录音方式") }
             } footer: { Text("使用系统提供的麦克风或外接输入。来电或进入后台时会结束录音，已采集音频会保存。") }.listRowBackground(Color.white)
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("能量阈值")
+                        Spacer()
+                        Text(model.speechEnergyFloor, format: .number.precision(.fractionLength(3))).monospacedDigit().foregroundStyle(.secondary)
+                    }
+                    Slider(value: $model.speechEnergyFloor, in: LiveTranscriber.speechEnergyFloorRange).accessibilityLabel("能量阈值")
+                }.padding(.vertical, 4)
+                Button("恢复默认阈值") { model.speechEnergyFloor = LiveTranscriber.defaultSpeechEnergyFloor }
+            } footer: { Text("低于此音量的声音不会触发识别。声音较轻或距离较远时可适当调低。") }
+                .listRowBackground(Color.white)
             Section {
                 Toggle("降噪", isOn: $model.noiseReduction).disabled(model.locked || model.noiseProfile == nil)
                 if model.noiseProfile != nil {

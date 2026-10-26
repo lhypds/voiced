@@ -41,7 +41,7 @@ final class AudioCapture: AudioCapturing, @unchecked Sendable {
                     return buffer
                 }
                 guard error == nil, let channel = output.floatChannelData?[0] else { return }
-                onChunk(Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength))))
+                onChunk(InputGain.shared.apply(Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))))
             }
             do { try engine.start(); started = true }
             catch { input.removeTap(onBus: 0); throw error }

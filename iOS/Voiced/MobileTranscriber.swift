@@ -26,6 +26,7 @@ final class MobileTranscriber: ObservableObject {
             if let transcriber { let floor = speechEnergyFloor; Task { await transcriber.setSpeechEnergyFloor(floor) } }
         }
     }
+    @Published var inputGain: Float { didSet { settings.inputGain = inputGain; InputGain.shared.decibels = inputGain } }
     @Published var showDate: Bool { didSet { settings.showTimestampDate = showDate } }
     @Published var lineClickAction: LineClickAction { didSet { settings.lineClickAction = lineClickAction; stopPlayback() } }
     @Published var noiseReduction: Bool { didSet { settings.noiseReduction = noiseReduction } }
@@ -97,7 +98,7 @@ final class MobileTranscriber: ObservableObject {
     private var task: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
 
-    var engine: RecognitionEngine { RecognitionEngine(rawValue: engineID) ?? .turbo }
+    var engine: RecognitionEngine { RecognitionEngine(rawValue: engineID) ?? .platformDefault }
     var locked: Bool { busy || recording || stopping || previewActive || calibrating || downloadingVoiceFilter }
     var translationAvailable: Bool { translator != nil }
     var canSummarize: Bool { summaryEnabled && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -143,6 +144,8 @@ final class MobileTranscriber: ObservableObject {
         timestampID = settings.timestampMode.rawValue
         showDate = settings.showTimestampDate
         speechEnergyFloor = settings.speechEnergyFloor
+        inputGain = settings.inputGain
+        InputGain.shared.decibels = settings.inputGain
         do {
             try MobileDataMigration.importHistory(from: directory.appendingPathComponent("history.json"), into: historyStore)
         } catch { self.error = "迁移历史记录失败：\(error.localizedDescription)" }
@@ -721,6 +724,7 @@ extension MobileTranscriber {
         showDate = settings.showTimestampDate
         lineClickAction = settings.lineClickAction
         speechEnergyFloor = settings.speechEnergyFloor
+        inputGain = settings.inputGain
         noiseReduction = settings.noiseReduction
         voiceFilter = settings.voiceFilter
         translationEnabled = settings.translation

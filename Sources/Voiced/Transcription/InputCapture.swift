@@ -197,7 +197,7 @@ final class InputCapture: @unchecked Sendable {
 
     private func deliver(_ chunk: [Float], from engine: AVAudioEngine) {
         guard let onChunk = lock.withLock({ self.engine === engine ? onChunk : nil }) else { return }
-        onChunk(chunk)
+        onChunk(InputGain.shared.apply(chunk))
     }
 
     private static func assign(_ deviceID: DeviceID, to input: AVAudioInputNode) throws {

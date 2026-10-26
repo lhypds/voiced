@@ -25,7 +25,7 @@ public enum MobileDataMigration {
     public static func importSettings(from defaults: UserDefaults, into file: URL) {
         guard !FileManager.default.fileExists(atPath: file.path) else { return }
         let settings = AppSettings(fileURL: file)
-        settings.recognitionEngine = RecognitionEngine(rawValue: defaults.string(forKey: "ios.engine") ?? "") ?? .turbo
+        settings.recognitionEngine = RecognitionEngine(rawValue: defaults.string(forKey: "ios.engine") ?? "") ?? .platformDefault
         settings.recognitionLanguage = RecognitionLanguage.choice(id: defaults.string(forKey: "ios.language"))
         settings.timestampMode = TimestampMode(rawValue: defaults.string(forKey: "ios.timestamp") ?? "") ?? .current
         settings.showTimestampDate = defaults.object(forKey: "ios.showDate") as? Bool ?? true

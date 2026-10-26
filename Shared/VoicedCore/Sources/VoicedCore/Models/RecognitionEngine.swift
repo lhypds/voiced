@@ -22,6 +22,16 @@ public enum RecognitionEngine: String, CaseIterable, Identifiable, Sendable {
 
     public var id: String { rawValue }
 
+    /// The model a new install starts with. iPhone loads the large models slowly at every cold
+    /// launch, so it starts with Small.
+    public static var platformDefault: RecognitionEngine {
+        #if os(iOS)
+        .small
+        #else
+        .turbo
+        #endif
+    }
+
     /// Model name shown in Settings, the same in every interface language.
     public var displayName: String {
         switch self {
