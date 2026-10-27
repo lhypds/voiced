@@ -96,16 +96,15 @@ struct MobileHistoryView: View {
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowBackground(MobileTheme.card)
                         .contextMenu {
-                            ForEach(model.audioURLs(for: record), id: \.self) { url in
-                                ShareLink(item: url) { Label(url.lastPathComponent, systemImage: "square.and.arrow.up") }
-                            }
                             if model.canSummarize {
-                                Button("生成摘要", systemImage: "sparkles") { model.summarize(record) }
+                                Button(model.hasSummary(record) ? "重新生成摘要" : "生成摘要", systemImage: "sparkles") { model.summarize(record) }
                                     .disabled(model.ai.summarizingRecordIDs.contains(record.id) || record.lines.isEmpty)
                             }
                             if model.hasSummary(record) { Button("查看摘要", systemImage: "doc.text") { model.openSummary(record) } }
                             ShareLink(item: model.export(record.lines)) { Label("导出文字", systemImage: "square.and.arrow.up") }
-                            ShareLink(item: model.transcriptURL(for: record)) { Label("JSON", systemImage: "doc") }
+                            ForEach(model.audioURLs(for: record), id: \.self) { url in
+                                ShareLink(item: url) { Label("音频文件", systemImage: "waveform") }
+                            }
                         }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) { delete(record) } label: { Label("删除", systemImage: "trash") }

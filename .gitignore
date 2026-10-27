@@ -11,6 +11,7 @@ Packages/
 # Xcode
 xcuserdata/
 DerivedData/
+build/
 *.xcuserstate
 *.moved-aside
 *.hmap

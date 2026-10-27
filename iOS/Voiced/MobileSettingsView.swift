@@ -382,7 +382,9 @@ struct MobileSettingsView: View {
                         Button(role: .destructive) {
                             let id = rule.id
                             model.translationRules.removeAll { $0.id == id }
-                        } label: { Label(model.strings.delete, systemImage: "trash") }
+                        } label: {
+                            Label { Text(model.strings.delete) } icon: { Image(systemName: "trash").imageScale(.small) }
+                        }
                     } header: { Text("翻译规则") }.listRowBackground(Color.white)
                 }
                 Section {

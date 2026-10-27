@@ -507,10 +507,6 @@ extension MobileTranscriber {
         configureTranslation()
     }
 
-    func transcriptURL(for record: TranscriptRecord) -> URL {
-        historyStore.recordDirectory(id: record.id).appendingPathComponent(TranscriptHistoryStore.transcriptFileName)
-    }
-
     func audioURLs(for record: TranscriptRecord) -> [URL] {
         var seen: Set<String> = []
         return record.sessions.compactMap(\.audioFile).filter { seen.insert($0).inserted }
