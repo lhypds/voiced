@@ -97,7 +97,7 @@ struct MobileHistoryView: View {
                         .listRowBackground(MobileTheme.card)
                         .contextMenu {
                             if model.canSummarize {
-                                Button(model.hasSummary(record) ? "重新生成摘要" : "生成摘要", systemImage: "sparkles") { model.summarize(record) }
+                                Button(LocalizedStringKey(model.hasSummary(record) ? "重新生成摘要" : "生成摘要"), systemImage: "sparkles") { model.summarize(record) }
                                     .disabled(model.ai.summarizingRecordIDs.contains(record.id) || record.lines.isEmpty)
                             }
                             if model.hasSummary(record) { Button("查看摘要", systemImage: "doc.text") { model.openSummary(record) } }

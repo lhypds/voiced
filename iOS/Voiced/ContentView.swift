@@ -419,7 +419,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(OrangeButtonStyle(size: Self.micSize))
                 .disabled(model.stopping)
-                .accessibilityLabel(model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")
+                .accessibilityLabel(Text(LocalizedStringKey(model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")))
                 .accessibilityValue(Text(LocalizedStringKey(model.status)))
                 HStack {
                     Circle().fill(model.busy ? Color.red : model.recording ? Color.green : MobileTheme.accent.opacity(0.35))
