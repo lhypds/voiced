@@ -560,7 +560,10 @@ extension MobileTranscriber {
             playbackTask = Task { [weak self] in
                 while !Task.isCancelled {
                     guard let self, let now = self.playback.currentTime else { return }
-                    self.playingLineID = cues.last(where: { $0.time <= now })?.id
+                    // Assign only on a change: every @Published write, even of the same value,
+                    // redraws the whole home list, which made scrolling stutter during playback.
+                    let id = cues.last(where: { $0.time <= now })?.id
+                    if id != self.playingLineID { self.playingLineID = id }
                     try? await Task.sleep(for: .milliseconds(100))
                 }
             }
