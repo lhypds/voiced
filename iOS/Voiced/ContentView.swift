@@ -87,10 +87,8 @@ struct ContentView: View {
     private static let micSize: CGFloat = 84
     private static let controlsTopPadding: CGFloat = 24
     private static let controlsBottomPadding: CGFloat = 4
-    /// The list reaches under the recording controls down to the middle of the microphone…
-    private static let controlsOverlap: CGFloat = micSize / 2 + controlsBottomPadding
-    /// …and its cards fade out from the top of the controls to there.
-    private static let bottomFadeHeight: CGFloat = controlsTopPadding + micSize / 2
+    /// The recording controls float over the list; its last card can scroll up clear of them.
+    private static let controlsHeight: CGFloat = controlsTopPadding + micSize + controlsBottomPadding
     /// Scroll offset for the top fade, kept out of plain state so scrolling redraws the fade alone.
     @State private var scrollFade = ScrollFadeState()
     @State private var showsCopiedToast = false
@@ -107,7 +105,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                header
+                header.simultaneousGesture(dismissSearchKeyboard)
                 if searching {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
@@ -157,33 +155,34 @@ struct ContentView: View {
                     }
                     // Under the search field the first card keeps the gap the cards keep between
                     // themselves; under the header, the wider one.
-                    // The last card rests just above the bottom fade, so it is only dimmed while
-                    // more of the list lies below it.
+                    // The last card comes to rest just above the floating controls.
                     .padding(.horizontal, 20).padding(.top, searching ? Self.rowGap : 16)
-                    .padding(.bottom, Self.bottomFadeHeight + Self.controlsOverlap)
+                    .padding(.bottom, Self.controlsHeight + Self.rowGap)
                     .frame(maxWidth: 820).frame(maxWidth: .infinity)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(ScrollOffsetReader(fade: scrollFade, limit: Self.topFadeHeight))
-                // As on macOS: cards fade out under the header once scrolled, and toward the
-                // recording controls at the bottom.
+                // As on macOS: cards fade out under the header once scrolled.
                 .mask(
                     VStack(spacing: 0) {
                         TopFade(fade: scrollFade)
                         Color.black
-                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: Self.bottomFadeHeight)
-                        Color.clear.frame(height: Self.controlsOverlap)
                     }
                 )
-                // After the mask, so the toast itself is never faded; it stays above the controls.
-                .overlay(alignment: .bottom) { if showsCopiedToast { copiedToast.padding(.bottom, Self.controlsOverlap) } }
-                // Drawn under the controls that follow, down to the middle of the microphone.
-                .padding(.bottom, -Self.controlsOverlap)
-                recordingControls
+                // After the mask, so neither is faded. The controls float over the cards, which
+                // scroll on behind them; their empty side columns let taps through to the list.
+                .overlay(alignment: .bottom) {
+                    VStack(spacing: 0) {
+                        if showsCopiedToast { copiedToast }
+                        recordingControls
+                    }
+                }
+                // Blank space included, so a tap anywhere but the search field puts the keyboard away.
+                .contentShape(Rectangle())
+                .simultaneousGesture(dismissSearchKeyboard)
             }
             // Apply this inside NavigationStack too: its content receives its own keyboard safe area.
-            // A regular bottom child avoids safeAreaInset lifting the controls above the keyboard.
+            // An overlay rather than safeAreaInset, which would lift the controls above the keyboard.
             .background(MobileTheme.background.ignoresSafeArea())
             .overlay {
                 if !model.recording && !model.previewActive && !model.stopping && !model.busy
@@ -230,6 +229,11 @@ struct ContentView: View {
         .foregroundStyle(MobileTheme.ink)
         .preferredColorScheme(.light)
         .environment(\.locale, Locale(identifier: model.appLanguage.code))
+    }
+
+    /// Alongside whatever the tap does, so the cards and buttons still answer it.
+    private var dismissSearchKeyboard: some Gesture {
+        TapGesture().onEnded { searchFocused = false }
     }
 
     private var header: some View {
@@ -343,7 +347,7 @@ struct ContentView: View {
     private var emptyState: some View {
         Text(model.strings.emptyTitle)
             .accessibilityIdentifier("empty-transcript-prompt")
-            .font(.subheadline.weight(.medium)).foregroundStyle(MobileTheme.accent)
+            .font(.callout.weight(.medium)).foregroundStyle(MobileTheme.accent)
             .frame(maxWidth: .infinity)
     }
 
@@ -431,8 +435,12 @@ struct ContentView: View {
         .padding(.top, Self.controlsTopPadding).padding(.bottom, Self.controlsBottomPadding)
         .overlay(alignment: .top) {
             if model.stopping {
+                // Backed by the screen's colour, as cards may be scrolling behind it.
                 Text(LocalizedStringKey(model.status)).font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center).padding(.horizontal, 24)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 10).padding(.vertical, 3)
+                    .background(MobileTheme.background, in: Capsule())
+                    .padding(.horizontal, 24)
             }
         }
     }

@@ -9,6 +9,10 @@ struct MobileHistoryView: View {
     /// Called with the search a result was chosen with, before the history closes.
     var openSearch: (String) -> Void = { _ in }
     @State private var query = ""
+    /// The inset-grouped section's own corner radius, so a card looks the same at rest and mid-swipe.
+    private static var cardRadius: CGFloat {
+        if #available(iOS 26, *) { 26 } else { 10 }
+    }
 
     /// The same fixed, compact "2026-10-27 12:12" the macOS history shows.
     private static let dateFormatter: DateFormatter = {
@@ -87,14 +91,17 @@ struct MobileHistoryView: View {
                                         }
                                     }.font(.caption).foregroundStyle(VoicedPalette.aiAccent).lineLimit(1)
                                 }
-                            }.padding(.vertical, 12)
+                            }.padding(.vertical, 12).padding(.horizontal, 16)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                // The card is drawn by the row rather than the list, so it slides
+                                // with a swipe and keeps its round corners beside the delete button.
+                                .background(MobileTheme.card, in: RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("history-record.\(record.id)")
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowBackground(MobileTheme.card)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                         .contextMenu {
                             if model.canSummarize {
                                 Button(LocalizedStringKey(model.hasSummary(record) ? "重新生成摘要" : "生成摘要"), systemImage: "sparkles") { model.summarize(record) }
@@ -107,7 +114,9 @@ struct MobileHistoryView: View {
                             }
                         }
                         .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { delete(record) } label: { Label("删除", systemImage: "trash") }
+                            // The symbol alone: a Label would also print its title under it.
+                            Button(role: .destructive) { delete(record) } label: { Image(systemName: "trash") }
+                                .accessibilityLabel(Text("删除"))
                         }
                     }
                 }
