@@ -372,8 +372,9 @@ struct MobileSettingsView: View {
                 Text(model.translationAvailable ? LocalizedStringKey("由系统在本机翻译，不会上传。首次使用需下载语言包。") : LocalizedStringKey("翻译需要 iOS 18 或更高版本。"))
             }.listRowBackground(Color.white)
             if model.translationAvailable {
-                ForEach($model.translationRules) { $rule in
-                    Section {
+                // All rules share one section and one header, like the other pages' groups.
+                Section {
+                    ForEach($model.translationRules) { $rule in
                         ChoicePicker("来源语言", selection: $rule.source, options: [nil] + AppLanguage.allCases.map(Optional.init)) { language in
                             language.map { Text($0.nativeName) } ?? Text("任意语言")
                         }.accessibilityIdentifier("translation-source")
@@ -385,16 +386,15 @@ struct MobileSettingsView: View {
                         } label: {
                             Label { Text(model.strings.delete) } icon: { Image(systemName: "trash").imageScale(.small) }
                         }
-                    } header: { Text("翻译规则") }.listRowBackground(Color.white)
-                }
-                Section {
+                    }
                     Button("添加翻译规则", systemImage: "plus") {
                         let used = Set(model.translationRules.compactMap(\.source))
                         if let source = AppLanguage.allCases.first(where: { !used.contains($0) }) {
                             model.translationRules.append(TranslationRule(source: source, target: model.appLanguage))
                         }
                     }
-                } footer: { Text("优先匹配指定语言，再匹配任意语言规则。相同来源的首条规则生效。") }.listRowBackground(Color.white)
+                } header: { Text("翻译规则") } footer: { Text("优先匹配指定语言，再匹配任意语言规则。相同来源的首条规则生效。") }
+                    .listRowBackground(Color.white)
                 Section {
                     Toggle("朗读译文", isOn: $model.speakTranslation)
                     ForEach(model.translationTargets) { language in
