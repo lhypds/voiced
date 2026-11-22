@@ -49,19 +49,8 @@ private struct OrangeButtonStyle: ButtonStyle {
             .font(.system(size: size * 0.4, weight: .medium))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background {
-                Circle().fill(
-                    LinearGradient(colors: [
-                        Color(red: 1.0, green: 0.69, blue: 0.43),
-                        MobileTheme.accent,
-                        MobileTheme.accentDark
-                    ], startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-            }
-            .shadow(color: MobileTheme.accentDark.opacity(configuration.isPressed ? 0.10 : 0.22),
-                    radius: configuration.isPressed ? 2 : size * 0.09,
-                    x: 0, y: configuration.isPressed ? 1 : size * 0.07)
-            .offset(y: configuration.isPressed ? 2 : 0)
+            // Flat: one solid colour, no gradient or shadow.
+            .background(MobileTheme.accent, in: Circle())
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .opacity(isEnabled ? (configuration.isPressed ? 0.9 : 1) : 0.4)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)

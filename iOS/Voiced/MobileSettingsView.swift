@@ -153,17 +153,9 @@ struct MobileSettingsView: View {
     private func settingsLabel(_ title: String, symbol: String, color: Color) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                 .shadow(color: .black.opacity(0.12), radius: 0.5, y: 1)
                 .frame(width: 30, height: 30)
-                .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(LinearGradient(colors: [color.opacity(0.75), color], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .strokeBorder(LinearGradient(colors: [.white.opacity(0.65), .black.opacity(0.1)],
-                                                             startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
-                        }
-                }
+                // A flat circle, as the home screen's buttons are.
+                .background(color, in: Circle())
             Text(LocalizedStringKey(title))
         }.padding(.vertical, 2)
     }
