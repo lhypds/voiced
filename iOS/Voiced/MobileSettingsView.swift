@@ -397,7 +397,10 @@ struct MobileSettingsView: View {
                             guard let voice = voices.first(where: { $0.id == id }) else { return Text("系统默认") }
                             return Text("\(voice.name) · \(voice.language)")
                         }
-                        Button { model.previewVoice(language) } label: { Label(language.nativeName, systemImage: "speaker.wave.2") }
+                        Button { model.previewVoice(language) } label: {
+                            // The same small scale as the delete icon above.
+                            Label { Text(language.nativeName) } icon: { Image(systemName: "speaker.wave.2").imageScale(.small) }
+                        }
                     }
                 } header: { Text("语音") } footer: { Text("只朗读新识别句子的译文；朗读时暂时屏蔽麦克风输入，避免回声被重复识别。") }
                     .listRowBackground(Color.white)
