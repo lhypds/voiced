@@ -204,7 +204,7 @@ public struct AppSettings {
     }
 
     /// Phone input, off by default: whether the iPhone app sends committed sentences to a Mac on
-    /// the same network. On the Mac the Voiced Input service in core/ types them whenever it
+    /// the same network. On the Mac the voiced service in core/ types them whenever it
     /// runs, so the Mac app does not use this.
     public var phoneInput: Bool {
         get { file[Key.phoneInput.rawValue] as? Bool ?? false }

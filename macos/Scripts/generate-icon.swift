@@ -44,27 +44,26 @@ tile.fill()
 NSGraphicsContext.current?.saveGraphicsState()
 tile.addClip()
 
-let accent = NSColor(calibratedRed: 0.96, green: 0.64, blue: 0.38, alpha: 1)
-let accentDeep = NSColor(calibratedRed: 0.93, green: 0.54, blue: 0.26, alpha: 1)
-
-let capsuleWidths: [CGFloat] = [38, 46, 54, 62, 54, 46, 38]
-let heights: [CGFloat] = [178, 318, 460, 610, 460, 318, 178]
-let spacing: CGFloat = 40
-let totalWidth = capsuleWidths.reduce(0, +) + spacing * CGFloat(capsuleWidths.count - 1)
-var x = (CGFloat(size) - totalWidth) / 2
-
-for (index, height) in heights.enumerated() {
-    let width = capsuleWidths[index]
-    let barRect = NSRect(x: x, y: (CGFloat(size) - height) / 2, width: width, height: height)
-    let bar = NSBezierPath(roundedRect: barRect, xRadius: width / 2, yRadius: width / 2)
-    (index == heights.count / 2 ? accentDeep : accent).setFill()
-    bar.fill()
-    x += width + spacing
+// The same SF Symbol as the voiced service's menu bar icon, in black on the white tile.
+let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 480, weight: .regular)
+    .applying(NSImage.SymbolConfiguration(paletteColors: [.black]))
+guard let symbol = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)?
+    .withSymbolConfiguration(symbolConfiguration) else {
+    fatalError("Unable to load the waveform symbol")
 }
-
-let centerDot = NSBezierPath(ovalIn: NSRect(x: 469, y: 469, width: 86, height: 86))
-NSColor(calibratedWhite: 1, alpha: 0.95).setFill()
-centerDot.fill()
+// Fit the symbol into the middle of the tile, keeping its proportions.
+let box = tileRect.width * (isIOS ? 0.58 : 0.62)
+let scale = min(box / symbol.size.width, box / symbol.size.height)
+let symbolSize = NSSize(width: symbol.size.width * scale, height: symbol.size.height * scale)
+let symbolRect = NSRect(
+    x: tileRect.midX - symbolSize.width / 2,
+    y: tileRect.midY - symbolSize.height / 2,
+    width: symbolSize.width,
+    height: symbolSize.height
+)
+// The tile's drop shadow is still set; the symbol should not cast one.
+NSShadow().set()
+symbol.draw(in: symbolRect)
 
 NSGraphicsContext.current?.restoreGraphicsState()
 NSGraphicsContext.restoreGraphicsState()

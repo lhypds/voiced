@@ -30,7 +30,7 @@ open macos/.build/Voiced.app
 
 `macos/` 中的 `start.sh`、`stop.sh`、`restart.sh` 作用相同，并会在需要时自动重新构建。
 
-`./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令（指向 [`./voiced`](../voiced) 的链接）：不带参数的 `voiced` 打开应用，`voiced start|stop|restart` 控制 Voiced Input 服务（加 `ui` 时同时控制 Voiced 窗口），`voiced status` 显示两者的状态；`./uninstall.sh` 删除该命令。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
+`./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令（指向 [`./voiced`](../voiced) 的链接）：`voiced` 启动 voiced 服务（`voiced .` 或 `voiced <文件夹>` 设置 Claude Code / Codex 运行的文件夹），`voiced stop`、`voiced restart` 停止和重启服务，`voiced start` 在 macOS 或所选的 iPhone、模拟器上启动 Voiced，其余命令见 `voiced help`；`./uninstall.sh` 删除该命令。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
 
 首次运行需要允许麦克风访问。即使选择的是虚拟音频设备，macOS 仍会把它归类为麦克风输入，因此没有物理麦克风时也需要这项权限。
 
@@ -48,7 +48,7 @@ open macos/.build/Voiced.app
 - 识别引擎、识别语言和界面语言。
 - 翻译：把每句话翻译成所选语言（与界面语言相同的六种），和原文显示在同一个气泡里。默认原文为主要文字，译文在下面用较小的灰色字显示；“主要文字”可以把两者对调。翻译由 macOS 的翻译框架在本机完成（需要 macOS 15 或更高版本），内容不会离开这台电脑；首次使用某种语言时系统会提示下载语言包。默认关闭。译文会随转写一起保存。
 - 窗口置顶：切换到其他应用时窗口仍保持在最前面。
-- iPhone 语音输入：对着 iPhone 上的 Voiced 说话，文字输入到 Mac 的光标处，例如终端的提示符。输入由后台服务 Voiced Input（[`core/`](../core/README.md)）完成，不需要打开 Voiced 窗口：用 `./voiced start` 启动，再在 iPhone 版“通用”设置中打开“发送到 Mac”；在同一 Wi-Fi 下手机会自动找到 Mac（Bonjour），每句话识别完成后发送一次。服务把文字粘贴到当前应用，之后恢复剪贴板，因此需要辅助功能权限（系统设置 → 隐私与安全性 → 辅助功能 → voiced）。点击服务的菜单栏图标，在弹出的卡片中打开“Press Return after each sentence”，会在提示符处直接发送。默认关闭，数据不离开局域网。
+- iPhone 语音输入：对着 iPhone 上的 Voiced 说话，文字输入到 Mac 的光标处，例如终端的提示符。输入由后台服务 voiced（[`core/`](../core/README.md)）完成，不需要打开 Voiced 窗口：用 `./voiced` 启动，再在 iPhone 版“通用”设置中打开“发送到 Mac”；在同一 Wi-Fi 下手机会自动找到 Mac（Bonjour），每句话识别完成后发送一次。服务把文字粘贴到当前应用，之后恢复剪贴板，因此需要辅助功能权限（系统设置 → 隐私与安全性 → 辅助功能 → voiced）。点击服务的菜单栏图标，在弹出的卡片中打开“Press Return after each sentence”，会在提示符处直接发送。默认关闭，数据不离开局域网。
 - 点击条目：复制该条内容（默认），或从这句话说出的那一刻起播放记录保存的音频，并继续播放后面的句子，正在播放的条目会高亮；播放中点击任意条目停止。识别过程中点击始终是复制。
 - 时间戳：相对时间或当前时间，可选显示日期。
 - 能量阈值：低于此值的声音不会识别。外放经麦克风拾取等较小的声源需要调低。

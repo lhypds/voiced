@@ -2104,43 +2104,43 @@
         }
       }
     },
-    "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced start 启动 Voiced Input 服务。未连接时说的话不会补发。" : {
+    "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Während der Aufnahme wird jeder erkannte Satz an einen Mac mit Voiced im selben Netzwerk gesendet und an dessen Cursor getippt, etwa an einer Terminal-Eingabeaufforderung. Starte den Dienst Voiced Input auf dem Mac mit voiced start. Sätze ohne verbundenen Mac werden nicht nachgesendet."
+            "value" : "Während der Aufnahme wird jeder erkannte Satz an einen Mac mit Voiced im selben Netzwerk gesendet und an dessen Cursor getippt, etwa an einer Terminal-Eingabeaufforderung. Starte den Dienst voiced auf dem Mac mit dem Befehl voiced. Sätze ohne verbundenen Mac werden nicht nachgesendet."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "While recording, every finished sentence is sent to a Mac running Voiced on the same network and typed at its cursor, such as a terminal prompt. Start the Voiced Input service on the Mac with voiced start. Sentences said while no Mac is connected are not sent later."
+            "value" : "While recording, every finished sentence is sent to a Mac running Voiced on the same network and typed at its cursor, such as a terminal prompt. Start the voiced service on the Mac by running voiced. Sentences said while no Mac is connected are not sent later."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Durante la grabación, cada frase reconocida se envía a un Mac con Voiced en la misma red y se escribe en su cursor, por ejemplo en el prompt de un terminal. Inicia el servicio Voiced Input en el Mac con voiced start. Las frases dichas sin un Mac conectado no se envían después."
+            "value" : "Durante la grabación, cada frase reconocida se envía a un Mac con Voiced en la misma red y se escribe en su cursor, por ejemplo en el prompt de un terminal. Inicia el servicio voiced en el Mac con el comando voiced. Las frases dichas sin un Mac conectado no se envían después."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pendant l'enregistrement, chaque phrase reconnue est envoyée à un Mac exécutant Voiced sur le même réseau et saisie à son curseur, par exemple à l'invite d'un terminal. Démarrez le service Voiced Input sur le Mac avec voiced start. Les phrases dites sans Mac connecté ne sont pas envoyées plus tard."
+            "value" : "Pendant l'enregistrement, chaque phrase reconnue est envoyée à un Mac exécutant Voiced sur le même réseau et saisie à son curseur, par exemple à l'invite d'un terminal. Démarrez le service voiced sur le Mac avec la commande voiced. Les phrases dites sans Mac connecté ne sont pas envoyées plus tard."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "録音中、認識が終わった各文を同じネットワークで Voiced を実行している Mac に送り、Mac のカーソル位置（ターミナルのプロンプトなど）に入力します。Mac で voiced start を実行して Voiced Input サービスを起動してください。未接続の間に話した文は後から送信されません。"
+            "value" : "録音中、認識が終わった各文を同じネットワークで Voiced を実行している Mac に送り、Mac のカーソル位置（ターミナルのプロンプトなど）に入力します。Mac で voiced を実行して voiced サービスを起動してください。未接続の間に話した文は後から送信されません。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced start 启动 Voiced Input 服务。未连接时说的话不会补发。"
+            "value" : "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。"
           }
         }
       }

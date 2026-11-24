@@ -12,7 +12,6 @@
 set -euo pipefail
 
 HERE="${0:A:h}"
-ROOT="${HERE:h}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 SIMULATOR="${1:-${SIMULATOR:-}}"
 
@@ -63,7 +62,7 @@ xcrun simctl bootstatus "$SIM_ID" >/dev/null
 
 CONFIGURATION="$CONFIGURATION" SIMULATOR_ID="$SIM_ID" "$HERE/build.sh" simulator
 
-APP="$ROOT/.build/ios/Build/Products/$CONFIGURATION-iphonesimulator/Voiced.app"
+APP="$HERE/.build/simulator/Build/Products/$CONFIGURATION-iphonesimulator/Voiced.app"
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
 
 print "Installing on $SIM_NAME..."

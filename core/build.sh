@@ -1,6 +1,6 @@
 #!/bin/zsh
 #
-# 构建 Voiced Input 服务，输出单个可执行文件 core/.build/voiced（Info.plist 嵌入其中）。
+# 构建 voiced 服务，输出单个可执行文件 core/.build/voiced（Info.plist 嵌入其中）。
 # 以固定标识签名，是为了让辅助功能权限在重新构建后依然有效。
 
 set -euo pipefail

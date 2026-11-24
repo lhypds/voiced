@@ -4,7 +4,7 @@ import Foundation
 
 /// The `voiced` shell command under `/usr/local/bin`, installed from the Voiced menu. For an app
 /// built from a checkout it is a link to the checkout's `voiced` script, the same link `install.sh`
-/// makes, which also controls the Voiced Input service. A downloaded app has no checkout, so it gets
+/// makes, which also controls the voiced service. A downloaded app has no checkout, so it gets
 /// a small launcher that only starts, stops or restarts this app bundle.
 enum CommandLineTool {
     static let installPath = "/usr/local/bin/voiced"

@@ -14,7 +14,6 @@
 set -euo pipefail
 
 HERE="${0:A:h}"
-ROOT="${HERE:h}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 DEVICE="${1:-${DEVICE:-}}"
 
@@ -46,7 +45,7 @@ fi
 
 CONFIGURATION="$CONFIGURATION" "$HERE/build.sh" device
 
-APP="$ROOT/.build/ios-device/Build/Products/$CONFIGURATION-iphoneos/Voiced.app"
+APP="$HERE/.build/device/Build/Products/$CONFIGURATION-iphoneos/Voiced.app"
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")"
 
 print "Installing on $DEVICE..."

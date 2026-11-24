@@ -13,15 +13,15 @@
 
 set -euo pipefail
 
-ROOT="${0:A:h:h}"
-PROJECT="${0:A:h}/Voiced.xcodeproj"
+HERE="${0:A:h}"
+PROJECT="$HERE/Voiced.xcodeproj"
 SCHEME="Voiced iOS"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 TARGET="${1:-simulator}"
 
 case "$TARGET" in
     sim|simulator)
-        DERIVED="$ROOT/.build/ios"
+        DERIVED="$HERE/.build/simulator"
         PRODUCTS="$DERIVED/Build/Products/$CONFIGURATION-iphonesimulator"
         if [[ -n "${SIMULATOR_ID:-}" ]]; then
             DESTINATION="platform=iOS Simulator,id=$SIMULATOR_ID"
@@ -31,7 +31,7 @@ case "$TARGET" in
         EXTRA=(CODE_SIGNING_ALLOWED=NO)
         ;;
     device|iphone)
-        DERIVED="$ROOT/.build/ios-device"
+        DERIVED="$HERE/.build/device"
         PRODUCTS="$DERIVED/Build/Products/$CONFIGURATION-iphoneos"
         DESTINATION="generic/platform=iOS"
         EXTRA=(-allowProvisioningUpdates)

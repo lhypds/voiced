@@ -219,7 +219,7 @@ struct MobileSettingsView: View {
                         else { Text("正在查找…").foregroundStyle(.secondary) }
                     }
                 }
-            } footer: { Text("录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced start 启动 Voiced Input 服务。未连接时说的话不会补发。") }
+            } footer: { Text("录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。") }
                 .listRowBackground(Color.white)
             Section {
                 Button("重置所有设置", role: .destructive) { confirmReset = true }.disabled(model.locked)

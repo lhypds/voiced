@@ -46,7 +46,7 @@ final class StatusMenu: NSObject {
         super.init()
 
         if let button = item.button {
-            let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Voiced Input")
+            let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "voiced")
             image?.isTemplate = true
             button.image = image
             button.target = self
@@ -116,7 +116,7 @@ final class StatusMenu: NSObject {
 
     private func refresh() {
         status.accessibilityAllowed = KeyboardTyper.isTrusted
-        // `voiced target` and `voiced start <folder>` change these from outside.
+        // `voiced <folder>` changes the folder from outside.
         status.target = ServiceSettings.target
         status.workFolder = ServiceSettings.workFolder
     }
@@ -142,14 +142,14 @@ enum ServiceSettings {
     private static let targetKey = "target"
     private static let workFolderKey = "workFolder"
 
-    /// Where sentences go. `voiced target` sets it too.
+    /// Where sentences go, chosen in the card.
     static var target: Target {
         get { UserDefaults.standard.string(forKey: targetKey).flatMap(Target.init(rawValue:)) ?? .cursor }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: targetKey) }
     }
 
-    /// The folder Claude Code or Codex starts in. `voiced start` sets it to the home folder, and
-    /// `voiced start <folder>` (such as `voiced start .`) to that folder.
+    /// The folder Claude Code or Codex starts in. `voiced` sets it to the home folder, and
+    /// `voiced <folder>` (such as `voiced .`) to that folder.
     static var workFolder: String {
         get {
             if let folder = UserDefaults.standard.string(forKey: workFolderKey), !folder.isEmpty { return folder }
@@ -213,7 +213,7 @@ private struct StatusCard: View {
                 Image(systemName: "waveform")
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Voiced Input").font(.headline)
+                    Text("voiced").font(.headline)
                     HStack(spacing: 5) {
                         Circle().fill(stateColor).frame(width: 7, height: 7)
                         Text(stateText).font(.caption).foregroundStyle(.secondary)

@@ -1,4 +1,4 @@
-# Voiced Input
+# voiced
 
 A background service that types what Voiced on the iPhone hears at the Mac's cursor, such as a terminal prompt. It replaces the receiver that used to live in the Mac app, so the Voiced window no longer needs to be open: once started, the service keeps listening and types every sentence a connected iPhone sends.
 
@@ -15,20 +15,23 @@ core/uninstall.sh   # stop and unregister (same as voiced stop)
 
 ## voiced
 
-`voiced`, at the repository root, controls the service; with no argument it opens the Voiced window. Run it as `./voiced`, or install it as a system command with the root `./install.sh` (removed by `./uninstall.sh`).
+`voiced`, at the repository root, starts and controls the service and starts the Voiced apps. Run it as `./voiced`, or install it as a system command with the root `./install.sh` (removed by `./uninstall.sh`).
 
 ```sh
-voiced              # open the Voiced window
-voiced start        # start the service, and at every login
+voiced              # start the service, and at every login (folder: home)
+voiced .            # the same, with the current folder
+voiced ~/abc        # the same, with that folder
 voiced stop         # stop it; it no longer starts at login
-voiced restart
-voiced start ui     # the service and the Voiced window
-voiced stop ui      # quit Voiced and stop the service
-voiced restart ui
+voiced restart [folder]
+voiced start        # ask whether to start Voiced on macOS or iOS
+voiced start macos  # open the Mac app
+voiced start ios    # pick a connected iPhone or a simulator and run the app there
+voiced stop macos   # quit the Mac app
 voiced status
+voiced help
 ```
 
-The service is the launch agent `~/Library/LaunchAgents/com.local.voiced.input.plist`; launchd restarts it if it exits. `voiced start` writes the plist and loads it, `voiced stop` unloads and removes it.
+The service is the launch agent `~/Library/LaunchAgents/com.local.voiced.input.plist`; launchd restarts it if it exits. `voiced` writes the plist and loads it, `voiced stop` unloads and removes it.
 
 While the service runs, a black-and-white waveform icon sits at the right of the menu bar. Clicking it opens a card with the service's status (iPhones connected, sentences typed, the Accessibility permission) and a "Press Return after each sentence" switch, and buttons to open Voiced and to stop the service, the same as `voiced stop`. The icon first appears among the system icons at the right, so a menu bar manager such as Hidden Bar or a full menu bar on a Mac with a notch does not hide it; ⌘-drag it elsewhere and macOS keeps it there.
 

@@ -29,7 +29,7 @@ Apple 官方说明：[账户类型与免费真机调试限制](https://developer
 - **AI 提示**：本地过滤日常句子，按需请求解释；轻点可固定提示，× 可关闭。
 - **历史摘要**：在记录详情或长按菜单中生成、查看和分享摘要。摘要保存到同一记录目录下的 `summary.txt`。
 - 文字、JSON、音频和摘要可通过系统分享菜单导出；支持六种界面语言与偏好重置。
-- **发送到 Mac**：设置 → 通用中打开后，录音时每句识别完成的话会发送到同一网络中运行 Voiced 的 Mac，输入到 Mac 的光标处（例如终端提示符）。Mac 上需用 `core/install.sh` 安装 Voiced Input 服务并授予其辅助功能权限，不需要打开 Mac 版窗口。首次使用时 iOS 会请求本地网络权限。
+- **发送到 Mac**：设置 → 通用中打开后，录音时每句识别完成的话会发送到同一网络中运行 Voiced 的 Mac，输入到 Mac 的光标处（例如终端提示符）。Mac 上需用 `core/install.sh` 安装 voiced 服务并授予其辅助功能权限，不需要打开 Mac 版窗口。首次使用时 iOS 会请求本地网络权限。
 
 两端共用 `VoicedCore`，包含 AI 请求生命周期、识别、音频、翻译、设置、存储和配色。设置采用 iOS 的分组列表与二级导航，沿用 Mac 的暖白与橙色。
 
@@ -57,7 +57,7 @@ AI 提示需要先输入 API 密钥并主动开启；摘要只在点击生成时
 ```sh
 xcodebuild -project ios/Voiced.xcodeproj -scheme 'Voiced iOS' \
   -sdk iphonesimulator -configuration Debug \
-  -derivedDataPath .build/ios CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath ios/.build/simulator CODE_SIGNING_ALLOWED=NO build
 ```
 
 也可以用仓库根目录的脚本：
@@ -81,7 +81,7 @@ xcodebuild -project ios/Voiced.xcodeproj -scheme 'Voiced iOS' \
 ```sh
 xcodebuild -project ios/Voiced.xcodeproj -scheme 'Voiced iOS' \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -derivedDataPath .build/ios CODE_SIGNING_ALLOWED=NO test
+  -derivedDataPath ios/.build/simulator CODE_SIGNING_ALLOWED=NO test
 ```
 
 将设备名称替换为已安装的模拟器。测试使用临时数据与模拟服务，不会发送真实 AI 请求。原生 iOS target 名为 `VoicedIOS`，scheme 名为 `Voiced iOS`，应用显示名称仍为 `Voiced`，以免与本地 Swift Package 的 Mac 可执行 scheme 混淆。
