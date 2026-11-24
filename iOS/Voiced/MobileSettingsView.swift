@@ -154,8 +154,8 @@ struct MobileSettingsView: View {
         HStack(spacing: 12) {
             Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
                 .frame(width: 30, height: 30)
-                // A flat circle, as the home screen's buttons are.
-                .background(color, in: Circle())
+                // A rounded square, as the system Settings app and the macOS settings sidebar use.
+                .background(color, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             Text(LocalizedStringKey(title))
         }.padding(.vertical, 2)
     }

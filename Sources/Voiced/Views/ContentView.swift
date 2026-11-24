@@ -271,8 +271,8 @@ struct ContentView: View {
     /// …and fade out between the last row's resting place and that hidden strip.
     private static let bottomFadeHeight: CGFloat = listBottomInset - hiddenHeight
     /// The last row stops this far above the list's bottom edge: clear of the record button, with
-    /// nearly the same gap above it as the header leaves above the first row. The button's shadow
-    /// and round shape read as extra space, so the row sits a little closer than the top gap.
+    /// nearly the same gap above it as the header leaves above the first row. The button's round
+    /// shape reads as extra space, so the row sits a little closer than the top gap.
     private static let listBottomInset: CGFloat = edgeInset + recordButtonSize + headerBottomInset + rowEdgeGap - 5
     /// Extra room at the bottom while the model banner sits above the record button.
     private var bottomExtraInset: CGFloat {
@@ -438,15 +438,9 @@ struct ContentView: View {
     private var recordButton: some View {
         Button(action: controller.toggleRecording) {
             ZStack {
+                // Flat, like the iOS app: one solid colour, no gradient or shadow.
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Theme.accent, Theme.accentDark.opacity(0.9)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .shadow(color: Theme.accentDark.opacity(0.2), radius: 4, x: 0, y: 2)
+                    .fill(Theme.accent)
                 // A stop sign while the model loads too: a click then cancels the load.
                 Image(systemName: controller.isRecording || controller.isPreparing ? "stop.fill" : "mic.fill")
                     .font(.system(size: 28, weight: .semibold))
@@ -547,14 +541,7 @@ private struct ToolbarIconButton: View {
         Button(action: { if isEnabled { action() } }) {
             ZStack {
                 Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Theme.accent, Theme.accentDark.opacity(0.9)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .shadow(color: Theme.accentDark.opacity(0.2), radius: 3, x: 0, y: 1.5)
+                    .fill(Theme.accent)
                 Image(systemName: systemName)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
