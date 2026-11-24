@@ -32,11 +32,14 @@ public enum PhoneInput {
         /// The Mac folder Claude Code runs in, for `claude`, set on the phone; `~` stands for the
         /// home folder. Missing or empty: the home folder.
         public var folder: String?
+        /// The transcript line the sentence is, so the Mac's run for it shows under that line.
+        public var line: String?
 
-        public init(text: String, mode: Mode = .type, folder: String? = nil) {
+        public init(text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil) {
             self.text = text
             self.mode = mode
             self.folder = folder
+            self.line = line
         }
 
         public init(from decoder: any Swift.Decoder) throws {
@@ -44,15 +47,41 @@ public enum PhoneInput {
             text = try container.decode(String.self, forKey: .text)
             mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
             folder = try? container.decodeIfPresent(String.self, forKey: .folder)
+            line = try? container.decodeIfPresent(String.self, forKey: .line)
         }
     }
 
     /// The bytes sent for one sentence: its message as JSON, ended by a line feed. JSON escapes
     /// any line break inside the text, so a line feed only ever ends a message.
-    public static func encode(_ text: String, mode: Mode = .type, folder: String? = nil) -> Data {
-        var data = (try? JSONEncoder().encode(Message(text: text, mode: mode, folder: folder))) ?? Data()
+    public static func encode(_ text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil) -> Data {
+        var data = (try? JSONEncoder().encode(Message(text: text, mode: mode, folder: folder, line: line))) ?? Data()
         data.append(0x0A)
         return data
+    }
+
+    /// The bytes sent for a command to one of the Mac's Claude Code runs.
+    public static func encode(_ command: ClaudeRunCommand) -> Data {
+        var data = (try? JSONEncoder().encode(command)) ?? Data()
+        data.append(0x0A)
+        return data
+    }
+
+    /// Collects bytes from the Mac and hands back the run events completed by them.
+    public struct EventDecoder: Sendable {
+        private var buffer = Data()
+
+        public init() {}
+
+        public mutating func feed(_ data: Data) -> [ClaudeRunEvent] {
+            buffer.append(data)
+            var events: [ClaudeRunEvent] = []
+            while let end = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<end]
+                buffer.removeSubrange(buffer.startIndex...end)
+                if let event = try? JSONDecoder().decode(ClaudeRunEvent.self, from: line) { events.append(event) }
+            }
+            return events
+        }
     }
 
     /// Collects received bytes and hands back the messages completed by them. A message split
@@ -90,7 +119,8 @@ public enum PhoneInput {
 /// The phone's side: finds a Mac running Voiced on the local network, keeps a connection to it
 /// and sends it sentences. Connects to the Mac chosen by name, or with none chosen to the first
 /// found, by name, and looks again whenever the connection ends. A sentence sent while no Mac is
-/// connected is dropped rather than typed late.
+/// connected is dropped rather than typed late. The Mac tells it over the same connection how the
+/// Claude Code runs of Run sentences go.
 @MainActor
 public final class PhoneInputSender: ObservableObject {
     /// The name of the Mac sentences go to; nil while none is connected.
@@ -99,6 +129,8 @@ public final class PhoneInputSender: ObservableObject {
     @Published public private(set) var availableNames: [String] = []
     /// Whether the sender is looking for, or connected to, a Mac.
     @Published public private(set) var isActive = false
+    /// The Mac's Claude Code runs, by id, as last heard; replaced whenever a connection opens.
+    @Published public private(set) var runs: [String: ClaudeRun] = [:]
     /// The Mac to connect to, by its Bonjour name; nil for the first found. While the chosen Mac
     /// is not on the network nothing is connected, rather than sending to another Mac.
     public var preferredName: String? {
@@ -152,12 +184,27 @@ public final class PhoneInputSender: ObservableObject {
     /// Sends one sentence, for the Mac to handle as `mode` says; `folder` is where Claude Code
     /// runs it in `claude` mode. Returns false when no Mac is connected, so nothing went out.
     @discardableResult
-    public func send(_ text: String, mode: PhoneInput.Mode = .type, folder: String? = nil) -> Bool {
+    public func send(_ text: String, mode: PhoneInput.Mode = .type, folder: String? = nil, line: String? = nil) -> Bool {
         guard let connection, connectedName != nil else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        connection.send(content: PhoneInput.encode(trimmed, mode: mode, folder: mode == .claude ? folder : nil), completion: .contentProcessed { _ in })
+        connection.send(content: PhoneInput.encode(trimmed, mode: mode, folder: mode == .claude ? folder : nil,
+                                                   line: mode == .claude ? line : nil),
+                        completion: .contentProcessed { _ in })
         return true
+    }
+
+    /// Stops a run, or allows or denies the tool it waits on. Returns false when no Mac is connected.
+    @discardableResult
+    public func send(_ command: ClaudeRunCommand) -> Bool {
+        guard let connection, connectedName != nil else { return false }
+        connection.send(content: PhoneInput.encode(command), completion: .contentProcessed { _ in })
+        return true
+    }
+
+    /// The latest run for a transcript line.
+    public func latestRun(forLine line: String) -> ClaudeRun? {
+        runs.values.filter { $0.line == line }.max { ($0.startedAt ?? .infinity) < ($1.startedAt ?? .infinity) }
     }
 
     private func browsed(_ results: Set<NWBrowser.Result>, by browser: NWBrowser) {
@@ -187,18 +234,30 @@ public final class PhoneInputSender: ObservableObject {
         self.connection = connection
         connectionName = name
         connection.start(queue: queue)
-        watchForClose(connection)
+        receive(on: connection, decoder: PhoneInput.EventDecoder())
     }
 
-    /// The Mac never sends anything, so a receive only completes when the connection ends.
-    private nonisolated func watchForClose(_ connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] _, _, isComplete, error in
+    /// Reads the Mac's run events until the connection ends.
+    private nonisolated func receive(on connection: NWConnection, decoder: PhoneInput.EventDecoder) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            var decoder = decoder
+            let events = data.map { decoder.feed($0) } ?? []
+            if !events.isEmpty {
+                Task { @MainActor in self?.apply(events, from: connection) }
+            }
             if isComplete || error != nil {
                 connection.cancel()
             } else {
-                self?.watchForClose(connection)
+                self?.receive(on: connection, decoder: decoder)
             }
         }
+    }
+
+    private func apply(_ events: [ClaudeRunEvent], from connection: NWConnection) {
+        guard self.connection === connection else { return }
+        var runs = self.runs
+        for event in events { event.apply(to: &runs) }
+        self.runs = runs
     }
 
     private func update(_ connection: NWConnection, name: String, state: NWConnection.State) {

@@ -52,6 +52,15 @@ enum UITestFixtures {
         let empty = ProcessInfo.processInfo.arguments.contains("--ui-empty")
         if empty { model.newRecord() }
         if ProcessInfo.processInfo.arguments.contains("--ui-send-to-mac") { model.sendToMacEnabled = true }
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--ui-claude"), index + 2 < arguments.count {
+            // Run mode in a folder on the Mac, and a line to send: `--ui-claude <folder> <prompt>`.
+            model.sendToMacEnabled = true
+            model.sendToMacMode = .claude
+            model.claudeFolder = arguments[index + 1]
+            model.current.lines.append(TranscriptLine(id: "claude-line", start: 2, end: 3, recordedAt: now.addingTimeInterval(2),
+                                                      text: arguments[index + 2]))
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-recording") {
             model.recording = true
             if !empty { model.liveText = "正在识别的实时文字。" }

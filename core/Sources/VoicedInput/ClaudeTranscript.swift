@@ -1,17 +1,20 @@
 import Foundation
 
-/// The Terminal window of a Run-mode sentence: reads what `claude -p --output-format stream-json
-/// --verbose --include-partial-messages` writes and prints it as ~/code/tm's run windows do
-/// (ai/follow.js there): a header with the folder, model and permission mode, the sentence as the
-/// title, Claude's text as it is written, each tool call with its first line beside the name and
-/// its result under it, then how long the run took and how it ended.
+/// The Terminal window of a Run-mode sentence: follows the run's events, which ClaudeRunner writes
+/// to a file as `claude -p --output-format stream-json --verbose --include-partial-messages` gives
+/// them, and prints them as ~/code/tm's run windows do (ai/follow.js there): a header with the
+/// folder, model and permission mode, the sentence as the title, Claude's text as it is written,
+/// each tool call with its first line beside the name and its result under it, a note while a
+/// tool waits for the iPhone's answer, then how long the run took and how it ended. The file is
+/// removed once the run is over.
 ///
-///   claude -p … | voiced --claude-transcript '<sentence>'
+///   voiced --claude-follow <file> '<sentence>'
 enum ClaudeTranscript {
     private static let resultLines = 10
     private static let summaryLines = 20
 
-    static func run(sentence: String) -> Never {
+    static func follow(_ path: String, sentence: String) -> Never {
+        var reader = LineFollower(path: path)
         var printer = Printer()
         printer.line("\(bold(green("voiced"))) \(dim("Claude Code"))")
         var tools: [String: (name: String, head: String)] = [:]
@@ -19,7 +22,13 @@ enum ClaudeTranscript {
         var streamedText = false
         var started = false
 
-        while let raw = readLine(strippingNewline: true) {
+        func finish() -> Never {
+            try? FileManager.default.removeItem(atPath: path)
+            countDown(cancelledBy: nextRunMarker(for: path))
+            exit(0)
+        }
+
+        while let raw = reader.next() {
             guard let data = raw.data(using: .utf8),
                   let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 // Not an event: claude printed something else, such as an error. Show it as it is.
@@ -89,6 +98,30 @@ enum ClaudeTranscript {
                     lastTool = nil
                 }
 
+            case "control_request":
+                let request = message["request"] as? [String: Any] ?? [:]
+                guard request["subtype"] as? String == "can_use_tool" else { break }
+                let name = request["tool_name"] as? String ?? "tool"
+                // AskUserQuestion is answered by the service itself.
+                guard name != "AskUserQuestion" else { break }
+                let head = lines(summarize(name, request["input"] as? [String: Any] ?? [:])).first ?? ""
+                printer.gap()
+                printer.line(yellow("⏸ Waiting for the iPhone to allow \(bold(name))  \(head)"))
+
+            case "voiced_permission":
+                let allowed = message["allowed"] as? Bool ?? false
+                printer.line(allowed ? green("  Allowed on the iPhone") : red("  Denied on the iPhone"))
+
+            case "voiced_end":
+                // The run ended without a result: claude failed, or the iPhone stopped it.
+                printer.gap()
+                switch message["state"] as? String {
+                case "stopped": printer.line(yellow("Run stopped from the iPhone."))
+                case "done": printer.line(green("Run done."))
+                default: printer.line(started ? red("Run failed.") : red("Claude Code did not start."))
+                }
+                finish()
+
             case "result":
                 printer.gap()
                 if message["is_error"] as? Bool == true || message["subtype"] as? String != "success" {
@@ -103,21 +136,78 @@ enum ClaudeTranscript {
                     printer.gap()
                     printer.line(green("Run done."))
                 }
-                exit(0)
+                finish()
 
             default:
                 break
             }
         }
-        // claude ended without a result: it failed before starting, or was stopped.
+        // The file went away: the service was stopped or restarted.
         printer.gap()
         printer.line(started ? yellow("Run stopped.") : red("Claude Code did not start."))
         exit(0)
     }
 
+    /// How long the window stays after the last run before AgentTerminal closes it.
+    static let closeSeconds = 3
+
+    /// The file AgentTerminal creates when another run will follow in the window of the run
+    /// logging to `logPath`, so its countdown to closing stops.
+    static func nextRunMarker(for logPath: String) -> String { logPath + ".next" }
+
+    /// Counts down on one line to the window closing, once the run is over: the window closes as
+    /// this process ends. Stops at once, clearing the line, when `marker` appears because another
+    /// run is about to be followed in the window.
+    private static func countDown(cancelledBy marker: String) {
+        let out = FileHandle.standardOutput
+        let clear = color ? "\r\u{1B}[2K" : "\r"
+        out.write(Data("\n".utf8))
+        for remaining in stride(from: closeSeconds, to: 0, by: -1) {
+            out.write(Data((clear + dim("Closing in \(remaining) s…")).utf8))
+            for _ in 0..<10 {
+                if FileManager.default.fileExists(atPath: marker) {
+                    try? FileManager.default.removeItem(atPath: marker)
+                    out.write(Data(clear.utf8))
+                    return
+                }
+                usleep(100_000)
+            }
+        }
+        out.write(Data((clear + dim("Closing…")).utf8))
+    }
+
+    /// Reads a file's lines as they are written, waiting at its end for more, as tm's follow.js
+    /// does. Ends when the file is gone.
+    private struct LineFollower {
+        let path: String
+        private var handle: FileHandle?
+        private var buffer = Data()
+
+        init(path: String) {
+            self.path = path
+        }
+
+        mutating func next() -> String? {
+            while true {
+                if let end = buffer.firstIndex(of: 0x0A) {
+                    let line = String(decoding: buffer[buffer.startIndex..<end], as: UTF8.self)
+                    buffer.removeSubrange(buffer.startIndex...end)
+                    return line
+                }
+                if handle == nil { handle = FileHandle(forReadingAtPath: path) }
+                if let handle, let data = try? handle.readToEnd(), !data.isEmpty {
+                    buffer.append(data)
+                    continue
+                }
+                guard FileManager.default.fileExists(atPath: path) else { return nil }
+                usleep(150_000)
+            }
+        }
+    }
+
     /// What a tool call is about, as tm's summarizeTool has it: the command of Bash, the file of an
     /// edit, the pattern of a search… else the input as JSON.
-    private static func summarize(_ name: String, _ input: [String: Any]) -> String {
+    static func summarize(_ name: String, _ input: [String: Any]) -> String {
         func text(_ key: String) -> String { input[key].map { $0 as? String ?? "\($0)" } ?? "" }
         switch name {
         case "Bash": return text("command")
@@ -137,7 +227,7 @@ enum ClaudeTranscript {
     }
 
     /// A tool result's text: a string, or the text parts of a list of content blocks.
-    private static func resultText(_ content: Any?) -> String {
+    static func resultText(_ content: Any?) -> String {
         if let text = content as? String { return text }
         let parts = (content as? [[String: Any]] ?? []).compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }
         return parts.joined(separator: "\n")

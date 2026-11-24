@@ -11,10 +11,12 @@ import Foundation
 // Usage: VoicedInput
 
 let usage = "Usage: VoicedInput"
-// Run mode's Terminal window pipes Claude Code's events through this binary to print them.
-if CommandLine.arguments.dropFirst().first == "--claude-transcript" {
-    ClaudeTranscript.run(sentence: CommandLine.arguments.dropFirst(2).first ?? "")
+// Run mode's Terminal window follows a run's events with this binary to print them.
+if CommandLine.arguments.dropFirst().first == "--claude-follow", CommandLine.arguments.count >= 3 {
+    ClaudeTranscript.follow(CommandLine.arguments[2], sentence: CommandLine.arguments.dropFirst(3).first ?? "")
 }
+// A run's claude may exit while its input is written to; that must not end the service.
+signal(SIGPIPE, SIG_IGN)
 for argument in CommandLine.arguments.dropFirst() {
     switch argument {
     case "-h", "--help":
@@ -39,6 +41,10 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
     }
 
     let listener = PhoneInputListener()
+    let runner = ClaudeRunner()
+    runner.onEvent = { listener.broadcast(PhoneInputMessages.encode($0)) }
+    listener.onConnect = { send in send(PhoneInputMessages.encode(runner.snapshot)) }
+    listener.onCommand = { runner.handle($0) }
     listener.onMessage = { message in
         switch message.mode {
         case .type, .typeAndReturn:
@@ -60,8 +66,8 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
                 status.deliveryError = "Dropped a sentence: \(folder) is not a folder"
                 return
             }
-            status.deliveryError = AgentTerminal.send(message.text, in: folder)
-            if status.deliveryError != nil { return }
+            runner.start(message.text, in: folder, line: message.line)
+            status.deliveryError = nil
         }
         status.sentencesTyped += 1
         status.lastSentenceAt = Date()

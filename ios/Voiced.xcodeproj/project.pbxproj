@@ -12,6 +12,7 @@ A110CA7A10904B42BF000001 = {isa = PBXBuildFile; fileRef = A110CA7A10904B42BF0000
 		A6ADE42A5AD3A65A8D7D3B6E = {isa = PBXBuildFile; fileRef = D62906BC89AD29A6DE8EC6C6; };
 		29E6FB5BBDBAC86C12E6E84E = {isa = PBXBuildFile; fileRef = 52CE9AB321C820B4E4F238E1; };
 		242273CF5ABA885F208ECE09 = {isa = PBXBuildFile; fileRef = 14B219DA3109CD54BD8D2D2D; };
+		C1A0DE5E0000000000000001 = {isa = PBXBuildFile; fileRef = C1A0DE5E0000000000000002; };
 		22CBA69B73707D7105ED5D3A /* VoicedCore in Frameworks */ = {isa = PBXBuildFile; productRef = CED84CDAC19BA92C5DE221F6; };
 		2FD53BB2411E4913D9290EB2 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 3272B772461E6C3950C5A221 /* WhisperKit */; };
 		3E4E1284DCC1D4E4F51ED4F6 /* Voiced/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 445C6151F52EBC64A8968845 /* Voiced/ContentView.swift */; };
@@ -26,6 +27,7 @@ C22A2DFB042608F3CCE39954 = {isa = PBXFileReference; lastKnownFileType = sourceco
 		D62906BC89AD29A6DE8EC6C6 = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Voiced/Localizable.xcstrings; sourceTree = "<group>"; };
 		52CE9AB321C820B4E4F238E1 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/MobileSettingsView.swift; sourceTree = "<group>"; };
 		14B219DA3109CD54BD8D2D2D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/MobileHistoryView.swift; sourceTree = "<group>"; };
+		C1A0DE5E0000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/ClaudeRunViews.swift; sourceTree = "<group>"; };
 		445C6151F52EBC64A8968845 /* Voiced/ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/ContentView.swift; sourceTree = "<group>"; };
 		7D1043473D55BFA90E8530D3 /* Voiced.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Voiced.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB4191C677B19EBC26EB02BA /* Voiced/VoicedApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Voiced/VoicedApp.swift; sourceTree = "<group>"; };
@@ -55,6 +57,7 @@ C22A2DFB042608F3CCE39954,
 				D62906BC89AD29A6DE8EC6C6,
 				52CE9AB321C820B4E4F238E1,
 				14B219DA3109CD54BD8D2D2D,
+				C1A0DE5E0000000000000002 /* Voiced/ClaudeRunViews.swift */,
 				B460E8F3E9188FE1A7CFD558 /* Voiced/AudioCapture.swift */,
 				445C6151F52EBC64A8968845 /* Voiced/ContentView.swift */,
 				DD6E7587C3EF7108540BD000 /* Voiced/MobileTranscriber.swift */,
@@ -159,6 +162,7 @@ C22A2DFB042608F3CCE39954,
 7548441E38727C401796C506,
 				29E6FB5BBDBAC86C12E6E84E,
 				242273CF5ABA885F208ECE09,
+				C1A0DE5E0000000000000001,
 				6699E691A0394FE96346D450 /* Voiced/AudioCapture.swift in Sources */,
 				3E4E1284DCC1D4E4F51ED4F6 /* Voiced/ContentView.swift in Sources */,
 				47803FB0D1F725946209E4C3 /* Voiced/MobileTranscriber.swift in Sources */,

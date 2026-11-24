@@ -397,7 +397,7 @@ final class MobileTranscriber: ObservableObject {
             if let line = session.commitMerged(segments: [segment], assembler: assembler), forMac {
                 trace("committed hold line [\(line.start)-\(line.end)] \(line.text)")
                 // Kept with the record, so the line stays blue in the transcript and in history.
-                current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder)]) { $1 }
+                current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id)]) { $1 }
             }
             publish(session)
         }
@@ -747,7 +747,7 @@ final class MobileTranscriber: ObservableObject {
     @discardableResult
     func sendLineToMac(_ line: TranscriptLine) -> Bool {
         guard sendToMacEnabled, current.lines.contains(where: { $0.id == line.id }) else { return false }
-        let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder)
+        let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id)
         current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: delivered]) { $1 }
         save()
         return delivered

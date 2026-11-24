@@ -25,11 +25,14 @@ enum PhoneInputMessages {
         /// The folder Claude Code runs in, for `claude`, set on the phone; `~` stands for the
         /// home folder. Missing or empty: the home folder.
         var folder: String?
+        /// The phone's id for the transcript line the sentence is, so a run shows under it there.
+        var line: String?
 
-        init(text: String, mode: Mode = .type, folder: String? = nil) {
+        init(text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil) {
             self.text = text
             self.mode = mode
             self.folder = folder
+            self.line = line
         }
 
         init(from decoder: any Swift.Decoder) throws {
@@ -37,6 +40,7 @@ enum PhoneInputMessages {
             text = try container.decode(String.self, forKey: .text)
             mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
             folder = try? container.decodeIfPresent(String.self, forKey: .folder)
+            line = try? container.decodeIfPresent(String.self, forKey: .line)
         }
 
         /// `folder` as a path on this Mac: `~` expanded, the home folder when none was sent.
@@ -50,23 +54,39 @@ enum PhoneInputMessages {
         }
     }
 
-    /// Collects received bytes and hands back the messages completed by them. A message split
-    /// across reads waits in the buffer for its end; a line that is not a message is dropped.
+    /// A line from the phone: a sentence, or a command for a Claude Code run.
+    enum Incoming: Equatable, Sendable {
+        case sentence(Message)
+        case command(ClaudeRunCommand)
+    }
+
+    /// Collects received bytes and hands back the lines completed by them. A line split across
+    /// reads waits in the buffer for its end; a line that is neither is dropped.
     struct Decoder: Sendable {
         private var buffer = Data()
 
-        mutating func feed(_ data: Data) -> [Message] {
+        mutating func feed(_ data: Data) -> [Incoming] {
             buffer.append(data)
-            var messages: [Message] = []
+            var incoming: [Incoming] = []
             while let end = buffer.firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<end]
                 buffer.removeSubrange(buffer.startIndex...end)
+                // A command has no text, so it never decodes as a sentence.
                 if let message = try? JSONDecoder().decode(Message.self, from: line) {
-                    messages.append(message)
+                    incoming.append(.sentence(message))
+                } else if let command = try? JSONDecoder().decode(ClaudeRunCommand.self, from: line) {
+                    incoming.append(.command(command))
                 }
             }
-            return messages
+            return incoming
         }
+    }
+
+    /// The bytes sent for one event: its JSON, ended by a line feed.
+    static func encode(_ event: ClaudeRunEvent) -> Data {
+        var data = (try? JSONEncoder().encode(event)) ?? Data()
+        data.append(0x0A)
+        return data
     }
 
     /// What is typed for a received sentence. Sentences typed one after another must not run

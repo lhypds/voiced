@@ -1,22 +1,18 @@
 import AppKit
 import Foundation
 
-/// Sends sentences the iPhone marks to be carried out to Claude Code, run in a Terminal window that
-/// this service opens.
+/// Shows the Claude Code runs of sentences the iPhone marks to be carried out in a Terminal window
+/// that this service opens. ClaudeRunner runs Claude Code itself; the window only follows each
+/// run's events (`voiced --claude-follow`, see ClaudeTranscript), as ~/code/tm's run windows do.
 ///
-/// Claude Code runs non-interactively (`claude -p`), as the Agent SDK does in ~/code/tm: it carries
-/// the sentence out, prints its answer and exits. That way it never stops at the question whether
-/// to trust the work folder, which an interactive `claude` asks in every folder it has not seen.
-/// The first sentence opens a window in the work folder and starts a conversation; each later one
-/// continues it (`--continue`), in the same window once the run before it has finished. Three
-/// seconds after the last run is over the window closes by itself, as ~/code/tm's run windows do;
-/// the next sentence then opens a new one and still continues the conversation. Changing the folder
-/// starts a new conversation.
+/// The first run opens a window in its folder; each later one is followed in the same window once
+/// the one before it is over. Once the last is over the window counts down three seconds and
+/// closes by itself (see ClaudeTranscript); the next run opens a new one. A run in another folder opens a new window too.
 ///
-/// A run without anyone at the keyboard cannot ask for permission, so the permission mode decides
-/// what Claude may do: `acceptEdits` unless the service's `claudePermissionMode` default says
-/// otherwise (`defaults write com.local.voiced.input claudePermissionMode auto`, say). Allow rules
-/// in the user's and the folder's Claude settings apply in every mode, as in the terminal.
+/// The permission mode decides what Claude may do without asking: `acceptEdits` unless the
+/// service's `claudePermissionMode` default says otherwise (`defaults write com.local.voiced.input
+/// claudePermissionMode auto`, say). Allow rules in the user's and the folder's Claude settings
+/// apply in every mode, as in the terminal; anything else is asked on the iPhone.
 @MainActor
 enum AgentTerminal {
     private struct Session {
@@ -25,15 +21,12 @@ enum AgentTerminal {
     }
 
     private static var session: Session?
-    /// The folder of the conversation the last run belonged to: a sentence for the same folder
-    /// continues it, even in a new window.
-    private static var conversationFolder: String?
-    /// Sentences waiting for the run before them to finish, oldest first.
-    private static var queue: [String] = []
+    /// Follow commands waiting for the one before them to finish, oldest first, with their runs' logs.
+    private static var queue: [(command: String, log: String)] = []
+    /// The log of the run the window follows, or followed last.
+    private static var currentLog: String?
     /// Runs the queue in the window, then closes it once everything is over.
     private static var worker: Task<Void, Never>?
-    /// How long the window stays after the last run before it closes.
-    private static let closeDelay: Duration = .seconds(3)
 
     private static let permissionModes = ["default", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"]
     static var permissionMode: String {
@@ -41,21 +34,23 @@ enum AgentTerminal {
         return permissionModes.contains(mode) ? mode : "acceptEdits"
     }
 
-    /// Sends `text` to Claude Code working in `folder`. Returns an error message when it could
-    /// not be sent.
-    static func send(_ text: String, in folder: String) -> String? {
+    /// Follows the run whose events go to `logPath` in the window, opening one in `folder` when
+    /// there is none for it. A window that cannot be opened is only logged: the run goes on.
+    static func follow(_ logPath: String, sentence: String, in folder: String) {
+        let command = followCommand(logPath, sentence: sentence)
         if let session, session.folder == folder, windowExists(session.windowID) {
-            queue.append(text)
+            queue.append((command, logPath))
+            // The run before may be counting down to closing the window: it stops.
+            if let currentLog { FileManager.default.createFile(atPath: ClaudeTranscript.nextRunMarker(for: currentLog), contents: nil) }
             startWorker()
-            return nil
+            return
         }
 
         // A new window; anything queued for an old one in another folder is dropped.
         queue = []
         worker?.cancel()
         worker = nil
-        let continuing = conversationFolder == folder
-        let shellCommand = "cd \(shellQuoted(folder)) && \(claudeCommand(text, continuing: continuing))"
+        let shellCommand = "cd \(shellQuoted(folder)) && \(command)"
         let result = run("""
             tell application "Terminal"
                 activate
@@ -63,27 +58,26 @@ enum AgentTerminal {
                 return id of front window
             end tell
             """)
-        if let error = result.error { return error }
-        guard let windowID = result.value?.int32Value, windowID != 0 else { return "Terminal did not open a window" }
+        if result.error != nil { return }
+        guard let windowID = result.value?.int32Value, windowID != 0 else {
+            log("Terminal did not open a window")
+            return
+        }
         session = Session(windowID: Int(windowID), folder: folder)
-        conversationFolder = folder
-        log("\(continuing ? "Continued" : "Started") Claude Code in \(folder) (Terminal window \(windowID), \(permissionMode))")
+        currentLog = logPath
+        log("Following the run in Terminal window \(windowID)")
         startWorker()
-        return nil
     }
 
-    /// The run's command: Claude Code's events, piped through this binary to show them as tm does
-    /// (see ClaudeTranscript).
-    private static func claudeCommand(_ text: String, continuing: Bool) -> String {
-        let claude = "claude -p\(continuing ? " --continue" : "") --permission-mode \(permissionMode)"
-            + " --output-format stream-json --verbose --include-partial-messages \(shellQuoted(text))"
-        let transcript = Bundle.main.executableURL?.resolvingSymlinksInPath().path ?? CommandLine.arguments[0]
-        return "\(claude) | \(shellQuoted(transcript)) --claude-transcript \(shellQuoted(text))"
+    /// This binary, printing the run's events as they are written (see ClaudeTranscript).
+    private static func followCommand(_ logPath: String, sentence: String) -> String {
+        let voiced = Bundle.main.executableURL?.resolvingSymlinksInPath().path ?? CommandLine.arguments[0]
+        return "\(shellQuoted(voiced)) --claude-follow \(shellQuoted(logPath)) \(shellQuoted(sentence))"
     }
 
     /// Watches the session's window: runs each queued sentence once the run before it has finished,
-    /// continuing the conversation, and closes the window `closeDelay` after the last run is over
-    /// unless another sentence came in meanwhile.
+    /// continuing the conversation, and closes the window once the last run's follow command has
+    /// counted down and ended with no other sentence come in meanwhile.
     private static func startWorker() {
         guard worker == nil else { return }
         worker = Task {
@@ -98,23 +92,25 @@ enum AgentTerminal {
                 }
                 if isBusy(current.windowID) { continue }
                 if !queue.isEmpty {
-                    let text = queue.removeFirst()
+                    let (command, logPath) = queue.removeFirst()
+                    if let currentLog { try? FileManager.default.removeItem(atPath: ClaudeTranscript.nextRunMarker(for: currentLog)) }
+                    currentLog = logPath
                     if let error = run("""
                         tell application "Terminal"
-                            do script \(appleScriptQuoted(claudeCommand(text, continuing: true))) in selected tab of window id \(current.windowID)
+                            do script \(appleScriptQuoted(command)) in selected tab of window id \(current.windowID)
                             set index of window id \(current.windowID) to 1
                             activate
                         end tell
                         """).error {
-                        log("Could not send to Claude Code: \(error)")
+                        log("Could not follow the run in Terminal: \(error)")
                         queue = []
                     }
                     continue
                 }
-                // Everything is over: leave the answer up for a moment, then close the window.
-                log("Claude Code is done in window \(current.windowID); closing it in 3 s")
-                try? await Task.sleep(for: closeDelay)
-                guard !Task.isCancelled, queue.isEmpty, !isBusy(current.windowID) else { continue }
+                // A tab can look idle before its command has started; the follow command removes
+                // its run's log as it finishes, before counting down.
+                if let currentLog, FileManager.default.fileExists(atPath: currentLog) { continue }
+                // Everything is over and the follow command has counted down: close the window.
                 _ = run("tell application \"Terminal\" to if exists window id \(current.windowID) then close window id \(current.windowID)")
                 log("Closed Terminal window \(current.windowID)")
                 session = nil

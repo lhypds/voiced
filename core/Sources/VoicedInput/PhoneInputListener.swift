@@ -6,6 +6,10 @@ import Network
 @MainActor
 final class PhoneInputListener {
     var onMessage: (PhoneInputMessages.Message) -> Void = { _ in }
+    /// Called with every command for a Claude Code run.
+    var onCommand: (ClaudeRunCommand) -> Void = { _ in }
+    /// Called for each new connection with a way to send to it alone, for the runs' snapshot.
+    var onConnect: (_ send: @escaping (Data) -> Void) -> Void = { _ in }
     /// Called when the listener can no longer accept connections.
     var onFailure: (String) -> Void = { _ in }
     /// Called with the port once the service is advertised.
@@ -58,14 +62,29 @@ final class PhoneInputListener {
         }
         connection.start(queue: queue)
         receive(on: connection, decoder: PhoneInputMessages.Decoder())
+        onConnect { data in connection.send(content: data, completion: .contentProcessed { _ in }) }
+    }
+
+    /// Sends to every connected phone.
+    func broadcast(_ data: Data) {
+        for connection in connections.values {
+            connection.send(content: data, completion: .contentProcessed { _ in })
+        }
     }
 
     private nonisolated func receive(on connection: NWConnection, decoder: PhoneInputMessages.Decoder) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
             var decoder = decoder
-            let messages = data.map { decoder.feed($0) } ?? []
-            if !messages.isEmpty {
-                Task { @MainActor in messages.forEach { self?.onMessage($0) } }
+            let incoming = data.map { decoder.feed($0) } ?? []
+            if !incoming.isEmpty {
+                Task { @MainActor in
+                    for line in incoming {
+                        switch line {
+                        case .sentence(let message): self?.onMessage(message)
+                        case .command(let command): self?.onCommand(command)
+                        }
+                    }
+                }
             }
             if isComplete || error != nil {
                 connection.cancel()

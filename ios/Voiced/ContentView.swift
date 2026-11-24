@@ -48,6 +48,8 @@ struct ContentView: View {
     @State private var showSettings = false
     /// The line being edited in its own card, from the card's menu, and the text being typed.
     @State private var editingLineID: String?
+    /// The Claude Code run shown whole, opened from its card.
+    @State private var openRun: RunSheetID?
     @State private var editText = ""
     @FocusState private var editFocused: Bool
     /// Where the field being edited is on screen, so a tap anywhere else ends the editing.
@@ -164,6 +166,14 @@ struct ContentView: View {
                             transcriptCard(label: line.timestamp(mode: TimestampMode(rawValue: model.timestampID) ?? .current,
                                                                 showDate: model.showDate), text: model.displayTexts(line).primary, secondary: model.displayTexts(line).secondary, line: line,
                                            mac: model.macDelivery(of: line))
+                            // The Mac's Claude Code run of a line sent with Run, under it.
+                            if let run = model.macLink.latestRun(forLine: line.id) {
+                                ClaudeRunCard(run: run, labelWidth: timestampColumnWidth, stacked: dynamicTypeSize.isAccessibilitySize,
+                                              connected: model.macLink.connectedName != nil,
+                                              open: { openRun = RunSheetID(id: run.id) }) { action in
+                                    model.macLink.send(ClaudeRunCommand(command: action, run: run.id, pending: run.pending?.id))
+                                }
+                            }
                         }
                     }
                     // Under the search field the first card keeps the gap the cards keep between
@@ -240,6 +250,7 @@ struct ContentView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .modifier(MobileTranslationHost(translator: model.translator))
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(item: $openRun) { run in ClaudeRunSheet(runID: run.id).environmentObject(model) }
             .sheet(isPresented: $showSettings, onDismiss: { model.stopInputMeter(); if model.previewActive || model.busy || model.calibrating { model.stop() }; model.savePrompt() }) { MobileSettingsView().environmentObject(model) }
             .sheet(isPresented: $showHistory, onDismiss: {
                 // A record opened from a history search shows only its matching lines; any other
@@ -786,6 +797,10 @@ private struct WaveformView: View {
 /// An AI note laid out like a transcript card, as on macOS: "AI" where a card has its timestamp,
 /// the topic in purple and the note beside it. It has no close button: it leaves on its own once
 /// it has been on screen long enough to read. A tap keeps it until tapped again.
+private struct RunSheetID: Identifiable {
+    let id: String
+}
+
 private struct HintCard: View {
     let hint: TranscriptHint
     /// Width of the transcript cards' timestamp column, so the texts line up.

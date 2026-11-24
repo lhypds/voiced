@@ -68,4 +68,32 @@ final class PhoneInputTests: XCTestCase {
     func testNothingIsAddedBeforeReturn() {
         XCTAssertEqual(PhoneInput.typedText(for: "Hello there.", pressesReturn: true), "Hello there.")
     }
+
+    func testRunEventsBuildTheRunsAsTheMacSendsThem() {
+        var decoder = PhoneInput.EventDecoder()
+        func line(_ json: String) -> Data { Data((json + "\n").utf8) }
+        let data = line(#"{"type":"snapshot","runs":[{"id":"old","text":"a","folder":"~","state":"done","items":[]}]}"#)
+            + line(#"{"type":"run","run":{"id":"r1","line":"L1","text":"fix it","folder":"~","state":"running","startedAt":10}}"#)
+            + line(#"{"type":"item","id":"r1","i":0,"item":{"kind":"text","text":""}}"#)
+            + line(#"{"type":"delta","id":"r1","i":0,"text":"Hel"}"#)
+            + line(#"{"type":"delta","id":"r1","i":0,"text":"lo"}"#)
+            + line(#"{"type":"item","id":"r1","i":1,"item":{"kind":"tool","name":"Bash","summary":"ls","done":false}}"#)
+            + line(#"{"type":"run","run":{"id":"r1","line":"L1","text":"fix it","folder":"~","state":"running","startedAt":10,"pending":{"id":"p","tool":"Bash","summary":"ls"}}}"#)
+            + line(#"{"type":"remove","id":"old"}"#)
+        var runs: [String: ClaudeRun] = [:]
+        for event in decoder.feed(data) { event.apply(to: &runs) }
+
+        XCTAssertEqual(Set(runs.keys), ["r1"])
+        let run = runs["r1"]
+        XCTAssertEqual(run?.items?.first?.text, "Hello")
+        XCTAssertEqual(run?.activeTool?.name, "Bash")
+        XCTAssertEqual(run?.pending?.id, "p", "a state update keeps the items")
+        XCTAssertEqual(run?.items?.count, 2)
+    }
+
+    func testARunCommandEncodesWithoutText() throws {
+        let data = PhoneInput.encode(ClaudeRunCommand(command: .allow, run: "r1", pending: "p"))
+        let object = try JSONSerialization.jsonObject(with: data.dropLast()) as? [String: String]
+        XCTAssertEqual(object, ["command": "allow", "run": "r1", "pending": "p"])
+    }
 }

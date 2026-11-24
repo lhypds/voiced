@@ -205,6 +205,47 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["已发送到 Mac"].waitForExistence(timeout: 3), "the line was not sent")
     }
 
+    /// End to end with the voiced service running on this Mac and Claude Code: a line sent with
+    /// Run shows its run under it, a tool that needs permission is allowed from the card, and the
+    /// run ends with Claude's answer. TEST_RUNNER_VOICED_CLAUDE_FOLDER=<folder on this Mac whose
+    /// .claude/settings.json asks for Bash>. Skipped without it.
+    func testRealRunShowsUnderTheLineAndAsksForPermission() throws {
+        let folder = ProcessInfo.processInfo.environment["VOICED_CLAUDE_FOLDER"] ?? ""
+        try XCTSkipIf(folder.isEmpty, "real end-to-end run only")
+        app.launchArguments += ["--ui-claude", folder,
+                                "Run `mkdir -p from-phone && date > from-phone/x.txt` with the Bash tool, then reply with one short sentence."]
+        app.launch()
+        let row = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'from-phone'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        sleep(3) // time to find and connect to the Mac
+        row.press(forDuration: 1)
+        app.buttons["发送到 Mac"].tap()
+        let card = app.descendants(matching: .any)["claude-run"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "no run under the line")
+        let allow = app.buttons["允许"]
+        XCTAssertTrue(allow.waitForExistence(timeout: 60), "the run did not ask for permission")
+        shoot("run-pending")
+        allow.tap()
+        // Inside the status's timeline, which is not a plain static text to the accessibility tree.
+        let done = app.descendants(matching: .any).matching(NSPredicate(format: "label == '已完成'")).firstMatch
+            .waitForExistence(timeout: 90)
+        shoot("run-done")
+        XCTAssertTrue(done, "the run did not finish")
+        card.tap()
+        XCTAssertTrue(app.navigationBars["执行过程"].waitForExistence(timeout: 3))
+        shoot("run-sheet")
+    }
+
+    private func shoot(_ name: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+        if let folder = ProcessInfo.processInfo.environment["VOICED_SHOTS"] {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "\(folder)/\(name).png"))
+        }
+    }
+
     func testHoldingStopWhileRecordingKeepsRecording() {
         app.launchArguments += ["--ui-recording", "--ui-send-to-mac"]
         app.launch()
