@@ -72,8 +72,13 @@ enum AgentTerminal {
         return nil
     }
 
+    /// The run's command: Claude Code's events, piped through this binary to show them as tm does
+    /// (see ClaudeTranscript).
     private static func claudeCommand(_ text: String, continuing: Bool) -> String {
-        "claude -p\(continuing ? " --continue" : "") --permission-mode \(permissionMode) \(shellQuoted(text))"
+        let claude = "claude -p\(continuing ? " --continue" : "") --permission-mode \(permissionMode)"
+            + " --output-format stream-json --verbose --include-partial-messages \(shellQuoted(text))"
+        let transcript = Bundle.main.executableURL?.resolvingSymlinksInPath().path ?? CommandLine.arguments[0]
+        return "\(claude) | \(shellQuoted(transcript)) --claude-transcript \(shellQuoted(text))"
     }
 
     /// Watches the session's window: runs each queued sentence once the run before it has finished,
@@ -118,8 +123,15 @@ enum AgentTerminal {
         }
     }
 
+    /// Whether the window is still open. A closed window can linger in Terminal's scripting for a
+    /// while, invisible and without tabs: that counts as closed.
     private static func windowExists(_ windowID: Int) -> Bool {
-        run("tell application \"Terminal\" to return exists window id \(windowID)").value?.booleanValue ?? false
+        run("""
+            tell application "Terminal"
+                if not (exists window id \(windowID)) then return false
+                return (visible of window id \(windowID)) and ((count of tabs of window id \(windowID)) > 0)
+            end tell
+            """).value?.booleanValue ?? false
     }
 
     /// Whether the window's tab runs something besides its shell: a run of Claude Code.

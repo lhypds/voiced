@@ -11,6 +11,10 @@ import Foundation
 // Usage: VoicedInput
 
 let usage = "Usage: VoicedInput"
+// Run mode's Terminal window pipes Claude Code's events through this binary to print them.
+if CommandLine.arguments.dropFirst().first == "--claude-transcript" {
+    ClaudeTranscript.run(sentence: CommandLine.arguments.dropFirst(2).first ?? "")
+}
 for argument in CommandLine.arguments.dropFirst() {
     switch argument {
     case "-h", "--help":
