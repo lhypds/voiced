@@ -2104,7 +2104,7 @@
         }
       }
     },
-    "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 vd start 启动 Voiced Input 服务。未连接时说的话不会补发。" : {
+    "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced start 启动 Voiced Input 服务。未连接时说的话不会补发。" : {
       "extractionState" : "manual",
       "localizations" : {
         "de" : {
@@ -2134,13 +2134,13 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "録音中、認識が終わった各文を同じネットワークで Voiced を実行している Mac に送り、Mac のカーソル位置（ターミナルのプロンプトなど）に入力します。Mac で vd start を実行して Voiced Input サービスを起動してください。未接続の間に話した文は後から送信されません。"
+            "value" : "録音中、認識が終わった各文を同じネットワークで Voiced を実行している Mac に送り、Mac のカーソル位置（ターミナルのプロンプトなど）に入力します。Mac で voiced start を実行して Voiced Input サービスを起動してください。未接続の間に話した文は後から送信されません。"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 vd start 启动 Voiced Input 服务。未连接时说的话不会补发。"
+            "value" : "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced start 启动 Voiced Input 服务。未连接时说的话不会补发。"
           }
         }
       }

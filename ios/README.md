@@ -7,7 +7,7 @@
 不需要购买 Apple Developer Program。工程使用自动签名，不含 iCloud、推送、App Groups 等需要额外配置的能力。
 
 0. 如果 Xcode 提示 “iOS … is not installed”，先在 Xcode → Settings → Components 下载对应的 iOS 平台组件。
-1. 用 Xcode 打开仓库根目录的 `Voiced.xcworkspace`（也可直接打开本目录的 `Voiced.xcodeproj`），等待 Swift Package 依赖解析完成。不要把 `macos/Package.swift` 的 macOS 可执行 scheme 用于 iPhone。
+1. 用 Xcode 打开本目录的 `Voiced.xcodeproj`，等待 Swift Package 依赖解析完成。不要把 `macos/Package.swift` 的 macOS 可执行 scheme 用于 iPhone。
 2. Xcode → Settings → Apple Accounts，登录自己的 Apple ID。
 3. 选择项目 → TARGETS → VoicedIOS → Signing & Capabilities，保持 **Automatically manage signing**，Team 选择自己的 **Personal Team**。
 4. 把 Bundle Identifier `com.voiced.personal.ios` 改成自己的唯一标识，例如 `com.yourname.voiced.ios`。保持同一标识可在后续安装时保留应用数据。
@@ -55,17 +55,31 @@ AI 提示需要先输入 API 密钥并主动开启；摘要只在点击生成时
 在仓库根目录运行：
 
 ```sh
-xcodebuild -project iOS1/Voiced.xcodeproj -scheme 'Voiced iOS' \
+xcodebuild -project ios/Voiced.xcodeproj -scheme 'Voiced iOS' \
   -sdk iphonesimulator -configuration Debug \
   -derivedDataPath .build/ios CODE_SIGNING_ALLOWED=NO build
 ```
+
+也可以用仓库根目录的脚本：
+
+```sh
+./ios.sh                            # 显示菜单，选择要做的事
+./ios.sh build                      # 构建模拟器版
+./ios.sh build device               # 构建真机版
+./ios.sh emulate                    # 启动模拟器，构建、安装并打开应用
+./ios.sh emulate "iPhone 17 Pro"    # 指定模拟器（名称或 UDID）
+./ios.sh deploy                     # 构建、安装并打开到已配对的 iPhone
+./ios.sh deploy "<设备名称或 UDID>"  # 指定设备
+```
+
+真机需要已配对、已解锁并打开开发者模式。
 
 模拟器适合检查界面。Core ML 加载速度、内存占用和麦克风效果应在自己的 iPhone 上确认。真机签名由你在 Xcode 中选择 Personal Team 后完成，不要把证书或账户资料提交到仓库。
 
 ## 界面测试
 
 ```sh
-xcodebuild -project iOS1/Voiced.xcodeproj -scheme 'Voiced iOS' \
+xcodebuild -project ios/Voiced.xcodeproj -scheme 'Voiced iOS' \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   -derivedDataPath .build/ios CODE_SIGNING_ALLOWED=NO test
 ```
@@ -74,4 +88,4 @@ xcodebuild -project iOS1/Voiced.xcodeproj -scheme 'Voiced iOS' \
 
 如果出现 `No such module AppKit`，请检查顶部 scheme：`Voiced (voiced)` 属于 Mac 的 Swift Package 可执行程序；iPhone 必须选择原生工程中的 `Voiced iOS`。无需修改或删除 AppKit 导入。
 
-共享包位于 `Shared/VoicedCore/`。iOS 工程仅依赖此包；`macos/Package.swift` 仅用于 macOS，不能作为 iPhone App 构建入口。
+共享包位于 `core/VoicedCore/`。iOS 工程仅依赖此包；`macos/Package.swift` 仅用于 macOS，不能作为 iPhone App 构建入口。

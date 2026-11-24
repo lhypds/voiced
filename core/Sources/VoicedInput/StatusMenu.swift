@@ -116,12 +116,12 @@ final class StatusMenu: NSObject {
 
     private func refresh() {
         status.accessibilityAllowed = KeyboardTyper.isTrusted
-        // `vd target` and `vd start <folder>` change these from outside.
+        // `voiced target` and `voiced start <folder>` change these from outside.
         status.target = ServiceSettings.target
         status.workFolder = ServiceSettings.workFolder
     }
 
-    /// The Voiced app built from the same checkout: this binary is core/.build/vd and the app is
+    /// The Voiced app built from the same checkout: this binary is core/.build/voiced and the app is
     /// macos/.build/Voiced.app at the repository root.
     private static var voicedAppURL: URL? {
         guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return nil }
@@ -142,14 +142,14 @@ enum ServiceSettings {
     private static let targetKey = "target"
     private static let workFolderKey = "workFolder"
 
-    /// Where sentences go. `vd target` sets it too.
+    /// Where sentences go. `voiced target` sets it too.
     static var target: Target {
         get { UserDefaults.standard.string(forKey: targetKey).flatMap(Target.init(rawValue:)) ?? .cursor }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: targetKey) }
     }
 
-    /// The folder Claude Code or Codex starts in. `vd start` sets it to the home folder, and
-    /// `vd start <folder>` (such as `vd start .`) to that folder.
+    /// The folder Claude Code or Codex starts in. `voiced start` sets it to the home folder, and
+    /// `voiced start <folder>` (such as `voiced start .`) to that folder.
     static var workFolder: String {
         get {
             if let folder = UserDefaults.standard.string(forKey: workFolderKey), !folder.isEmpty { return folder }
@@ -180,7 +180,7 @@ enum ServiceSettings {
     }
 }
 
-/// Stops the service the way `vd stop` does.
+/// Stops the service the way `voiced stop` does.
 enum ServiceControl {
     static let label = "com.local.voiced.input"
 

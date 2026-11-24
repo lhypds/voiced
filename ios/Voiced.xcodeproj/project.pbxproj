@@ -287,7 +287,7 @@ C22A2DFB042608F3CCE39954,
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCLocalSwiftPackageReference section */
-        C7E01FF11241BE478A3D0C41 = {isa = XCLocalSwiftPackageReference; relativePath = "../Shared/VoicedCore"; };
+        C7E01FF11241BE478A3D0C41 = {isa = XCLocalSwiftPackageReference; relativePath = "../core/VoicedCore"; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */

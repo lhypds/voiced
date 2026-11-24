@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>vd</string>
+    <string>voiced</string>
     <key>CFBundleExecutable</key>
-    <string>vd</string>
+    <string>voiced</string>
     <key>CFBundleIdentifier</key>
     <string>com.local.voiced.input</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>vd</string>
+    <string>voiced</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -21,7 +21,7 @@
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>vd opens Claude Code or Codex in Terminal and brings its window to the front when the target is AI.</string>
+    <string>voiced opens Claude Code or Codex in Terminal and brings its window to the front when the target is AI.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

@@ -1,7 +1,7 @@
 import Foundation
 
 /// The wire format the iPhone app speaks, as defined by `PhoneInput` in
-/// Shared/VoicedCore/Sources/VoicedCore/PhoneInput/PhoneInput.swift: the Mac advertises
+/// core/VoicedCore/Sources/VoicedCore/PhoneInput/PhoneInput.swift: the Mac advertises
 /// `serviceType` over Bonjour and every sentence arrives as one JSON object on a line of its own.
 /// Kept as a copy so the service does not build WhisperKit; keep the two in step.
 enum PhoneInputMessages {

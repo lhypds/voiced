@@ -1,7 +1,7 @@
 #!/bin/zsh
 #
-# 删除 install.sh（或应用菜单）安装的 voiced 和 vd 命令。应用本身和 Voiced Input 服务不受影响；
-# 要停止服务，先运行 vd stop。
+# 删除 install.sh（或应用菜单）安装的 voiced 命令，以及旧版的 vd 命令。
+# 应用本身和 Voiced Input 服务不受影响；要停止服务，先运行 voiced stop。
 #
 # 用法：
 #   ./uninstall.sh                 # 从 /usr/local/bin 删除
@@ -16,16 +16,26 @@ SUDO=()
 [[ -w "$BIN_DIR" ]] || SUDO=(sudo)
 
 removed=0
-if [[ -e "$BIN_DIR/voiced" ]]; then
-    "${SUDO[@]}" rm -f "$BIN_DIR/voiced"
-    print "Removed $BIN_DIR/voiced"
+# voiced is either the link to this checkout or the app-only launcher script the Voiced menu
+# installs for a downloaded app.
+TARGET="$BIN_DIR/voiced"
+ours() {
+    if [[ -L "$TARGET" ]]; then
+        [[ "$(readlink "$TARGET")" == "$ROOT/voiced" ]]
+    else
+        [[ -f "$TARGET" ]] && grep -q "Starts, stops or restarts Voiced" "$TARGET"
+    fi
+}
+if ours; then
+    "${SUDO[@]}" rm -f "$TARGET"
+    print "Removed $TARGET"
     removed=1
 fi
-# Only remove vd when it is the link to this checkout.
-VD="$BIN_DIR/vd"
-if [[ -L "$VD" && "${VD:A}" == "$ROOT/vd" ]]; then
-    "${SUDO[@]}" rm -f "$BIN_DIR/vd"
-    print "Removed $BIN_DIR/vd"
+# vd was the service command before it was merged into voiced.
+OLD="$BIN_DIR/vd"
+if [[ -L "$OLD" && "$(readlink "$OLD")" == "$ROOT/vd" ]]; then
+    "${SUDO[@]}" rm -f "$OLD"
+    print "Removed $OLD"
     removed=1
 fi
-(( removed )) || print "voiced and vd are not installed in $BIN_DIR."
+(( removed )) || print "voiced is not installed in $BIN_DIR."

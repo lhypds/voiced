@@ -57,15 +57,11 @@ Icon?
 *.tmp
 
 # Keep the native iOS project; signing selections and user state remain local.
-!iOS1/Voiced.xcodeproj/
-!iOS1/Voiced.xcodeproj/project.pbxproj
-!iOS1/Voiced.xcodeproj/xcshareddata/
-!iOS1/Voiced.xcodeproj/xcshareddata/**
-!iOS1/Voiced.xcodeproj/project.xcworkspace/
-!iOS1/Voiced.xcodeproj/project.xcworkspace/xcshareddata/
-!iOS1/Voiced.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
-!iOS1/Voiced.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
-
-# Repository entry point for the native iOS app.
-!Voiced.xcworkspace/
-!Voiced.xcworkspace/contents.xcworkspacedata
+!ios/Voiced.xcodeproj/
+!ios/Voiced.xcodeproj/project.pbxproj
+!ios/Voiced.xcodeproj/xcshareddata/
+!ios/Voiced.xcodeproj/xcshareddata/**
+!ios/Voiced.xcodeproj/project.xcworkspace/
+!ios/Voiced.xcodeproj/project.xcworkspace/xcshareddata/
+!ios/Voiced.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+!ios/Voiced.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

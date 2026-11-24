@@ -2,8 +2,10 @@ import VoicedCore
 import AppKit
 import Foundation
 
-/// The `voiced` shell command: a script under `/usr/local/bin` that starts, stops or restarts this
-/// app bundle, the same one `install.sh` writes. Installed from the Voiced menu.
+/// The `voiced` shell command under `/usr/local/bin`, installed from the Voiced menu. For an app
+/// built from a checkout it is a link to the checkout's `voiced` script, the same link `install.sh`
+/// makes, which also controls the Voiced Input service. A downloaded app has no checkout, so it gets
+/// a small launcher that only starts, stops or restarts this app bundle.
 enum CommandLineTool {
     static let installPath = "/usr/local/bin/voiced"
 
@@ -15,7 +17,17 @@ enum CommandLineTool {
         case failed(String)
     }
 
-    /// The same script `install.sh` writes; keep the two in step.
+    /// The checkout's `voiced` script when this bundle is the checkout's macos/.build/Voiced.app.
+    private static var checkoutScript: URL? {
+        let root = Bundle.main.bundleURL
+            .deletingLastPathComponent() // .build
+            .deletingLastPathComponent() // macos
+            .deletingLastPathComponent() // repository root
+        let script = root.appendingPathComponent("voiced")
+        return FileManager.default.isExecutableFile(atPath: script.path) ? script : nil
+    }
+
+    /// The launcher for a downloaded app. uninstall.sh recognises it by its second line.
     private static var launcher: String {
         """
         #!/bin/sh
@@ -73,14 +85,33 @@ enum CommandLineTool {
         """
     }
 
-    /// Writes the launcher, asking for an administrator password when the directory is not
-    /// writable by the current user.
+    /// Links to the checkout's script, or writes the launcher, asking for an administrator password
+    /// when the directory is not writable by the current user.
     static func install() throws {
         guard Bundle.main.bundleURL.pathExtension == "app" else { throw InstallError.notAnAppBundle }
 
         let target = URL(fileURLWithPath: installPath)
         let directory = target.deletingLastPathComponent()
         let manager = FileManager.default
+
+        if let script = checkoutScript {
+            if manager.isWritableFile(atPath: directory.path) {
+                do {
+                    // Replaces an earlier launcher or link; fails, like the link, when not ours.
+                    try? manager.removeItem(at: target)
+                    try manager.createSymbolicLink(at: target, withDestinationURL: script)
+                    return
+                } catch {
+                    // Owned by someone else: fall through to the privileged link.
+                }
+            }
+            try runPrivileged([
+                "mkdir -p \(shellQuoted(directory.path))",
+                "ln -sfn \(shellQuoted(script.path)) \(shellQuoted(target.path))",
+            ])
+            return
+        }
+
         if manager.isWritableFile(atPath: directory.path) {
             do {
                 try launcher.write(to: target, atomically: true, encoding: .utf8)
@@ -96,11 +127,16 @@ enum CommandLineTool {
         defer { try? manager.removeItem(at: staged) }
 
         // The script text stays in the staged file, so only paths need quoting for the shell.
-        let command = [
+        try runPrivileged([
             "mkdir -p \(shellQuoted(directory.path))",
             "cp \(shellQuoted(staged.path)) \(shellQuoted(target.path))",
             "chmod 755 \(shellQuoted(target.path))",
-        ].joined(separator: " && ")
+        ])
+    }
+
+    /// Runs the commands in order as an administrator, after the system password prompt.
+    private static func runPrivileged(_ commands: [String]) throws {
+        let command = commands.joined(separator: " && ")
         let source = "do shell script \(appleScriptQuoted(command)) with administrator privileges"
 
         var errorInfo: NSDictionary?

@@ -3,12 +3,12 @@ import Foundation
 
 // Voiced Input: waits for the iPhone app's connections and types every sentence it sends at the
 // cursor of the focused app, such as a terminal prompt. Runs on its own, without the Voiced
-// window; `vd start` makes launchd start it at login and keep it running. While it runs, an icon
+// window; `voiced start` makes launchd start it at login and keep it running. While it runs, an icon
 // in the menu bar shows its status and can stop it.
 //
 // Usage: VoicedInput [--return | --no-return]
 //
-// Sentences go to the target chosen in the menu bar card or with `vd target`: the cursor, or
+// Sentences go to the target chosen in the menu bar card or with `voiced target`: the cursor, or
 // Claude Code or Codex in a Terminal window (AgentTerminal). For the cursor, without a flag,
 // whether Return follows each sentence is the "Press Return after each sentence" switch in the
 // card, stored in the service's own defaults.
@@ -41,7 +41,7 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
     let status = ServiceStatus()
 
     if !KeyboardTyper.requestAccess() {
-        log("Waiting for the Accessibility permission: allow vd in System Settings → Privacy & Security → Accessibility. Sentences received until then are dropped.")
+        log("Waiting for the Accessibility permission: allow voiced in System Settings → Privacy & Security → Accessibility. Sentences received until then are dropped.")
     }
 
     let listener = PhoneInputListener()
