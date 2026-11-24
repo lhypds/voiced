@@ -287,8 +287,8 @@ struct ContentView: View {
     /// the playback, whichever row is clicked, while one runs. While recording a click copies,
     /// as it always did.
     private func tap(_ line: TranscriptLine) {
-        if controller.lineClickAction == .play, !controller.isRecording {
-            controller.togglePlayback(of: line)
+        if controller.lineClickAction.plays, !controller.isRecording {
+            controller.togglePlayback(of: line, onlyLine: controller.lineClickAction == .play)
         } else {
             controller.copy(line)
             showCopiedToast()
@@ -396,9 +396,10 @@ struct ContentView: View {
                 .frame(height: Self.progressBarHeight)
                 // The download percentage is already in the label above the bar.
                 if case .loading = controller.phase, let startedAt = controller.loadingStartedAt {
-                    // Ticks once a second so the user can see the load is alive.
+                    // Ticks once a second so the user can see the load is alive: down from the last
+                    // load of this model when that is known, otherwise up.
                     TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                        Text(strings.elapsed(max(0, Int(context.date.timeIntervalSince(startedAt)))))
+                        Text(strings.loadingClock(startedAt: startedAt, expected: controller.expectedLoadSeconds, now: context.date))
                             .font(.system(.caption, design: .monospaced).weight(.semibold))
                             .foregroundStyle(Theme.accentDark)
                             .fixedSize()
@@ -437,19 +438,11 @@ struct ContentView: View {
 
     private var recordButton: some View {
         Button(action: controller.toggleRecording) {
-            ZStack {
-                // Flat, like the iOS app: one solid colour, no gradient or shadow.
-                Circle()
-                    .fill(Theme.accent)
-                // A stop sign while the model loads too: a click then cancels the load.
-                Image(systemName: controller.isRecording || controller.isPreparing ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: Self.recordButtonSize, height: Self.recordButtonSize)
-            .contentShape(Circle())
+            // A stop sign while the model loads too: a click then cancels the load.
+            Image(systemName: controller.isRecording || controller.isPreparing ? "stop.fill" : "mic.fill")
         }
-        .buttonStyle(.plain)
+        // A thin ring, filled black only while pressed, as on iOS.
+        .buttonStyle(RingButtonStyle(size: Self.recordButtonSize, symbolSize: 28, lineWidth: 2))
         .help(recordButtonHelp)
     }
 
@@ -529,7 +522,7 @@ private struct ProgressBar: View {
     }
 }
 
-/// A small round orange button with a white symbol, styled like the record button.
+/// A small round ring button, styled like the record button: black only while pressed.
 private struct ToolbarIconButton: View {
     let systemName: String
     let help: String
@@ -539,17 +532,9 @@ private struct ToolbarIconButton: View {
 
     var body: some View {
         Button(action: { if isEnabled { action() } }) {
-            ZStack {
-                Circle()
-                    .fill(Theme.accent)
-                Image(systemName: systemName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 36, height: 36)
-            .contentShape(Circle())
+            Image(systemName: systemName)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RingButtonStyle(size: 36, symbolSize: 15))
         // The system also dims disabled buttons, which stacked with our fade made them too
         // faint. Keep the button enabled for the system, gate the action ourselves, and apply
         // a single controlled fade.
@@ -603,7 +588,7 @@ private struct TranscriptRow: View, Equatable {
                 }
             }
             .font(.system(.caption, design: .monospaced).weight(.medium))
-            .foregroundStyle(Theme.accent)
+            .foregroundStyle(Theme.timestamp)
             .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
             VStack(alignment: .leading, spacing: Theme.secondaryTextGap) {
                 Text(model.primaryText)

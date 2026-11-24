@@ -1,24 +1,18 @@
 import AppKit
 import Foundation
 
-// voiced: waits for the iPhone app's connections and types every sentence it sends at the
-// cursor of the focused app, such as a terminal prompt. Runs on its own, without the Voiced
-// window; `voiced` makes launchd start it at login and keep it running. While it runs, an icon
-// in the menu bar shows its status and can stop it.
+// voiced: waits for the iPhone app's connections and delivers every sentence it sends the way
+// the phone says (its "Send to Mac" mode): typed at the cursor of the focused app, such as a
+// terminal prompt; typed there and followed by Return; or carried out by Claude Code in a
+// Terminal window (AgentTerminal). Runs on its own, without the Voiced window; `voiced` makes
+// launchd start it at login and keep it running. While it runs, an icon in the menu bar shows
+// its status and can stop it.
 //
-// Usage: VoicedInput [--return | --no-return]
-//
-// Sentences go to the target chosen in the menu bar card: the cursor, or
-// Claude Code or Codex in a Terminal window (AgentTerminal). For the cursor, without a flag,
-// whether Return follows each sentence is the "Press Return after each sentence" switch in the
-// card, stored in the service's own defaults.
+// Usage: VoicedInput
 
-let usage = "Usage: VoicedInput [--return | --no-return]"
-var pressReturnOverride: Bool?
+let usage = "Usage: VoicedInput"
 for argument in CommandLine.arguments.dropFirst() {
     switch argument {
-    case "--return": pressReturnOverride = true
-    case "--no-return": pressReturnOverride = false
     case "-h", "--help":
         print(usage)
         exit(0)
@@ -26,10 +20,6 @@ for argument in CommandLine.arguments.dropFirst() {
         FileHandle.standardError.write(Data("\(usage)\n".utf8))
         exit(2)
     }
-}
-
-func pressesReturn() -> Bool {
-    pressReturnOverride ?? ServiceSettings.pressesReturn
 }
 
 // Top-level code runs on the main thread; the typer, the listener and the menu live on the main
@@ -45,20 +35,20 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
     }
 
     let listener = PhoneInputListener()
-    listener.onText = { text in
-        let target = ServiceSettings.target
-        if target == .cursor {
+    listener.onMessage = { message in
+        switch message.mode {
+        case .type, .typeAndReturn:
             guard KeyboardTyper.isTrusted else {
                 log("Dropped a sentence: no Accessibility permission")
                 status.deliveryError = "Dropped a sentence: no Accessibility permission"
                 return
             }
-            let pressReturn = pressesReturn()
-            KeyboardTyper.type(PhoneInputMessages.typedText(for: text, pressesReturn: pressReturn), pressReturn: pressReturn)
+            let pressReturn = message.mode == .typeAndReturn
+            KeyboardTyper.type(PhoneInputMessages.typedText(for: message.text, pressesReturn: pressReturn), pressReturn: pressReturn)
             status.deliveryError = nil
-        } else {
-            // An agent's prompt is always sent, so it gets no trailing space and always Return.
-            status.deliveryError = AgentTerminal.send(text, to: target, in: ServiceSettings.workFolder)
+        case .claude:
+            // A prompt is always sent, so it gets no trailing space and always Return.
+            status.deliveryError = AgentTerminal.send(message.text, in: ServiceSettings.workFolder)
             if status.deliveryError != nil { return }
         }
         status.sentencesTyped += 1

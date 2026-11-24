@@ -42,6 +42,14 @@ public final class MicrophoneAudioSource: AudioProcessing, @unchecked Sendable {
     /// Same default as WhisperKit's processor, which this replaces.
     public var relativeEnergyWindow: Int = 20
 
+    /// Receives the input's samples as they are captured (silence while muted), on the capture
+    /// thread: steady even while a decode keeps the transcriber from polling, for a live waveform.
+    public var onSamples: (@Sendable ([Float]) -> Void)? {
+        get { lock.withLock { samplesHandler } }
+        set { lock.withLock { samplesHandler = newValue } }
+    }
+    private var samplesHandler: (@Sendable ([Float]) -> Void)?
+
     public var audioSamples: ContiguousArray<Float> { lock.withLock { samples } }
     public var relativeEnergy: [Float] { lock.withLock { energy.map(\.rel) } }
 
@@ -95,10 +103,14 @@ public final class MicrophoneAudioSource: AudioProcessing, @unchecked Sendable {
     private func ingest(_ chunk: [Float]) {
         // The denoiser still sees the real input, so its state is current once the mute lifts.
         let processed = lock.withLock { denoiser?.process(chunk) ?? chunk }
-        if mute?.isMuted == true {
+        let muted = mute?.isMuted == true
+        if muted {
             appendSilence(count: processed.count)
         } else {
             append(processed)
+        }
+        if let handler = onSamples {
+            handler(muted ? [Float](repeating: 0, count: processed.count) : processed)
         }
     }
 

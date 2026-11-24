@@ -26,6 +26,19 @@ public struct RecordingSession {
         self.baseLines = baseLines
     }
 
+    /// Drops a line the user deleted from what is displayed. What it said stays committed, so a
+    /// later decode does not bring it back.
+    public mutating func removeLine(id: String) {
+        baseLines.removeAll { $0.id == id }
+        committedLines.removeAll { $0.id == id }
+    }
+
+    /// Gives the line `id` new text, as edited by hand. Its translation goes with the old text.
+    public mutating func replaceText(ofLine id: String, with text: String) {
+        if let index = baseLines.firstIndex(where: { $0.id == id }) { baseLines[index] = baseLines[index].replacingText(text) }
+        if let index = committedLines.firstIndex(where: { $0.id == id }) { committedLines[index] = committedLines[index].replacingText(text) }
+    }
+
     /// Everything that should currently be displayed.
     public var transcript: [TranscriptLine] {
         baseLines + committedLines
@@ -58,6 +71,30 @@ public struct RecordingSession {
         let committed = commit(pendingLines.map(finalize))
         latestLines = []
         return committed
+    }
+
+    /// The uncommitted part of `lines` joined into one line, or nil when none of it is new.
+    /// `join` builds the text from the parts.
+    public func merged(_ lines: [TranscriptLine], join: ([String]) -> String) -> TranscriptLine? {
+        let new = lines.filter(isBeyondCommitted).filter { !isRepeatedTail($0) }
+        guard let first = new.first, let last = new.last else { return nil }
+        let text = join(new.map(\.text))
+        guard !text.isEmpty else { return nil }
+        return TranscriptLine(id: first.id, start: first.start, end: last.end, recordedAt: first.recordedAt, text: text)
+    }
+
+    /// Commits the uncommitted part of `lines` as a single line, however many sentences it holds,
+    /// and drops whatever else is pending. Used for what is said while the iPhone's microphone is
+    /// held, which goes to the Mac as one piece. Returns the committed line.
+    @discardableResult
+    public mutating func commitMerged(_ lines: [TranscriptLine], join: ([String]) -> String,
+                                      finalize: (TranscriptLine) -> TranscriptLine = { $0 }) -> TranscriptLine? {
+        defer { latestLines = [] }
+        guard let line = merged(lines, join: join) else { return nil }
+        let final = uniquelyIdentified(finalize(line))
+        committedLines.append(final)
+        committedEnd = max(committedEnd, final.end)
+        return final
     }
 
     private mutating func commit(_ lines: [TranscriptLine]) -> Bool {

@@ -68,7 +68,7 @@ struct MobileHistoryView: View {
                                             .accessibilityIdentifier("current-record-badge")
                                     }
                                 }
-                                .foregroundStyle(MobileTheme.accent).lineLimit(1)
+                                .foregroundStyle(MobileTheme.timestamp).lineLimit(1)
                                 // While searching, the first matching line with the match picked
                                 // out, in place of the record's opening line.
                                 Group {
@@ -146,7 +146,7 @@ struct MobileHistoryView: View {
         }.tint(MobileTheme.accent).modifier(MobileErrorAlert(model: model))
     }
 
-    /// Drawn like the search field on the main screen: an orange symbol, the text, and a clear button.
+    /// Drawn like the search field on the main screen: a black symbol, the text, and a clear button.
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")

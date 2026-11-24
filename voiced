@@ -15,7 +15,8 @@
 #   voiced status         显示服务和 Mac 版的状态
 #   voiced help           显示帮助
 #
-# 服务运行时菜单栏右上角有一个图标，点击可查看状态、设置目标（光标处、Claude Code 或 Codex）或停止服务。
+# 服务运行时菜单栏右上角有一个图标，点击可查看状态、设置 Claude Code 的文件夹或停止服务。
+# 每句话如何处理（输入、输入后回车、用 Claude Code 执行）由 iPhone 上的“发送到 Mac”方式决定。
 
 set -euo pipefail
 
@@ -48,7 +49,7 @@ voiced runs the voiced service, which types what Voiced on the iPhone hears at t
 cursor, and starts the Voiced apps.
 
   voiced                       start the service, and at every login
-  voiced <folder>              the same, with Claude Code or Codex running in that folder
+  voiced <folder>              the same, with Claude Code running in that folder
                                (voiced . for the current folder; without one, the home folder)
   voiced start                 ask whether to start Voiced on macOS or iOS
   voiced start macos           open the Mac app, building it first if needed
@@ -58,10 +59,10 @@ cursor, and starts the Voiced apps.
   voiced stop macos            quit the Mac app
   voiced restart [folder]      restart the service
   voiced restart macos         restart the Mac app
-  voiced status                show the service, the Mac app, the target and the folder
+  voiced status                show the service, the Mac app and the folder
 
-Choose the target (the cursor, Claude Code or Codex) in the card that opens from the
-service's menu bar icon.
+What happens to each sentence (typed at the cursor, typed and followed by Return, or run
+by Claude Code) is the "Send to Mac" mode chosen on the iPhone.
 HELP
 }
 
@@ -71,20 +72,8 @@ set_work_folder() {
     defaults write "$LABEL" workFolder -string "$1"
 }
 
-current_target() {
-    defaults read "$LABEL" target 2>/dev/null || print cursor
-}
-
 current_work_folder() {
     defaults read "$LABEL" workFolder 2>/dev/null || print "$HOME"
-}
-
-target_title() {
-    case "$1" in
-        claude) print "Claude Code" ;;
-        codex) print "Codex" ;;
-        *) print "Cursor" ;;
-    esac
 }
 
 # MARK: Service
@@ -307,7 +296,6 @@ show_status() {
     else
         print "Voiced app:   stopped"
     fi
-    print "Target:       $(target_title "$(current_target)")"
     print "Folder:       $(current_work_folder)"
 }
 

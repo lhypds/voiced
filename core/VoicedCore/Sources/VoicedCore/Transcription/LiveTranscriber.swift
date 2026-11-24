@@ -108,6 +108,11 @@ public actor LiveTranscriber {
     private var discardedSeconds: Float { Float(discardedSampleCount) / Self.sampleRate }
     /// Buffer length when the last decode started; audio after it has not been decoded yet.
     private var decodedSampleCount = 0
+    /// How far into the recording, in seconds since `start()`, the latest finished decode heard:
+    /// all speech before this time has been through the decoder. Set before the delegate hears of it.
+    public private(set) var decodedThrough: Float = 0
+    /// Whether a decode is running, so speech already captured may still be on its way.
+    public private(set) var isDecoding = false
     private var lastVoiceAt = Date()
     /// True after a decode, until the pause that follows has been reported.
     private var awaitingPause = false
@@ -117,6 +122,10 @@ public actor LiveTranscriber {
     private var voiceActivity = VoiceActivity()
     /// Set when the detector throws; the rest of the capture is then judged by energy alone.
     private var voiceDetectorFailed = false
+    /// While set, nothing is decoded and the buffer is emptied up to this capture index (all of it
+    /// at `Int.max`). The audio still reaches `audioSink`. Used while the iPhone's microphone is
+    /// held: that speech is transcribed separately, as one clip.
+    private var pausedKeepFrom: Int?
 
     /// - Parameters:
     ///   - audioProcessor: capture source; defaults to the model's own processor.
@@ -156,6 +165,35 @@ public actor LiveTranscriber {
         speechEnergyFloor = floor
     }
 
+    /// Stops decoding until `resumeDecoding()`; audio captured meanwhile is dropped, not decoded
+    /// later. A decode already running finishes and is reported as usual.
+    public func pauseDecoding() {
+        pausedKeepFrom = Int.max
+        awaitingPause = false
+    }
+
+    /// While paused, keeps the audio from capture sample `index` on, for decoding once resumed.
+    public func keepAudio(fromSample index: Int) {
+        guard pausedKeepFrom != nil else { return }
+        pausedKeepFrom = max(0, index)
+    }
+
+    /// Decodes again, starting with the audio kept by `keepAudio(fromSample:)`, if any.
+    public func resumeDecoding() {
+        guard let keepFrom = pausedKeepFrom else { return }
+        pausedKeepFrom = nil
+        dropPausedAudio(before: keepFrom)
+        decodedSampleCount = 0
+        awaitingPause = false
+        lastVoiceAt = Date()
+    }
+
+    private func dropPausedAudio(before keepFrom: Int) {
+        let count = audioProcessor.audioSamples.count
+        let end = discardedSampleCount + count
+        trimBuffer(keepingLast: keepFrom == Int.max ? 0 : max(0, min(count, end - keepFrom)), reason: "paused")
+    }
+
     /// Starts capturing and decoding. The caller is responsible for obtaining microphone permission first.
     public func start() throws {
         guard !isRunning else { return }
@@ -164,6 +202,7 @@ public actor LiveTranscriber {
         voiceDetectorFailed = false
         try audioProcessor.startRecordingLive(inputDeviceID: inputDeviceID, callback: nil)
         isRunning = true
+        decodedThrough = 0
         discardedSampleCount = 0
         capturedSampleCount = 0
         decodedSampleCount = 0
@@ -202,6 +241,11 @@ public actor LiveTranscriber {
         if let levelHandler {
             let frame = Int(Self.speechFrameSeconds * Self.sampleRate)
             levelHandler(Self.rms(samples.suffix(frame)))
+        }
+        if let keepFrom = pausedKeepFrom {
+            dropPausedAudio(before: keepFrom)
+            try await Task.sleep(for: Self.pollInterval)
+            return
         }
         let newSamples = samples.count - decodedSampleCount
         let newSeconds = Float(newSamples) / Self.sampleRate
@@ -256,6 +300,9 @@ public actor LiveTranscriber {
     }
 
     private func decode(_ buffer: ContiguousArray<Float>) async throws {
+        isDecoding = true
+        defer { isDecoding = false }
+        let heardThrough = Float(discardedSampleCount + buffer.count) / Self.sampleRate
         decodedSampleCount = buffer.count
         decodeCount += 1
         let decodeID = decodeCount
@@ -315,6 +362,8 @@ public actor LiveTranscriber {
             return shifted
         }.flatMap(Self.splitAtPunctuation)
         awaitingPause = true
+        decodedThrough = heardThrough
+        isDecoding = false
         log?("decode end: \(segments.count) segments, buffer now \(bufferSpan(audioProcessor.audioSamples.count))")
         guard isRunning, let delegate else { return }
         discardCommittedAudio(before: await delegate.transcriber(self, didDecode: segments, decode: decodeID))

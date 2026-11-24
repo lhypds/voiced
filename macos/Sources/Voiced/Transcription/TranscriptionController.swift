@@ -34,6 +34,9 @@ final class TranscriptionController: ObservableObject {
     @Published private(set) var loadingComponent: ModelComponent?
     /// When the current load began, for showing how long it has been running.
     @Published private(set) var loadingStartedAt: Date?
+    /// How long this load should take, from the last one of the same model; nil when unknown,
+    /// such as when the model has to be compiled first. The banner then counts down instead of up.
+    @Published private(set) var expectedLoadSeconds: TimeInterval?
     @Published private(set) var lines: [TranscriptLine] = []
     @Published private(set) var liveText = ""
     /// Saved transcripts, most recently updated first.
@@ -71,9 +74,8 @@ final class TranscriptionController: ObservableObject {
     @Published var lineClickAction: LineClickAction {
         didSet {
             settings.lineClickAction = lineClickAction
-            if lineClickAction != .play {
-                stopPlayback()
-            }
+            // A playback started the other way would not end the way the new choice says.
+            stopPlayback()
         }
     }
     /// The line whose audio is being heard: the one clicked, then each later line as playback
@@ -427,13 +429,17 @@ final class TranscriptionController: ObservableObject {
 
             phase = .loading
             loadingComponent = nil
-            loadingStartedAt = Date()
+            let compiling = !settings.compiledEngines().contains(engine)
+            expectedLoadSeconds = compiling ? nil : settings.modelLoadSeconds(engine)
+            let loadStart = Date()
+            loadingStartedAt = loadStart
             let loaded = try await WhisperModelStore.load(modelFolder: modelFolder) { [weak self] component in
                 Task { @MainActor [weak self] in
                     guard let self, self.preparationID == id else { return }
                     self.loadingComponent = component
                 }
             }
+            settings.recordModelLoad(engine, seconds: Date().timeIntervalSince(loadStart), compiled: compiling)
             // Loading compiled the model for the Neural Engine if the system had not yet.
             settings.markCompiled(engine)
             guard preparationID == id else {
@@ -904,10 +910,11 @@ final class TranscriptionController: ObservableObject {
     // MARK: - Playback
 
     /// Stops the playback while one runs, whichever line was clicked; otherwise plays the
-    /// current record's audio from the moment `line` was spoken, on through the lines after it.
+    /// current record's audio from the moment `line` was spoken: to the line's end when
+    /// `onlyLine`, else on through the lines after it.
     /// Nothing plays while recording, when the line's audio is not saved, or when the file
     /// cannot be played.
-    func togglePlayback(of line: TranscriptLine) {
+    func togglePlayback(of line: TranscriptLine, onlyLine: Bool) {
         if playingLineID != nil {
             stopPlayback()
             return
@@ -915,12 +922,13 @@ final class TranscriptionController: ObservableObject {
         guard !isRecording, let record = currentRecord, let position = record.audioPosition(of: line) else { return }
         let url = historyStore.recordDirectory(id: record.id).appendingPathComponent(position.file)
         do {
-            try playback.play(url, from: position.time)
+            try playback.play(url, from: position.time, until: onlyLine ? record.audioEnd(of: line) : nil)
         } catch {
             return
         }
         playingLineID = line.id
-        playbackCues = lines.compactMap { line in
+        // With only this line playing, the highlight stays on it until the playback ends.
+        playbackCues = (onlyLine ? [line] : lines).compactMap { line in
             guard let cue = record.audioPosition(of: line), cue.file == position.file else { return nil }
             return (line.id, cue.time)
         }

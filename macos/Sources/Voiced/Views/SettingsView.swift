@@ -80,7 +80,7 @@ struct SettingsView: View {
         .frame(width: Self.windowSize.width)
         .frame(minHeight: Self.windowSize.minHeight, maxHeight: .infinity)
         .background(Theme.background)
-        // Toggles, sliders, pickers and radio choices pick up the app's orange.
+        // Toggles, sliders, pickers and radio choices pick up the app's black.
         .tint(Theme.accent)
         // The level bars listen to the selected device for as long as the window is open.
         .onAppear {
@@ -195,14 +195,12 @@ struct SettingsView: View {
             Divider()
 
             SettingsRow(title: strings.lineClick, hint: strings.lineClickHint) {
-                HStack(spacing: 12) {
-                    RadioChoice(strings.copyText, selected: controller.lineClickAction == .copy) {
-                        controller.lineClickAction = .copy
-                    }
-                    RadioChoice(strings.playAudio, selected: controller.lineClickAction == .play) {
-                        controller.lineClickAction = .play
+                Picker(strings.lineClick, selection: $controller.lineClickAction) {
+                    ForEach(LineClickAction.allCases) { action in
+                        Text(strings.lineClickActionName(action)).tag(action)
                     }
                 }
+                .labelsHidden()
                 .fixedSize()
             }
         }

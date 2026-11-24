@@ -175,11 +175,11 @@ private struct HistoryRow: View {
                 HStack(spacing: 6) {
                     Text(Self.dateFormatter.string(from: record.updatedAt))
                         .font(.system(.caption, design: .monospaced).weight(.medium))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.timestamp)
                     // The number of sentences on its own, without a unit; while searching, the matches.
                     Text(match.map { strings.matchCount($0.matchCount) } ?? "\(record.lines.count)")
                         .font(.caption)
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(Theme.timestamp)
                     if isCurrent {
                         Text(strings.currentRecord)
                             .font(.caption2.weight(.semibold))

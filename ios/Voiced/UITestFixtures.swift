@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import VoicedCore
+import WhisperKit
 
 /// UI tests use a fresh sandbox subdirectory and in-memory services. No real API key,
 /// network request, model download, microphone capture or user history is involved.
@@ -34,8 +35,21 @@ enum UITestFixtures {
             model.current.lines.append(new)
             model.ai.update(model.current.lines)
         }
+        if ProcessInfo.processInfo.arguments.contains("--ui-many-lines") {
+            // Enough lines to run on under the microphone, for checking the list's edges.
+            model.current.lines += (1...14).map { index in
+                TranscriptLine(id: "many-\(index)", start: Float(index), end: Float(index) + 1,
+                               recordedAt: now.addingTimeInterval(TimeInterval(index)), text: "第 \(index) 句测试转写，用来填满屏幕。")
+            }
+        }
+        if ProcessInfo.processInfo.arguments.contains("--ui-mac-line") {
+            // The fixture line as one sent to the Mac, and a tap that plays it.
+            model.current.macDeliveries = [line.id: true]
+            model.lineClickAction = .play
+        }
         let empty = ProcessInfo.processInfo.arguments.contains("--ui-empty")
         if empty { model.newRecord() }
+        if ProcessInfo.processInfo.arguments.contains("--ui-send-to-mac") { model.sendToMacEnabled = true }
         if ProcessInfo.processInfo.arguments.contains("--ui-recording") {
             model.recording = true
             if !empty { model.liveText = "正在识别的实时文字。" }
@@ -43,11 +57,60 @@ enum UITestFixtures {
         if ProcessInfo.processInfo.arguments.contains("--ui-loading") {
             model.newRecord()
             model.busy = true
+            model.modelLoading = true
             model.loadingStartedAt = Date().addingTimeInterval(-2)
             model.loadingComponent = .audioEncoder
             model.status = model.strings.loadingModel(.audioEncoder)
         }
         return model
+    }
+
+    /// The capture recordings use: the microphone, or with `--ui-audio-file <path>` a 16 kHz mono
+    /// WAV fed in at real-time pace, for end-to-end runs where no microphone reaches the simulator.
+    static func makeCapture() -> AudioCapturing {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "--ui-audio-file"), index + 1 < arguments.count,
+              let capture = FileAudioCapture(url: URL(fileURLWithPath: arguments[index + 1])) else { return AudioCapture() }
+        return capture
+    }
+
+    /// Plays a WAV file as if it were the microphone: 100 ms chunks in real time from `start`,
+    /// then silence until stopped.
+    final class FileAudioCapture: AudioCapturing, @unchecked Sendable {
+        private let samples: [Float]
+        private var timer: DispatchSourceTimer?
+        private var position = 0
+        private let queue = DispatchQueue(label: "voiced.ui-test.file-capture")
+
+        init?(url: URL) {
+            guard let data = try? Data(contentsOf: url), data.count > 44 else { return nil }
+            // A canonical PCM WAV: find the "data" chunk and read 16-bit little-endian samples.
+            guard let range = data.range(of: Data("data".utf8)) else { return nil }
+            let start = range.upperBound + 4
+            samples = stride(from: start, to: data.count - 1, by: 2).map { offset in
+                Float(Int16(bitPattern: UInt16(data[offset]) | UInt16(data[offset + 1]) << 8)) / 32768
+            }
+        }
+
+        func start(deviceID: DeviceID?, onChunk: @escaping ([Float]) -> Void) throws {
+            let chunk = 1600
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                let end = min(self.position + chunk, self.samples.count)
+                var piece = self.position < end ? Array(self.samples[self.position..<end]) : []
+                piece += [Float](repeating: 0, count: chunk - piece.count)
+                self.position += chunk
+                onChunk(piece)
+            }
+            self.timer = timer
+            timer.resume()
+        }
+
+        func pause() { timer?.suspend() }
+        func resume() throws { timer?.resume() }
+        func stop() { timer?.cancel(); timer = nil }
     }
 
     private struct HintStub: TranscriptHinting {

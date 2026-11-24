@@ -17,12 +17,6 @@ final class ServiceStatus {
     var accessibilityAllowed = KeyboardTyper.isTrusted
     var sentencesTyped = 0
     var lastSentenceAt: Date?
-    var pressesReturn = ServiceSettings.pressesReturn {
-        didSet { ServiceSettings.pressesReturn = pressesReturn }
-    }
-    var target = ServiceSettings.target {
-        didSet { if target != oldValue { ServiceSettings.target = target } }
-    }
     var workFolder = ServiceSettings.workFolder {
         didSet { if workFolder != oldValue { ServiceSettings.workFolder = workFolder } }
     }
@@ -117,7 +111,6 @@ final class StatusMenu: NSObject {
     private func refresh() {
         status.accessibilityAllowed = KeyboardTyper.isTrusted
         // `voiced <folder>` changes the folder from outside.
-        status.target = ServiceSettings.target
         status.workFolder = ServiceSettings.workFolder
     }
 
@@ -138,17 +131,9 @@ final class StatusMenu: NSObject {
 /// in ~/.voiced/settings.json: the Voiced app keeps a copy of that file and writes all of it back
 /// on every change, which would undo a change made here.
 enum ServiceSettings {
-    private static let pressReturnKey = "pressReturn"
-    private static let targetKey = "target"
     private static let workFolderKey = "workFolder"
 
-    /// Where sentences go, chosen in the card.
-    static var target: Target {
-        get { UserDefaults.standard.string(forKey: targetKey).flatMap(Target.init(rawValue:)) ?? .cursor }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: targetKey) }
-    }
-
-    /// The folder Claude Code or Codex starts in. `voiced` sets it to the home folder, and
+    /// The folder Claude Code starts in. `voiced` sets it to the home folder, and
     /// `voiced <folder>` (such as `voiced .`) to that folder.
     static var workFolder: String {
         get {
@@ -156,27 +141,6 @@ enum ServiceSettings {
             return FileManager.default.homeDirectoryForCurrentUser.path
         }
         set { UserDefaults.standard.set(newValue, forKey: workFolderKey) }
-    }
-
-    /// Whether Return follows each sentence, sending it at a prompt. Off by default, so a
-    /// sentence can be checked or added to first. Taken over once from "phoneInputReturn" in
-    /// settings.json, where the Voiced app's Settings used to keep it.
-    static var pressesReturn: Bool {
-        get {
-            let defaults = UserDefaults.standard
-            if defaults.object(forKey: pressReturnKey) == nil {
-                defaults.set(legacyPressesReturn, forKey: pressReturnKey)
-            }
-            return defaults.bool(forKey: pressReturnKey)
-        }
-        set { UserDefaults.standard.set(newValue, forKey: pressReturnKey) }
-    }
-
-    private static var legacyPressesReturn: Bool {
-        let url = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".voiced/settings.json")
-        guard let data = try? Data(contentsOf: url),
-              let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-        return settings["phoneInputReturn"] as? Bool ?? false
     }
 }
 
@@ -245,17 +209,7 @@ private struct StatusCard: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Target").font(.callout).foregroundStyle(.secondary)
-                Picker("Target", selection: $status.target) {
-                    ForEach(Target.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-
-            if status.target == .cursor {
-                returnToggle
-            } else {
+                Text("Claude Code folder").font(.callout).foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     Image(systemName: "folder").foregroundStyle(.secondary)
                     Text(abbreviated(status.workFolder))
@@ -265,7 +219,7 @@ private struct StatusCard: View {
                     Spacer()
                     Button("Change…") { chooseFolder() }.buttonStyle(.link)
                 }
-                Text("Opens \(status.target.title) in Terminal with the first sentence and types each later one into it.")
+                Text("The iPhone chooses what happens to each sentence: typed at the cursor, typed and followed by Return, or run by Claude Code, which opens in Terminal in this folder.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -294,20 +248,6 @@ private struct StatusCard: View {
         }
         .padding(14)
         .frame(width: 300)
-    }
-
-    private var returnToggle: some View {
-        Toggle(isOn: $status.pressesReturn) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Press Return after each sentence").font(.callout)
-                Text("Sends it at a prompt right away. Off, it stays at the cursor to check first.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .toggleStyle(.switch)
-        .controlSize(.small)
     }
 
     private func abbreviated(_ path: String) -> String {

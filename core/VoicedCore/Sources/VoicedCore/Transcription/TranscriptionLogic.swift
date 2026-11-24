@@ -44,6 +44,19 @@ public enum TranscriptionLogic {
 }
 
 public extension RecordingSession {
+    /// The decoded speech of `segments` that is not committed yet, as the single line
+    /// `commitMerged(segments:assembler:)` would commit; nil when there is none.
+    func merged(segments: [TranscriptionSegment], assembler: SentenceAssembler) -> TranscriptLine? {
+        merged(TranscriptionLogic.transcriptLines(from: segments, recordingStartedAt: startedAt), join: assembler.draft(from:))
+    }
+
+    /// Commits the uncommitted speech of `segments` as one terminated line.
+    @discardableResult
+    mutating func commitMerged(segments: [TranscriptionSegment], assembler: SentenceAssembler) -> TranscriptLine? {
+        commitMerged(TranscriptionLogic.transcriptLines(from: segments, recordingStartedAt: startedAt),
+                     join: assembler.draft(from:), finalize: assembler.terminated)
+    }
+
     /// Both platforms commit the same sentences and keep the same unfinished trailing text.
     @discardableResult
     mutating func update(segments: [TranscriptionSegment], assembler: SentenceAssembler) -> Bool {

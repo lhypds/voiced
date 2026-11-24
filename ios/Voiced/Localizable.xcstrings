@@ -2104,47 +2104,6 @@
         }
       }
     },
-    "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Während der Aufnahme wird jeder erkannte Satz an einen Mac mit Voiced im selben Netzwerk gesendet und an dessen Cursor getippt, etwa an einer Terminal-Eingabeaufforderung. Starte den Dienst voiced auf dem Mac mit dem Befehl voiced. Sätze ohne verbundenen Mac werden nicht nachgesendet."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "While recording, every finished sentence is sent to a Mac running Voiced on the same network and typed at its cursor, such as a terminal prompt. Start the voiced service on the Mac by running voiced. Sentences said while no Mac is connected are not sent later."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Durante la grabación, cada frase reconocida se envía a un Mac con Voiced en la misma red y se escribe en su cursor, por ejemplo en el prompt de un terminal. Inicia el servicio voiced en el Mac con el comando voiced. Las frases dichas sin un Mac conectado no se envían después."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pendant l'enregistrement, chaque phrase reconnue est envoyée à un Mac exécutant Voiced sur le même réseau et saisie à son curseur, par exemple à l'invite d'un terminal. Démarrez le service voiced sur le Mac avec la commande voiced. Les phrases dites sans Mac connecté ne sont pas envoyées plus tard."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "録音中、認識が終わった各文を同じネットワークで Voiced を実行している Mac に送り、Mac のカーソル位置（ターミナルのプロンプトなど）に入力します。Mac で voiced を実行して voiced サービスを起動してください。未接続の間に話した文は後から送信されません。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。"
-          }
-        }
-      }
-    },
     "恢复默认阈值" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2268,6 +2227,88 @@
         }
       }
     },
+    "打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符；“输入后回车”输入后再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，工作文件夹由 voiced 命令设置。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn aktiviert, halte das Mikrofon gedrückt und sprich: Was vor dem Loslassen gesagt wird, geht an einen Mac im selben Netzwerk, auf dem Voiced läuft, auch während einer Aufnahme. „Eingeben“ tippt es am Cursor des Mac ein, etwa an einer Terminal-Eingabeaufforderung; „Eingeben und Return“ drückt danach Return; „Ausführen“ lässt es Claude Code auf dem Mac ausführen, geöffnet im Terminal im mit dem Befehl voiced festgelegten Ordner. Gesendetes erscheint im Transkript blau. Ein Tippen auf das Mikrofon startet oder stoppt nur die Aufnahme und sendet nichts. Starte auf dem Mac mit voiced den voiced-Dienst. Ohne Verbindung Gesagtes wird nicht nachgesendet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, hold the microphone and speak: what is said before letting go is sent to a Mac running Voiced on the same network, also while recording. \"Type\" types it at the Mac's cursor, such as a terminal prompt; \"Type and Return\" also presses Return; \"Run\" has Claude Code on the Mac carry it out, opened in Terminal in the folder set with the voiced command. Sent speech is shown in blue in the transcript. A tap on the microphone only starts or stops recording and sends nothing. Run voiced on the Mac to start the voiced service. Speech while not connected is not sent later."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al activarlo, mantén pulsado el micrófono y habla: lo dicho antes de soltar se envía a un Mac con Voiced en la misma red, también mientras se graba. «Escribir» lo escribe en el cursor del Mac, como el prompt de un terminal; «Escribir y Retorno» además pulsa Retorno; «Ejecutar» se lo pasa a Claude Code en el Mac, abierto en Terminal en la carpeta fijada con el comando voiced. Lo enviado aparece en azul en la transcripción. Un toque en el micrófono solo inicia o detiene la grabación y no envía nada. Ejecuta voiced en el Mac para iniciar el servicio voiced. Lo dicho sin conexión no se envía después."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une fois activé, maintenez le micro et parlez : ce qui est dit avant de relâcher est envoyé à un Mac exécutant Voiced sur le même réseau, même pendant un enregistrement. « Saisir » le tape au curseur du Mac, par exemple à l'invite d'un terminal ; « Saisir et Entrée » appuie aussi sur Entrée ; « Exécuter » le confie à Claude Code sur le Mac, ouvert dans Terminal dans le dossier défini par la commande voiced. Le texte envoyé apparaît en bleu dans la transcription. Un toucher sur le micro démarre ou arrête seulement l'enregistrement, sans rien envoyer. Lancez voiced sur le Mac pour démarrer le service voiced. Ce qui est dit sans connexion n'est pas envoyé plus tard."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オンにすると、マイクを押したまま話した内容が、離したときに同じネットワーク上で Voiced を実行している Mac に送信されます。録音中でも押せます。「入力」は Mac のカーソル位置（ターミナルのプロンプトなど）に入力し、「入力して Return」は入力後に Return を押し、「実行」は Mac の Claude Code に実行させます（ターミナルで開き、作業フォルダは voiced コマンドで設定）。送信した内容は記録に青で表示されます。マイクをタップすると録音の開始・停止のみで、送信しません。Mac で voiced を実行して voiced サービスを起動してください。未接続中の発話は後から送信されません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符；“输入后回车”输入后再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，工作文件夹由 voiced 命令设置。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。"
+          }
+        }
+      }
+    },
+    "执行" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausführen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ejecutar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exécuter"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実行"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "执行"
+          }
+        }
+      }
+    },
     "把声音，留成文字" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2305,6 +2346,88 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "把声音，留成文字"
+          }
+        }
+      }
+    },
+    "按住说话，松开后整段识别" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gedrückt halten zum Sprechen; loslassen, um alles zu erkennen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold to speak; let go to recognize it all"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantén pulsado para hablar; suelta para reconocerlo todo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maintenez pour parler ; relâchez pour tout reconnaître"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "押したまま話し、離すとまとめて認識します"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按住说话，松开后整段识别"
+          }
+        }
+      }
+    },
+    "按住说话，说的话会发送到 Mac" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gedrückt halten und sprechen; das Gesagte wird an den Mac gesendet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hold to speak; what you say is sent to the Mac"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantén pulsado para hablar; lo que digas se envía al Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maintenez pour parler ; ce que vous dites est envoyé au Mac"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "押したまま話すと、内容が Mac に送信されます"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "按住说话，说的话会发送到 Mac"
           }
         }
       }
@@ -2719,6 +2842,47 @@
         }
       }
     },
+    "方式" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modus"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "方式"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "方式"
+          }
+        }
+      }
+    },
     "无法初始化麦克风音频格式。" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2924,6 +3088,47 @@
         }
       }
     },
+    "未连接 Mac，未发送" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht gesendet: kein Mac verbunden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not sent: no Mac connected"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No enviado: no hay ningún Mac conectado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non envoyé : aucun Mac connecté"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mac に未接続のため送信されていません"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未连接 Mac，未发送"
+          }
+        }
+      }
+    },
     "未采集" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3047,6 +3252,47 @@
         }
       }
     },
+    "松开手指，取消识别" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loslassen zum Abbrechen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Let go to cancel"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suelta para cancelar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relâchez pour annuler"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指を離すとキャンセル"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "松开手指，取消识别"
+          }
+        }
+      }
+    },
     "查看摘要" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3166,6 +3412,47 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在完成最后一段…"
+          }
+        }
+      }
+    },
+    "正在录音" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在录音"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recording"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufnahme läuft"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grabando"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrement"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "録音中"
           }
         }
       }
@@ -3908,6 +4195,47 @@
         }
       }
     },
+    "编辑" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bearbeiten"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifier"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集"
+          }
+        }
+      }
+    },
     "翻译" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4400,6 +4728,47 @@
         }
       }
     },
+    "识别中…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "识别中…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recognizing…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird erkannt …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconociendo…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnaissance…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認識中…"
+          }
+        }
+      }
+    },
     "识别提示词" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4810,6 +5179,47 @@
         }
       }
     },
+    "请先在设置 → 通用中打开“发送到 Mac”" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiviere zuerst „An Mac senden“ unter Einstellungen → Allgemein"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn on “Send to Mac” in Settings → General first"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activa primero «Enviar al Mac» en Ajustes → General"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activez d’abord « Envoyer au Mac » dans Réglages → Général"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先に 設定 → 一般 で「Mac に送信」をオンにしてください"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请先在设置 → 通用中打开“发送到 Mac”"
+          }
+        }
+      }
+    },
     "请在系统设置 → Voiced 中允许麦克风访问。" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5052,6 +5462,88 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "轻点麦克风，开始聆听。\n你的转写会保存在这台设备上。"
+          }
+        }
+      }
+    },
+    "输入" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingeben"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisir"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入"
+          }
+        }
+      }
+    },
+    "输入后回车" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingeben und Return"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type and Return"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribir y Retorno"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisir et Entrée"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力して Return"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入后回车"
           }
         }
       }

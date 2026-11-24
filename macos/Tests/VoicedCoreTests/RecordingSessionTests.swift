@@ -60,6 +60,69 @@ final class RecordingSessionTests: XCTestCase {
         XCTAssertFalse(session.commitTrailing(), "nothing left to commit")
     }
 
+    func testReplaceTextEditsBaseAndCommittedLines() {
+        let base = line("old", 0, 1, "Earlier.").translated(TranslatedText(language: "ja", text: "以前。"))
+        var session = RecordingSession(startedAt: Date(), baseLines: [base])
+        let done = line("a", 2, 3, "Teh new one.")
+        session.update(latest: [done], completed: [done])
+
+        session.replaceText(ofLine: "old", with: "Before.")
+        session.replaceText(ofLine: "a", with: "The new one.")
+        session.replaceText(ofLine: "missing", with: "Nothing.")
+
+        XCTAssertEqual(session.transcript.map(\.text), ["Before.", "The new one."])
+        XCTAssertEqual(session.transcript.map(\.id), ["old", "a"])
+        XCTAssertNil(session.transcript[0].translation, "the translation belongs to the old text")
+        XCTAssertEqual(session.committedEnd, 3)
+    }
+
+    func testCommitMergedJoinsEverythingIntoOneLine() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let parts = [line("a", 0, 2, "First."), line("b", 3, 5, "Then a pause."), line("c", 6, 7, "And more")]
+
+        let committed = session.commitMerged(parts, join: { $0.joined(separator: " ") }, finalize: { $0.replacingText($0.text + ".") })
+
+        XCTAssertEqual(session.transcript.count, 1)
+        XCTAssertEqual(committed?.text, "First. Then a pause. And more.")
+        XCTAssertEqual(committed?.start, 0)
+        XCTAssertEqual(committed?.end, 7)
+        XCTAssertEqual(committed?.recordedAt, parts[0].recordedAt)
+        XCTAssertEqual(session.committedEnd, 7)
+        XCTAssertTrue(session.pendingLines.isEmpty)
+    }
+
+    func testCommitMergedSkipsWhatIsAlreadyCommitted() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let before = line("a", 0, 2, "Before the hold.")
+        session.update(latest: [before], completed: [before])
+
+        // The decode during the hold still contains the committed sentence at its front.
+        let committed = session.commitMerged([before, line("b", 3, 5, "Held words")], join: { $0.joined(separator: " ") })
+
+        XCTAssertEqual(committed?.text, "Held words")
+        XCTAssertEqual(session.transcript.map(\.text), ["Before the hold.", "Held words"])
+    }
+
+    func testCommitMergedWithNothingNewCommitsNothing() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let done = line("a", 0, 2, "Done.")
+        session.update(latest: [done], completed: [done])
+
+        XCTAssertNil(session.commitMerged([done], join: { $0.joined(separator: " ") }))
+        XCTAssertNil(session.commitMerged([], join: { $0.joined(separator: " ") }))
+        XCTAssertEqual(session.transcript.count, 1)
+    }
+
+    func testMergedPreviewMatchesTheCommittedLine() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let parts = [line("a", 0, 2, "One"), line("b", 2, 3, "two")]
+        let preview = session.merged(parts, join: { $0.joined(separator: " ") })
+
+        XCTAssertEqual(preview?.text, "One two")
+        XCTAssertTrue(session.transcript.isEmpty, "the preview must not commit")
+        XCTAssertEqual(session.commitMerged(parts, join: { $0.joined(separator: " ") })?.text, preview?.text)
+    }
+
     func testCommittedLinesSurviveALaterDecodeOfTheSameAudio() {
         var session = RecordingSession(startedAt: Date(), baseLines: [])
         let pending = line("a", 0, 2, "Hello there")

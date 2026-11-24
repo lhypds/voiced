@@ -45,7 +45,7 @@ NSGraphicsContext.current?.saveGraphicsState()
 tile.addClip()
 
 // The same SF Symbol as the voiced service's menu bar icon, in black on the white tile.
-let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 480, weight: .regular)
+let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 480, weight: .light)
     .applying(NSImage.SymbolConfiguration(paletteColors: [.black]))
 guard let symbol = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)?
     .withSymbolConfiguration(symbolConfiguration) else {

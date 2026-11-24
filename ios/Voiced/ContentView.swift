@@ -1,9 +1,10 @@
 import AVFoundation
 import SwiftUI
+import UIKit
 import Translation
 import VoicedCore
 
-/// The same warm palette as the macOS Theme, kept independent of AppKit.
+/// The same black-and-grey palette as the macOS Theme, kept independent of AppKit.
 enum MobileTheme {
     static let background = VoicedPalette.background
     static let accent = VoicedPalette.accent
@@ -11,7 +12,8 @@ enum MobileTheme {
     static let ink = VoicedPalette.ink
     static let card = accent.opacity(VoicedPalette.rowFillOpacity)
     /// The playing line's deeper fill, matching the macOS row's hover/playing shade.
-    static let cardActive = accent.opacity(0.26)
+    static let cardActive = accent.opacity(0.10)
+    static let timestamp = VoicedPalette.timestamp
     static let gradient = LinearGradient(colors: [accent, accentDark], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
@@ -40,27 +42,22 @@ struct RaisedButtonStyle: ButtonStyle {
     }
 }
 
-private struct OrangeButtonStyle: ButtonStyle {
-    var size: CGFloat = 44
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: size * 0.4, weight: .medium))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            // Flat: one solid colour, no gradient or shadow.
-            .background(MobileTheme.accent, in: Circle())
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .opacity(isEnabled ? (configuration.isPressed ? 0.9 : 1) : 0.4)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
-
 struct ContentView: View {
     @EnvironmentObject private var model: MobileTranscriber
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showSettings = false
+    /// The line being edited from its card's menu.
+    @State private var editingLine: TranscriptLine?
+    /// Whether a finger is on the microphone; the ring is filled meanwhile.
+    @State private var micTouching = false
+    /// Whether the current touch on the microphone has become a hold.
+    @State private var micHolding = false
+    /// Whether the finger has moved off the microphone; letting go there cancels a hold.
+    @State private var micOutside = false
+    /// Bumped by a tap or hold on the microphone, to bring the list back to its top, where the LIVE card is.
+    @State private var scrollToTopRequest = 0
+    /// Turns the current touch into a hold once it has lasted half a second.
+    @State private var micHoldTimer: Task<Void, Never>?
     @State private var showHistory = false
     @State private var searching = false
     @State private var query = ""
@@ -78,9 +75,15 @@ struct ContentView: View {
     private static let controlsBottomPadding: CGFloat = 4
     /// The recording controls float over the list; its last card can scroll up clear of them.
     private static let controlsHeight: CGFloat = controlsTopPadding + micSize + controlsBottomPadding
+    /// The soft bottom edge of the list: cards fade out over this height, clear from about the top
+    /// of the microphone down.
+    private static let bottomFadeHeight: CGFloat = controlsHeight + 16
     /// Scroll offset for the top fade, kept out of plain state so scrolling redraws the fade alone.
     @State private var scrollFade = ScrollFadeState()
-    @State private var showsCopiedToast = false
+    /// The notice shown above the microphone for a moment: after a copy, or after a hold while
+    /// "Send to Mac" is off.
+    @State private var toast: Toast?
+    private enum Toast { case copied, releaseToCancel }
     @State private var copiedToastResetTask: Task<Void, Never>?
 
     private var lines: [TranscriptLine] {
@@ -125,10 +128,17 @@ struct ContentView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .onAppear { searchFocused = true }
                 }
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: Self.rowGap) {
-                        if model.recording || model.stopping || (!model.liveText.isEmpty && query.isEmpty) {
-                            transcriptCard(label: "LIVE", text: model.liveText, live: true)
+                        if model.holding || model.recognizingHold {
+                            // A hold shows its speech as a waveform, then its text once let go.
+                            speechCard
+                        } else if !model.recordingForHold,
+                                  model.recording || model.stopping || (!model.liveText.isEmpty && query.isEmpty) {
+                            // Blue while what is said goes to the Mac.
+                            transcriptCard(label: "LIVE", text: model.liveText, live: true,
+                                           mac: model.liveForMac ? true : nil)
                         }
                         ForEach(model.hints) { hint in
                             HintCard(hint: hint, labelWidth: timestampColumnWidth, stacked: dynamicTypeSize.isAccessibilitySize) {
@@ -139,30 +149,43 @@ struct ContentView: View {
                         if let message = model.translationError { Text(message).font(.caption).foregroundStyle(.red) }
                         ForEach(lines) { line in
                             transcriptCard(label: line.timestamp(mode: TimestampMode(rawValue: model.timestampID) ?? .current,
-                                                                showDate: model.showDate), text: model.displayTexts(line).primary, secondary: model.displayTexts(line).secondary, line: line)
+                                                                showDate: model.showDate), text: model.displayTexts(line).primary, secondary: model.displayTexts(line).secondary, line: line,
+                                           mac: model.macDelivery(of: line))
                         }
                     }
                     // Under the search field the first card keeps the gap the cards keep between
                     // themselves; under the header, the wider one.
                     // The last card comes to rest just above the floating controls.
                     .padding(.horizontal, 20).padding(.top, searching ? Self.rowGap : 16)
-                    .padding(.bottom, Self.controlsHeight + Self.rowGap)
+                    .padding(.bottom, Self.bottomFadeHeight)
                     .frame(maxWidth: 820).frame(maxWidth: .infinity)
+                    // The whole content, padding included, so scrolling to it shows the very top.
+                    .id(Self.listTopID)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(ScrollOffsetReader(fade: scrollFade, limit: Self.topFadeHeight))
+                .onChange(of: scrollToTopRequest) {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.listTopID, anchor: .top) }
+                }
+                }
                 // As on macOS: cards fade out under the header once scrolled.
                 .mask(
                     VStack(spacing: 0) {
                         TopFade(fade: scrollFade)
                         Color.black
+                        // The same soft edge at the bottom, where cards scroll on under the
+                        // microphone. Scrolled to the end, the last card rests just above it.
+                        LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .clear, location: 0.5)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: Self.bottomFadeHeight)
                     }
                 )
                 // After the mask, so neither is faded. The controls float over the cards, which
                 // scroll on behind them; their empty side columns let taps through to the list.
                 .overlay(alignment: .bottom) {
                     VStack(spacing: 0) {
-                        if showsCopiedToast { copiedToast }
+                        if micHolding && micOutside { toastView(.releaseToCancel) }
+                        else if let toast { toastView(toast) }
                         recordingControls
                     }
                 }
@@ -174,7 +197,7 @@ struct ContentView: View {
             // An overlay rather than safeAreaInset, which would lift the controls above the keyboard.
             .background(MobileTheme.background.ignoresSafeArea())
             .overlay {
-                if !model.recording && !model.previewActive && !model.stopping && !model.busy
+                if !model.recording && !model.previewActive && !model.stopping && !model.busy && !model.modelLoading
                     && query.isEmpty && model.current.lines.isEmpty && model.liveText.isEmpty && model.hints.isEmpty
                     && model.hintError == nil && model.translationError == nil {
                     emptyState.padding(.horizontal, 20).allowsHitTesting(false)
@@ -184,6 +207,9 @@ struct ContentView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .modifier(MobileTranslationHost(translator: model.translator))
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(item: $editingLine) { line in
+                LineEditor(original: line.text) { model.editLine(line, text: $0) }
+            }
             .sheet(isPresented: $showSettings, onDismiss: { model.stopInputMeter(); if model.previewActive || model.busy || model.calibrating { model.stop() }; model.savePrompt() }) { MobileSettingsView().environmentObject(model) }
             .sheet(isPresented: $showHistory, onDismiss: {
                 // A record opened from a history search shows only its matching lines; any other
@@ -214,6 +240,10 @@ struct ContentView: View {
         // Keep the home canvas at its full height while the search keyboard overlays it.
         // In particular, the centered prompt and microphone must not follow the keyboard.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        // The microphone sits near the bottom edge, where iOS holds a touch back while it checks
+        // for the home swipe; deferring that swipe lets the press show at once and the hold time
+        // from the real touch.
+        .defersSystemGestures(on: .bottom)
         .tint(MobileTheme.accent)
         .foregroundStyle(MobileTheme.ink)
         .preferredColorScheme(.light)
@@ -254,24 +284,30 @@ struct ContentView: View {
                 .accessibilityLabel("历史记录").disabled(model.locked || model.records.isEmpty)
             Button { showSettings = true } label: { Image(systemName: "gearshape") }
                 .accessibilityLabel("设置").disabled(model.busy || model.stopping || model.calibrating)
-        }.buttonStyle(OrangeButtonStyle())
+        }.buttonStyle(RingButtonStyle())
     }
 
-    private func transcriptCard(label: String, text: String, live: Bool = false, secondary: String? = nil, line: TranscriptLine? = nil) -> some View {
-        Group {
+    /// `mac` marks a card for the Mac: light blue, with a blue timestamp. For a sent line it says
+    /// whether the sentence went out; false adds a note that no Mac was connected.
+    private func transcriptCard(label: String, text: String, live: Bool = false, secondary: String? = nil, line: TranscriptLine? = nil,
+                                mac: Bool? = nil) -> some View {
+        let note: String? = mac == false ? "未连接 Mac，未发送" : nil
+        return Group {
             if dynamicTypeSize.isAccessibilitySize {
-                VStack(alignment: .leading, spacing: 8) { timestampLabel(label, live: live); transcriptText(text, secondary: secondary) }
+                VStack(alignment: .leading, spacing: 8) {
+                    timestampLabel(label, live: live, mac: mac != nil)
+                    transcriptText(text, secondary: secondary, note: note)
+                }
             } else {
                 HStack(alignment: .center, spacing: 16) {
-                    timestampLabel(label, live: live).frame(width: timestampColumnWidth, alignment: .leading)
-                    transcriptText(text, secondary: secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    timestampLabel(label, live: live, mac: mac != nil).frame(width: timestampColumnWidth, alignment: .leading)
+                    transcriptText(text, secondary: secondary, note: note).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
         .foregroundStyle(live ? MobileTheme.ink.opacity(0.5) : MobileTheme.ink)
         .padding(16).frame(maxWidth: .infinity, minHeight: live ? 64 : nil, alignment: .leading)
-        .background(line != nil && model.playingLineID == line?.id ? MobileTheme.cardActive : MobileTheme.card,
-                    in: RoundedRectangle(cornerRadius: 18))
+        .background(cardFill(line: line, mac: mac != nil), in: RoundedRectangle(cornerRadius: 18))
         .textSelection(.enabled)
         .onTapGesture { if let line, model.tap(line, in: model.current) { showCopiedToast() } }
         .contextMenu {
@@ -279,6 +315,10 @@ struct ContentView: View {
             if let line {
                 Button("从此处播放", systemImage: "play") { model.play(model.current, from: line) }
                     .disabled(model.locked || model.current.audioPosition(of: line) == nil)
+                Button("编辑", systemImage: "pencil") { editingLine = line }
+                Button("删除", systemImage: "trash", role: .destructive) {
+                    withAnimation(.easeOut(duration: 0.2)) { model.deleteLine(line) }
+                }
             }
         }
     }
@@ -288,17 +328,55 @@ struct ContentView: View {
         model.showDate && model.timestampID == "current" ? 84 : 55
     }
 
-    private func transcriptText(_ primary: String, secondary: String?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(primary).font(.body.bold())
-            if let secondary { Text(secondary).font(.subheadline).foregroundStyle(.secondary) }
+    /// The live card while the microphone is held: SPEECH and a waveform of the input, then, once
+    /// let go, a note while the clip is recognised. Its text then arrives as a line of its own.
+    private var speechCard: some View {
+        let mac = model.liveForMac
+        return Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) { timestampLabel("SPEECH", live: true, mac: mac); speechContent }
+            } else {
+                HStack(alignment: .center, spacing: 16) {
+                    timestampLabel("SPEECH", live: true, mac: mac).frame(width: timestampColumnWidth, alignment: .leading)
+                    speechContent.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(16).frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+        .background(cardFill(line: nil, mac: mac), in: RoundedRectangle(cornerRadius: 18))
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var speechContent: some View {
+        if model.holding {
+            WaveformView(meter: model.waveform, color: model.liveForMac ? VoicedPalette.macAccent : MobileTheme.ink.opacity(0.5))
+                .frame(height: 28)
+                .accessibilityLabel(Text("正在录音"))
+        } else {
+            Text("识别中…").font(.body.bold()).foregroundStyle(MobileTheme.ink.opacity(0.5))
         }
     }
 
-    private func timestampLabel(_ label: String, live: Bool = false) -> some View {
+    private func cardFill(line: TranscriptLine?, mac: Bool) -> Color {
+        let playing = line.map { model.playingLineID == $0.id } ?? false
+        // A line sent to the Mac stays blue while it plays, a deeper blue.
+        if mac { return VoicedPalette.macAccent.opacity(playing ? 0.32 : 0.14) }
+        return playing ? MobileTheme.cardActive : MobileTheme.card
+    }
+
+    private func transcriptText(_ primary: String, secondary: String?, note: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(primary).font(.body.bold())
+            if let secondary { Text(secondary).font(.subheadline).foregroundStyle(.secondary) }
+            if let note { Text(LocalizedStringKey(note)).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    private func timestampLabel(_ label: String, live: Bool = false, mac: Bool = false) -> some View {
         Text(label.replacingOccurrences(of: " ", with: "\n"))
             .font(.system(.caption, design: .monospaced, weight: .bold))
-            .foregroundStyle(live ? Color.red : MobileTheme.accent).fixedSize(horizontal: false, vertical: true)
+            .foregroundStyle(mac ? VoicedPalette.macAccent : live ? Color.red : MobileTheme.timestamp)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Copied toast
@@ -306,8 +384,13 @@ struct ContentView: View {
     /// A small pill that fades in above the microphone after a copy and fades out on its own,
     /// matching the macOS window's confirmation. It sits at the bottom so it never covers the
     /// transcript that was just copied.
-    private var copiedToast: some View {
-        Label(model.strings.copied, systemImage: "checkmark")
+    private func toastView(_ toast: Toast) -> some View {
+        Group {
+            switch toast {
+            case .copied: Label(model.strings.copied, systemImage: "checkmark")
+            case .releaseToCancel: Label("松开手指，取消识别", systemImage: "xmark")
+            }
+        }
             .font(.callout.weight(.medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 14).padding(.vertical, 8)
@@ -323,13 +406,15 @@ struct ContentView: View {
             .accessibilityIdentifier("copied-toast")
     }
 
-    private func showCopiedToast() {
-        withAnimation(.easeOut(duration: 0.2)) { showsCopiedToast = true }
+    private func showCopiedToast() { show(.copied, for: .seconds(1.2)) }
+
+    private func show(_ notice: Toast, for duration: Duration) {
+        withAnimation(.easeOut(duration: 0.2)) { toast = notice }
         copiedToastResetTask?.cancel()
         copiedToastResetTask = Task {
-            try? await Task.sleep(for: .seconds(1.2))
+            try? await Task.sleep(for: duration)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.3)) { showsCopiedToast = false }
+            withAnimation(.easeOut(duration: 0.3)) { toast = nil }
         }
     }
 
@@ -366,7 +451,8 @@ struct ContentView: View {
                 }.frame(height: 6)
                 if let startedAt = model.loadingStartedAt {
                     TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                        Text(model.strings.elapsed(max(0, Int(context.date.timeIntervalSince(startedAt)))))
+                        // Down from the last load of this model when that is known, otherwise up.
+                        Text(model.strings.loadingClock(startedAt: startedAt, expected: model.expectedLoadSeconds, now: context.date))
                             .font(.system(.caption, design: .monospaced).weight(.semibold))
                             .foregroundStyle(MobileTheme.accentDark).fixedSize()
                     }
@@ -384,40 +470,111 @@ struct ContentView: View {
         .background(MobileTheme.background, in: RoundedRectangle(cornerRadius: 16))
     }
 
+    private static let listTopID = "list-top"
+
+    /// A finger landed on the microphone.
+    private func micPressBegan() {
+        guard !micTouching, !model.stopping else { return }
+        micTouching = true
+        micHolding = false
+        micHoldTimer?.cancel()
+        micHoldTimer = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, micTouching, !model.previewActive, !model.stopping else { return }
+            // A hold is never a tap, so it never stops a recording. It records a clip that is
+            // transcribed whole once let go, and also sent to the Mac when "Send to Mac" is on.
+            micHolding = true
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if !(model.recording || model.busy) { clearSearch() }
+            scrollToTopRequest += 1
+            model.beginHold()
+        }
+    }
+
+    /// The finger left the microphone: a hold ends, anything shorter is a tap, unless the finger
+    /// was dragged well away first or the touch was cancelled.
+    private func micPressEnded(inside: Bool) {
+        guard micTouching else { return }
+        micTouching = false
+        micOutside = false
+        micHoldTimer?.cancel()
+        micHoldTimer = nil
+        if micHolding {
+            micHolding = false
+            // Let go away from the button (or the touch was cancelled): the hold is dropped.
+            if inside { model.endHold() } else { model.cancelHold() }
+        } else if inside {
+            micTapped()
+        }
+    }
+
+    /// A tap starts or stops recording; it never sends anything to the Mac.
+    private func micTapped() {
+        guard !model.stopping else { return }
+        scrollToTopRequest += 1
+        if model.recording || model.busy || model.previewActive {
+            model.stop()
+        } else {
+            clearSearch()
+            model.start()
+        }
+    }
+
+    /// A previous search must not hide incoming live text or new sentences.
+    private func clearSearch() {
+        query = ""
+        searching = false
+        searchFocused = false
+    }
+
     private var recordingControls: some View {
         VStack(spacing: 12) {
-            if model.busy {
+            // Also once a stop has left the model loading in the background.
+            if model.busy || model.modelLoading {
                 preparationBanner
                     .padding(.horizontal, 24)
             }
             HStack(spacing: 12) {
                 // Equal side columns keep the microphone centered, as on macOS.
                 Color.clear.frame(width: 44, height: 44).frame(maxWidth: .infinity)
-                Button {
-                    if model.recording || model.busy || model.previewActive {
-                        model.stop()
-                    } else {
-                        // A previous search must not hide incoming live text or new sentences.
-                        query = ""
-                        searching = false
-                        searchFocused = false
-                        model.start()
-                    }
-                } label: {
-                    if model.stopping { ProgressView().tint(.white) }
+                // One touch tracker decides between a tap and a hold, so a hold can never end as a
+                // tap. A touch released before half a second is a tap: it only starts or stops
+                // recording and never sends anything. Held longer, with "Send to Mac" on, it sends
+                // what is said until the release, whether or not a recording is running; held from
+                // idle, it records just for the hold. The button underneath only draws the ring.
+                Button {} label: {
+                    if model.stopping { ProgressView() }
                     else {
                         Image(systemName: model.recording || model.busy || model.previewActive ? "stop.fill" : "mic.fill")
-                            .font(.system(size: 33, weight: .semibold))
+                            .font(.system(size: 33, weight: .regular))
                     }
                 }
-                .buttonStyle(OrangeButtonStyle(size: Self.micSize))
+                .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside))
                 .disabled(model.stopping)
+                .allowsHitTesting(false)
+                .overlay {
+                    PressTracker(onBegan: micPressBegan, onMoved: { inside in withAnimation(.easeOut(duration: 0.15)) { micOutside = !inside } }, onEnded: micPressEnded)
+                        .clipShape(Circle())
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(Text(LocalizedStringKey(model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")))
                 .accessibilityValue(Text(LocalizedStringKey(model.status)))
+                .accessibilityAction { micTapped() }
+                // VoiceOver's double-tap and hold passes the touch through, so holding works there too.
+                .accessibilityHint(model.sendToMacEnabled ? Text("按住说话，说的话会发送到 Mac") : Text("按住说话，松开后整段识别"))
                 HStack {
-                    Circle().fill(model.busy ? Color.red : model.recording ? Color.green : MobileTheme.accent.opacity(0.35))
+                    #if DEBUG
+                    if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                        // Lets UI tests see that a hold took effect, which a press cannot observe.
+                        Text(verbatim: "\(model.holdCount)").font(.system(size: 1)).opacity(0.02)
+                            .accessibilityIdentifier("ui-hold-count")
+                    }
+                    #endif
+                    // Light blue while held, as what is said then goes to the Mac.
+                    Circle().fill(model.holding ? VoicedPalette.macAccent.opacity(0.6)
+                                  : model.busy ? Color.red : model.recording ? Color.green : MobileTheme.accent.opacity(0.35))
                         .frame(width: 7, height: 7)
-                        .scaleEffect(model.recording ? 1 + CGFloat(min(model.level * 5, 0.5)) : 1)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -439,7 +596,7 @@ struct ContentView: View {
 extension View {
     func settingsSurface(title: String, large: Bool = false) -> some View {
         // The page's text is ink, set here on the page rather than on the whole navigation stack,
-        // where it would also turn the orange large title dark.
+        // where it would also recolour the black large title.
         self.foregroundStyle(MobileTheme.ink)
             .scrollContentBackground(.hidden)
             .background(MobileTheme.background.ignoresSafeArea())
@@ -450,9 +607,70 @@ extension View {
     }
 }
 
+/// The input's current waveform, shaking in place as lo's radio card does: mirrored around the
+/// centre line, a faint fill under a thin trace, about thirty frames a second.
+private struct WaveformView: View {
+    let meter: WaveformMeter
+    let color: Color
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
+            Canvas { context, size in
+                _ = timeline.date // Redrawn every frame.
+                let columns = meter.frame(columns: max(24, min(128, Int(size.width / 2))))
+                let mid = size.height / 2
+                let reach = size.height * 0.45
+                let step = size.width / CGFloat(columns.count - 1)
+                let points = columns.enumerated().map { CGPoint(x: CGFloat($0.offset) * step, y: max(0.02, $0.element) * reach) }
+                var fill = Path()
+                fill.move(to: CGPoint(x: 0, y: mid - points[0].y))
+                for point in points { fill.addLine(to: CGPoint(x: point.x, y: mid - point.y)) }
+                for point in points.reversed() { fill.addLine(to: CGPoint(x: point.x, y: mid + point.y)) }
+                fill.closeSubpath()
+                context.fill(fill, with: .color(color.opacity(0.22)))
+                var trace = Path()
+                trace.move(to: CGPoint(x: 0, y: mid - points[0].y))
+                for point in points { trace.addLine(to: CGPoint(x: point.x, y: mid - point.y)) }
+                context.stroke(trace, with: .color(color.opacity(0.72)),
+                               style: StrokeStyle(lineWidth: 0.9, lineCap: .round, lineJoin: .round))
+            }
+        }
+    }
+}
+
 /// An AI note laid out like a transcript card, as on macOS: "AI" where a card has its timestamp,
 /// the topic in purple and the note beside it. It has no close button: it leaves on its own once
 /// it has been on screen long enough to read. A tap keeps it until tapped again.
+/// Edits a transcript line's text: the original, not a translation shown in its place.
+private struct LineEditor: View {
+    let original: String
+    let save: (String) -> Void
+    @State private var text = ""
+    @FocusState private var focused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $text)
+                .font(.body)
+                .focused($focused)
+                .padding(.horizontal, 12)
+                .accessibilityIdentifier("line-editor")
+                .navigationTitle(Text("编辑"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { save(text); dismiss() }
+                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+        }
+        .presentationDetents([.medium, .large])
+        .onAppear { text = original; focused = true }
+    }
+}
+
 private struct HintCard: View {
     let hint: TranscriptHint
     /// Width of the transcript cards' timestamp column, so the texts line up.
@@ -579,5 +797,99 @@ struct MobileErrorAlert: ViewModifier {
         )) {
             Button("好") { model.error = nil }
         } message: { Text(LocalizedStringKey(model.error ?? "")) }
+    }
+}
+
+/// Reports a touch the moment it lands and when it lifts, for a control that must tell a tap
+/// from a hold itself. SwiftUI's own drag gesture reports the first touch late on a device, once
+/// the finger has moved a little, so a hold timer started from it ran short and a press did not
+/// show at once.
+struct PressTracker: UIViewRepresentable {
+    var onBegan: () -> Void
+    /// Called when the finger crosses the view's edge (with its slack), with whether it is inside now.
+    var onMoved: (_ inside: Bool) -> Void = { _ in }
+    /// Called with whether the touch lifted inside the view; false when it was cancelled or left.
+    var onEnded: (_ inside: Bool) -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        // VoiceOver reads and activates the SwiftUI element this sits on, not this view.
+        view.isAccessibilityElement = false
+        let recognizer = TouchRecognizer(target: context.coordinator, action: #selector(Coordinator.changed(_:)))
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        view.addGestureRecognizer(recognizer)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.tracker = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(tracker: self) }
+
+    final class Coordinator: NSObject {
+        var tracker: PressTracker
+
+        init(tracker: PressTracker) { self.tracker = tracker }
+
+        @objc func changed(_ recognizer: TouchRecognizer) {
+            switch recognizer.state {
+            case .began: tracker.onBegan()
+            case .changed:
+                if recognizer.inside != recognizer.reportedInside {
+                    recognizer.reportedInside = recognizer.inside
+                    tracker.onMoved(recognizer.inside)
+                }
+            case .ended: tracker.onEnded(recognizer.endedInside)
+            case .cancelled, .failed: tracker.onEnded(false)
+            default: break
+            }
+        }
+    }
+
+    /// Begins on touch down, without waiting for movement, and ends on lift.
+    final class TouchRecognizer: UIGestureRecognizer {
+        private(set) var endedInside = false
+        /// Whether the finger is within the view (with its slack) now.
+        private(set) var inside = true
+        /// What the tracker was last told, so it hears only of crossings.
+        var reportedInside = true
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+            guard state == .possible else { return }
+            endedInside = false
+            inside = true
+            reportedInside = true
+            state = .began
+        }
+
+        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+            if let touch = touches.first { inside = isInside(touch) }
+            if state == .began || state == .changed { state = .changed }
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+            if let touch = touches.first { endedInside = isInside(touch) }
+            state = .ended
+        }
+
+        /// A little slack around the button, as a finger on it rarely stays exactly inside.
+        private func isInside(_ touch: UITouch) -> Bool {
+            guard let view else { return false }
+            return view.bounds.insetBy(dx: -30, dy: -30).contains(touch.location(in: view))
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+            state = .cancelled
+        }
+
+        override func reset() {
+            endedInside = false
+            inside = true
+            reportedInside = true
+        }
     }
 }

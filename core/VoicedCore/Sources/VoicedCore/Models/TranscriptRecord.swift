@@ -38,19 +38,25 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
     public var updatedAt: Date
     public var lines: [TranscriptLine]
     public var sessions: [Session]
+    /// The lines the iPhone sent to the Mac while its microphone was held, by line id: true when
+    /// the sentence went out, false when no Mac was connected. Nil for records with none, and for
+    /// files written before this existed.
+    public var macDeliveries: [String: Bool]?
 
     public init(
         id: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
         lines: [TranscriptLine],
-        sessions: [Session] = []
+        sessions: [Session] = [],
+        macDeliveries: [String: Bool]? = nil
     ) {
         self.id = id ?? Self.directoryName(for: createdAt)
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
         self.lines = lines
         self.sessions = sessions
+        self.macDeliveries = macDeliveries
     }
 
     /// Unix time of `date` in whole seconds, the way record directories are named.
@@ -82,6 +88,12 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         return (file, (session.audioOffset ?? 0) + TimeInterval(max(0, line.start)))
     }
 
+    /// Where `line`'s audio ends in its session's file: its start there plus the line's length,
+    /// with a little more so the last word's fading tail is not cut. Nil without saved audio.
+    public func audioEnd(of line: TranscriptLine) -> TimeInterval? {
+        audioPosition(of: line).map { $0.time + TimeInterval(max(0, line.end - line.start)) + 0.3 }
+    }
+
     /// Files written before sessions were tracked have no `sessions` key, and their ids are UUIDs.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -90,5 +102,6 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         lines = try container.decode([TranscriptLine].self, forKey: .lines).withUniqueIDs()
         sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
+        macDeliveries = try container.decodeIfPresent([String: Bool].self, forKey: .macDeliveries)
     }
 }

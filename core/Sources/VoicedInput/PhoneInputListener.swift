@@ -2,10 +2,10 @@ import Foundation
 import Network
 
 /// Advertises the service over Bonjour under the Mac's name, accepts connections from the iPhone
-/// app and hands every sentence received to `onText`, on the main actor.
+/// app and hands every message received to `onMessage`, on the main actor.
 @MainActor
 final class PhoneInputListener {
-    var onText: (String) -> Void = { _ in }
+    var onMessage: (PhoneInputMessages.Message) -> Void = { _ in }
     /// Called when the listener can no longer accept connections.
     var onFailure: (String) -> Void = { _ in }
     /// Called with the port once the service is advertised.
@@ -65,7 +65,7 @@ final class PhoneInputListener {
             var decoder = decoder
             let messages = data.map { decoder.feed($0) } ?? []
             if !messages.isEmpty {
-                Task { @MainActor in messages.forEach { self?.onText($0.text) } }
+                Task { @MainActor in messages.forEach { self?.onMessage($0) } }
             }
             if isComplete || error != nil {
                 connection.cancel()

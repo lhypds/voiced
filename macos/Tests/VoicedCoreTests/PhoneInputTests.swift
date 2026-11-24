@@ -31,6 +31,21 @@ final class PhoneInputTests: XCTestCase {
         XCTAssertEqual(decoder.feed(Data("{\"text\":\"hi\",\"later\":true}\n".utf8)).map(\.text), ["hi"])
     }
 
+    func testTheModeTravelsWithTheSentence() {
+        var decoder = PhoneInput.Decoder()
+        let data = PhoneInput.encode("ls", mode: .typeAndReturn) + PhoneInput.encode("fix the tests", mode: .claude)
+
+        XCTAssertEqual(decoder.feed(data), [PhoneInput.Message(text: "ls", mode: .typeAndReturn),
+                                            PhoneInput.Message(text: "fix the tests", mode: .claude)])
+    }
+
+    func testAMessageWithoutAModeOrWithAnUnknownOneIsTyped() {
+        var decoder = PhoneInput.Decoder()
+        let data = Data("{\"text\":\"old phone\"}\n{\"text\":\"newer phone\",\"mode\":\"later\"}\n".utf8)
+
+        XCTAssertEqual(decoder.feed(data).map(\.mode), [.type, .type])
+    }
+
     func testLatinSentencesAreFollowedByASpace() {
         XCTAssertEqual(PhoneInput.typedText(for: "Hello there.", pressesReturn: false), "Hello there. ")
         XCTAssertEqual(PhoneInput.typedText(for: "  run the tests ", pressesReturn: false), "run the tests ")

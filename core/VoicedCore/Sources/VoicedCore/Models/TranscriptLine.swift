@@ -18,10 +18,16 @@ public enum TranslationEmphasis: String, CaseIterable, Identifiable, Sendable {
 
 /// What a click on a transcript row does.
 public enum LineClickAction: String, CaseIterable, Identifiable, Sendable {
+    /// Plays the row's own audio, from the moment it was spoken to its end; a second click stops it.
+    case play
+    /// Plays the record's audio from the moment the row was spoken on through the rows after it;
+    /// a second click stops it.
+    case playFrom
     /// Copies the row's text to the clipboard.
     case copy
-    /// Plays the record's audio from the moment the row was spoken; a second click stops it.
-    case play
+
+    /// Whether a click plays audio rather than copying.
+    public var plays: Bool { self != .copy }
 
     public var id: String { rawValue }
 }

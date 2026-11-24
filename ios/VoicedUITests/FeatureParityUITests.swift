@@ -87,24 +87,153 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["这是一条测试转写。"].exists)
     }
 
-    func testStopDismissesModelLoadingImmediately() {
+    /// End to end with the real model and Mac link, not the fixtures, the speech coming from a WAV
+    /// in place of the microphone: TEST_RUNNER_VOICED_AUDIO=<16 kHz mono WAV> with an ordinary
+    /// sentence at 2 s, speech to hold from 11 s to about 18 s and more ordinary speech at 27 s.
+    /// Skipped without it.
+    func testRealHoldWhileRecordingSendsToMac() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["VOICED_AUDIO"] == nil, "real end-to-end run only")
+        let audio = try XCTUnwrap(ProcessInfo.processInfo.environment["VOICED_AUDIO"].flatMap { $0.isEmpty ? nil : $0 },
+                                  "real end-to-end run only")
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "--ui-audio-file", audio, "--ui-log"]
+        app.launch()
+        let start = app.buttons["开始录音"]
+        XCTAssertTrue(start.waitForExistence(timeout: 30))
+        start.tap()
+        let stop = app.buttons["停止录音"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 900), "the recording did not start")
+        print("MARK-RECORDING")
+        sleep(8)
+        print("MARK-HOLD-START")
+        stop.press(forDuration: 13)
+        print("MARK-HOLD-END")
+        XCTAssertTrue(app.buttons["停止录音"].exists, "letting go of the hold stopped the recording")
+        sleep(35)
+        print("MARK-DONE")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.lifetime = .keepAlways
+        add(shot)
+        XCTAssertTrue(app.buttons["停止录音"].exists, "the recording stopped after the hold")
+    }
+
+    func testEditingALineFromItsMenu() {
+        app.launch()
+        let row = app.staticTexts["这是一条测试转写。"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        // Cancel leaves the line as it was.
+        row.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["编辑"].waitForExistence(timeout: 3))
+        app.buttons["编辑"].tap()
+        let editor = app.textViews["line-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        XCTAssertEqual(editor.value as? String, "这是一条测试转写。")
+        app.buttons["取消"].tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 3))
+        // Done replaces its text.
+        row.press(forDuration: 1)
+        app.buttons["编辑"].tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12))
+        editor.typeText("Edited by hand.")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.staticTexts["Edited by hand."].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["这是一条测试转写。"].exists)
+    }
+
+    func testHoldingStopWhileRecordingKeepsRecording() {
+        app.launchArguments += ["--ui-recording", "--ui-send-to-mac"]
+        app.launch()
+        let stop = app.buttons["停止录音"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 15))
+        let holds = app.staticTexts["ui-hold-count"]
+        XCTAssertEqual(holds.label, "0")
+        // A hold records a clip (sent to the Mac too); letting go must not count as a tap on Stop.
+        stop.press(forDuration: 1.5)
+        XCTAssertEqual(holds.label, "1", "holding Stop did not start sending to the Mac")
+        XCTAssertFalse(app.buttons["开始录音"].waitForExistence(timeout: 2), "holding Stop stopped the recording")
+        XCTAssertTrue(app.buttons["停止录音"].exists)
+        // A second hold behaves the same.
+        app.buttons["停止录音"].press(forDuration: 1.5)
+        XCTAssertEqual(holds.label, "2", "the second hold did not start sending")
+        XCTAssertFalse(app.buttons["开始录音"].waitForExistence(timeout: 2), "the second hold stopped the recording")
+    }
+
+    func testTappingStopStillStopsRecording() {
+        app.launchArguments += ["--ui-recording", "--ui-send-to-mac"]
+        app.launch()
+        let stop = app.buttons["停止录音"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 15))
+        stop.tap()
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["ui-hold-count"].label, "0", "a tap must not count as a hold")
+    }
+
+    func testHoldingStopWithSendToMacOffStillHoldsAndKeepsRecording() {
+        app.launchArguments.append("--ui-recording")
+        app.launch()
+        let stop = app.buttons["停止录音"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 15))
+        // With the switch off a hold still records a clip to transcribe; it just sends nothing.
+        stop.press(forDuration: 1.5)
+        XCTAssertEqual(app.staticTexts["ui-hold-count"].label, "1", "with the switch off a hold did not take effect")
+        XCTAssertFalse(app.buttons["开始录音"].waitForExistence(timeout: 2), "a hold must never stop the recording")
+    }
+
+    func testStopDuringModelLoadKeepsLoadingInTheBackground() {
         app.launchArguments.append("--ui-loading")
         app.launch()
         let stop = app.buttons["取消准备"]
         XCTAssertTrue(stop.waitForExistence(timeout: 15))
-        // The idle prompt stays hidden while the model loads; it returns once loading is cancelled.
         XCTAssertFalse(app.staticTexts["empty-transcript-prompt"].exists)
         stop.tap()
+        // The recording is cancelled at once, but the model goes on loading, its progress showing.
         XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 2))
-        XCTAssertTrue(app.staticTexts["empty-transcript-prompt"].waitForExistence(timeout: 2))
-        XCTAssertFalse(app.staticTexts["正在加载模型 3/3：音频编码器"].exists)
         XCTAssertFalse(app.buttons["停止录音"].exists)
+        XCTAssertTrue(app.staticTexts["正在加载模型 3/3：音频编码器"].exists)
+        XCTAssertFalse(app.staticTexts["empty-transcript-prompt"].exists)
     }
 
+    /// With the real model, from a fresh launch: TEST_RUNNER_VOICED_AUDIO=<WAV> as for
+    /// `testRealHoldWhileRecordingSendsToMac`. Skipped without it.
+    func testRealStopWhileLoadingFinishesLoading() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["VOICED_AUDIO"] == nil, "real end-to-end run only")
+        let audio = ProcessInfo.processInfo.environment["VOICED_AUDIO"]!
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "--ui-audio-file", audio]
+        app.launch()
+        let start = app.buttons["开始录音"]
+        XCTAssertTrue(start.waitForExistence(timeout: 30))
+        start.tap()
+        let cancel = app.buttons["取消准备"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "the model was not loading")
+        cancel.tap()
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 3))
+        // A warm load can be over before this looks, so the proof is the next start: had the stop
+        // cancelled the load, it would have to load again, banner and all.
+        let banner = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '正在加载模型'")).firstMatch
+        XCTAssertTrue(banner.waitForNonExistence(timeout: 300), "the model did not finish loading")
+        XCTAssertFalse(app.buttons["停止录音"].exists, "a recording started although it was stopped")
+        app.buttons["开始录音"].tap()
+        XCTAssertFalse(banner.waitForExistence(timeout: 1), "stopping cancelled the model load: it loads again")
+        XCTAssertTrue(app.buttons["停止录音"].waitForExistence(timeout: 8), "the loaded model was not kept")
+    }
 
-
-
-
+    func testRealHoldReleasedWhileLoadingFinishesLoading() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["VOICED_AUDIO"] == nil, "real end-to-end run only")
+        let audio = ProcessInfo.processInfo.environment["VOICED_AUDIO"]!
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN", "--ui-audio-file", audio]
+        app.launch()
+        let start = app.buttons["开始录音"]
+        XCTAssertTrue(start.waitForExistence(timeout: 30))
+        start.press(forDuration: 1.2)
+        let banner = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '正在加载模型'")).firstMatch
+        XCTAssertTrue(app.buttons["开始录音"].waitForExistence(timeout: 3))
+        XCTAssertTrue(banner.waitForNonExistence(timeout: 300), "the model did not finish loading")
+        XCTAssertFalse(app.buttons["停止录音"].exists, "a recording started after the hold was let go")
+        // The model was kept: a tap now records without loading again.
+        app.buttons["开始录音"].tap()
+        XCTAssertFalse(banner.waitForExistence(timeout: 1), "letting go cancelled the model load: it loads again")
+        XCTAssertTrue(app.buttons["停止录音"].waitForExistence(timeout: 8), "the loaded model was not kept")
+    }
     private func openSettings() {
         app.launch()
         XCTAssertTrue(app.buttons["设置"].waitForExistence(timeout: 15))

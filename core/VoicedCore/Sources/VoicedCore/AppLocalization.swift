@@ -104,9 +104,17 @@ public struct AppStrings: Sendable {
     public var keepWindowOnTop: String { value("窗口置顶", "ウインドウを最前面に固定", "Keep window on top", "Fenêtre toujours visible", "Ventana siempre visible", "Fenster im Vordergrund") }
     public var keepWindowOnTopHint: String { value("切换到其他应用时窗口仍保持在最前面。", "他のアプリに切り替えてもウインドウを前面に表示し続けます。", "The window stays in front when you switch to other apps.", "La fenêtre reste au premier plan quand vous passez à d'autres apps.", "La ventana se mantiene delante al cambiar a otras apps.", "Das Fenster bleibt vorne, wenn du zu anderen Apps wechselst.") }
     public var lineClick: String { value("点击条目", "項目をクリック", "Clicking a row", "Clic sur une ligne", "Clic en una fila", "Klick auf eine Zeile") }
-    public var lineClickHint: String { value("复制该条内容，或从那一刻起播放录音，播放中点击任意条目停止。识别过程中始终复制。", "その項目をコピーするか、その時点から録音を再生します。再生中はどの項目をクリックしても停止。認識中は常にコピーします。", "Copies the row's text, or plays the recording from that moment; while it plays, a click on any row stops it. While recognizing, it always copies.", "Copie le texte de la ligne, ou lit l'enregistrement à partir de ce moment ; pendant la lecture, un clic sur n'importe quelle ligne l'arrête. Pendant la reconnaissance, copie toujours.", "Copia el texto de la fila o reproduce la grabación desde ese momento; mientras suena, un clic en cualquier fila la detiene. Durante el reconocimiento siempre copia.", "Kopiert den Text der Zeile oder spielt die Aufnahme ab diesem Moment ab; während sie läuft, stoppt ein Klick auf eine beliebige Zeile. Während der Erkennung wird immer kopiert.") }
+    public var lineClickHint: String { value("播放该条的录音，或从那一刻起一直播放下去，或复制该条内容。播放中点击任意条目停止。识别过程中始终复制。", "その行の録音を再生するか、その時点から続けて再生するか、内容をコピーします。再生中はどの行をクリックしても停止。認識中は常にコピーします。", "Plays the row's own audio, plays the recording on from that row, or copies the row's text. While audio plays, a click on any row stops it. While recognizing, it always copies.", "Lit l'audio de la ligne, lit l'enregistrement à partir de cette ligne, ou copie son texte. Pendant la lecture, un clic sur n'importe quelle ligne l'arrête. Pendant la reconnaissance, copie toujours.", "Reproduce el audio de la fila, reproduce la grabación desde esa fila o copia su texto. Mientras suena, un clic en cualquier fila la detiene. Durante el reconocimiento siempre copia.", "Spielt das Audio der Zeile ab, spielt die Aufnahme ab dieser Zeile weiter ab oder kopiert ihren Text. Während Audio läuft, stoppt ein Klick auf eine beliebige Zeile. Während der Erkennung wird immer kopiert.") }
     public var copyText: String { value("复制内容", "内容をコピー", "Copy text", "Copier le texte", "Copiar texto", "Text kopieren") }
-    public var playAudio: String { value("播放音频", "音声を再生", "Play audio", "Lire l'audio", "Reproducir audio", "Audio abspielen") }
+    public var playRowAudio: String { value("播放本条音频", "この行の音声を再生", "Play row audio", "Lire l'audio de la ligne", "Reproducir audio de la fila", "Audio der Zeile abspielen") }
+    public var playFromRow: String { value("从此处播放", "ここから再生", "Play from row", "Lire à partir de la ligne", "Reproducir desde la fila", "Ab dieser Zeile abspielen") }
+    public func lineClickActionName(_ action: LineClickAction) -> String {
+        switch action {
+        case .play: playRowAudio
+        case .playFrom: playFromRow
+        case .copy: copyText
+        }
+    }
     public var timestamp: String { value("时间戳", "タイムスタンプ", "Timestamp", "Horodatage", "Marca de tiempo", "Zeitstempel") }
     public var relativeTime: String { value("相对时间", "相対時間", "Relative", "Relatif", "Relativo", "Relativ") }
     public var currentTime: String { value("当前时间", "現在時刻", "Clock time", "Heure", "Hora", "Uhrzeit") }
@@ -219,6 +227,19 @@ public struct AppStrings: Sendable {
     public var loadingModelHint: String { value("首次加载会为神经网络引擎编译模型，可能需要几分钟；之后再加载只需几秒。", "初回の読み込みでは Neural Engine 向けにモデルをコンパイルするため数分かかることがあります。2 回目以降は数秒です。", "The first load compiles the model for the Neural Engine and can take a few minutes; later loads take seconds.", "Le premier chargement compile le modèle pour le Neural Engine et peut prendre quelques minutes ; les suivants prennent quelques secondes.", "La primera carga compila el modelo para el Neural Engine y puede tardar unos minutos; las siguientes tardan segundos.", "Das erste Laden kompiliert das Modell für die Neural Engine und kann einige Minuten dauern; spätere Ladevorgänge dauern Sekunden.") }
     /// Under the engine menu while the other downloaded models compile in the background.
     public var compilingOtherModels: String { value("正在后台为神经网络引擎编译其他已下载的模型，之后切换到它们只需几秒。", "ダウンロード済みの他のモデルをバックグラウンドで Neural Engine 向けにコンパイルしています。以降の切り替えは数秒で済みます。", "Compiling the other downloaded models for the Neural Engine in the background; switching to them will then take seconds.", "Compilation en arrière-plan des autres modèles téléchargés pour le Neural Engine ; passer à l'un d'eux ne prendra ensuite que quelques secondes.", "Compilando en segundo plano los demás modelos descargados para el Neural Engine; después, cambiar a ellos tardará segundos.", "Die anderen heruntergeladenen Modelle werden im Hintergrund für die Neural Engine kompiliert; der Wechsel dauert danach nur Sekunden.") }
+    public func remaining(_ seconds: Int) -> String {
+        let clock = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        return value("剩余 \(clock)", "残り \(clock)", "Remaining \(clock)", "Restant \(clock)", "Restante \(clock)", "Verbleibend \(clock)")
+    }
+    /// The loading clock: counting down from how long the last load took when that is known
+    /// (`expected`), counting up once the countdown has run out or with nothing to go by.
+    public func loadingClock(startedAt: Date, expected: TimeInterval?, now: Date) -> String {
+        let elapsed = max(0, now.timeIntervalSince(startedAt))
+        if let expected, elapsed < expected {
+            return remaining(Int((expected - elapsed).rounded(.up)))
+        }
+        return self.elapsed(Int(elapsed))
+    }
     public func elapsed(_ seconds: Int) -> String {
         let clock = String(format: "%d:%02d", seconds / 60, seconds % 60)
         return value("已用 \(clock)", "経過 \(clock)", "Elapsed \(clock)", "Écoulé \(clock)", "Transcurrido \(clock)", "Vergangen \(clock)")

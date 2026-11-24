@@ -12,18 +12,40 @@ public enum PhoneInput {
     /// The Bonjour service type the Mac advertises and the phone browses for.
     public static let serviceType = "_voiced-input._tcp"
 
+    /// What the Mac does with a sentence, chosen on the phone ("Send to Mac" → mode).
+    public enum Mode: String, Codable, CaseIterable, Identifiable, Sendable {
+        /// Typed at the cursor, such as a terminal prompt, and left there to check or add to.
+        case type
+        /// Typed at the cursor and followed by Return, which sends it at a prompt.
+        case typeAndReturn
+        /// Carried out by Claude Code in a Terminal window on the Mac.
+        case claude
+
+        public var id: String { rawValue }
+    }
+
     public struct Message: Codable, Equatable, Sendable {
         public var text: String
+        /// Missing from phones older than the modes, and unknown for modes added later: both
+        /// are typed at the cursor.
+        public var mode: Mode
 
-        public init(text: String) {
+        public init(text: String, mode: Mode = .type) {
             self.text = text
+            self.mode = mode
+        }
+
+        public init(from decoder: any Swift.Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            text = try container.decode(String.self, forKey: .text)
+            mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
         }
     }
 
     /// The bytes sent for one sentence: its message as JSON, ended by a line feed. JSON escapes
     /// any line break inside the text, so a line feed only ever ends a message.
-    public static func encode(_ text: String) -> Data {
-        var data = (try? JSONEncoder().encode(Message(text: text))) ?? Data()
+    public static func encode(_ text: String, mode: Mode = .type) -> Data {
+        var data = (try? JSONEncoder().encode(Message(text: text, mode: mode))) ?? Data()
         data.append(0x0A)
         return data
     }
@@ -105,12 +127,15 @@ public final class PhoneInputSender: ObservableObject {
         connectedName = nil
     }
 
-    /// Sends one sentence to the connected Mac, if there is one.
-    public func send(_ text: String) {
-        guard let connection, connectedName != nil else { return }
+    /// Sends one sentence, for the Mac to handle as `mode` says. Returns false when no Mac is
+    /// connected, so nothing went out.
+    @discardableResult
+    public func send(_ text: String, mode: PhoneInput.Mode = .type) -> Bool {
+        guard let connection, connectedName != nil else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        connection.send(content: PhoneInput.encode(trimmed), completion: .contentProcessed { _ in })
+        guard !trimmed.isEmpty else { return false }
+        connection.send(content: PhoneInput.encode(trimmed, mode: mode), completion: .contentProcessed { _ in })
+        return true
     }
 
     private func browsed(_ results: Set<NWBrowser.Result>, by browser: NWBrowser) {

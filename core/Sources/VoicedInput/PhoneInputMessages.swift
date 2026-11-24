@@ -7,8 +7,32 @@ import Foundation
 enum PhoneInputMessages {
     static let serviceType = "_voiced-input._tcp"
 
+    /// What to do with a sentence, chosen on the phone.
+    enum Mode: String, Codable, Sendable {
+        /// Typed at the cursor and left there.
+        case type
+        /// Typed at the cursor and followed by Return.
+        case typeAndReturn
+        /// Carried out by Claude Code in a Terminal window.
+        case claude
+    }
+
     struct Message: Codable, Equatable, Sendable {
         var text: String
+        /// Missing from phones older than the modes, and unknown for modes added later: both
+        /// are typed at the cursor.
+        var mode: Mode
+
+        init(text: String, mode: Mode = .type) {
+            self.text = text
+            self.mode = mode
+        }
+
+        init(from decoder: any Swift.Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            text = try container.decode(String.self, forKey: .text)
+            mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
+        }
     }
 
     /// Collects received bytes and hands back the messages completed by them. A message split

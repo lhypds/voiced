@@ -21,7 +21,7 @@
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>voiced opens Claude Code or Codex in Terminal and brings its window to the front when the target is AI.</string>
+    <string>voiced opens Claude Code in Terminal and brings its window to the front when the iPhone sends a sentence to run.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

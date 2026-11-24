@@ -119,7 +119,7 @@ struct MobileSettingsView: View {
                 } header: { pageTitle }
                 .listRowBackground(Color.white)
                 Section {
-                    NavigationLink { about } label: { settingsLabel("关于 Voiced", symbol: "info", color: MobileTheme.accent) }
+                    NavigationLink { about } label: { settingsLabel("关于 Voiced", symbol: "info", color: .gray) }
                 }.listRowBackground(Color.white)
             }
             // The cards sit as far below the title as they are apart from each other.
@@ -193,8 +193,8 @@ struct MobileSettingsView: View {
                         Text(model.appLanguage.nativeName).foregroundStyle(.secondary)
                     }
                 }.accessibilityIdentifier("interface-language")
-                ChoicePicker("点击条目", selection: $model.lineClickAction, options: [LineClickAction.copy, .play]) { action in
-                    Text(LocalizedStringKey(action == .copy ? "复制内容" : "播放音频"))
+                ChoicePicker("点击条目", selection: $model.lineClickAction, options: LineClickAction.allCases) { action in
+                    Text(verbatim: model.strings.lineClickActionName(action))
                 }
             } footer: { Text("识别过程中点击始终复制。播放时再次点击任意条目停止。") }.listRowBackground(Color.white)
             Section {
@@ -210,8 +210,15 @@ struct MobileSettingsView: View {
             } footer: { Text("关闭后界面始终保持竖屏，不随设备旋转。") }
                 .listRowBackground(Color.white)
             Section {
-                Toggle("发送到 Mac", isOn: $model.sendToMac)
-                if model.sendToMac {
+                Toggle("发送到 Mac", isOn: $model.sendToMacEnabled)
+                if model.sendToMacEnabled {
+                    ChoicePicker("方式", selection: $model.sendToMacMode, options: PhoneInput.Mode.allCases) { mode in
+                        switch mode {
+                        case .type: Text("输入")
+                        case .typeAndReturn: Text("输入后回车")
+                        case .claude: Text("执行")
+                        }
+                    }
                     HStack {
                         Text("Mac")
                         Spacer()
@@ -219,7 +226,7 @@ struct MobileSettingsView: View {
                         else { Text("正在查找…").foregroundStyle(.secondary) }
                     }
                 }
-            } footer: { Text("录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。") }
+            } footer: { Text("打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符；“输入后回车”输入后再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，工作文件夹由 voiced 命令设置。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。") }
                 .listRowBackground(Color.white)
             Section {
                 Button("重置所有设置", role: .destructive) { confirmReset = true }.disabled(model.locked)

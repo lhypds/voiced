@@ -43,8 +43,50 @@ final class MobileTranscriber: ObservableObject {
     @Published var hintWebSearch: Bool { didSet { settings.aiHintWebSearch = hintWebSearch; configureAI() } }
     @Published var summaryEnabled: Bool { didSet { settings.aiSummary = summaryEnabled } }
     @Published var summaryModel: String { didSet { settings.summaryModel = summaryModel } }
-    /// Whether committed sentences are sent to a Mac running Voiced, which types them at its cursor.
-    @Published var sendToMac: Bool { didSet { settings.phoneInput = sendToMac; configureMacLink() } }
+    /// The "Send to Mac" switch. While it is on the phone stays connected to a Mac running the voiced
+    /// service, and holding the microphone sends what is said meanwhile to it.
+    @Published var sendToMacEnabled: Bool { didSet { settings.phoneInput = sendToMacEnabled; configureMacLink() } }
+    /// What the Mac does with what is sent: type it at the cursor, type it and press Return, or
+    /// have Claude Code carry it out. Sent with every sentence, so the Mac needs no setting.
+    @Published var sendToMacMode: PhoneInput.Mode { didSet { settings.phoneInputMode = sendToMacMode } }
+    /// Whether the microphone is being held, so speech now goes to the Mac.
+    @Published private(set) var holding = false
+    /// The input's loudness over the last few seconds while the microphone is held, for the
+    /// waveform in the speech card. Its own object, so only the waveform redraws as it moves.
+    let waveform = WaveformMeter()
+    /// Whether a let-go hold's clip is being transcribed: the speech card waits for its text.
+    @Published private(set) var recognizingHold = false
+    /// How many holds have begun; UI tests read it to see that a hold took effect.
+    @Published private(set) var holdCount = 0
+    /// Whether the live text is speech for the Mac: from the start of a hold until what was said
+    /// during it is committed, while "Send to Mac" is on. The live card is blue then.
+    @Published private(set) var liveForMac = false
+    /// The hold in progress: pressed at `start` seconds into the session, at capture sample
+    /// `sample`. Live decoding is paused for it; what was said is recorded as one clip and
+    /// transcribed whole once let go, and the result is shown whatever it is, unfiltered.
+    private var hold: (start: Float, sample: Int)?
+    /// Where the earliest hold not yet committed began, in seconds since the session started:
+    /// speech before it is ordinary. Nil once every hold is committed and live decoding resumed.
+    private var holdBoundary: Float?
+    /// Transcribes and commits the latest released hold's clip, after the holds before it.
+    private var holdTask: Task<Void, Never>?
+    /// Released holds whose clips are not committed yet.
+    private var pendingHolds = 0
+    /// Every sample captured in the session, from shortly before a hold on, for its clip.
+    private var holdTap: HoldAudioTap?
+    /// When the capture started, the clock of the tap's sample indices.
+    private var captureStartedAt: Date?
+    /// The session's decoding options, reused for a hold's clip.
+    private var decodingOptions: DecodingOptions?
+    /// Whether the hold started the recording, so committing what was said also stops it.
+    private var holdStartedRecording = false
+    /// Whether the running recording was started by a hold and exists only for it, until it has
+    /// fully stopped. The live card is not shown for such a recording, not even while it stops.
+    @Published private(set) var recordingForHold = false
+    /// Speech that starts this soon after the release still belongs to the hold.
+    private static let holdTail: Float = 0.3
+    /// The press began this long before the hold was recognised.
+    private static let holdLeadIn: Float = 0.6
     @Published var allowLandscape: Bool { didSet { settings.allowLandscape = allowLandscape; OrientationLock.apply(allowLandscape: allowLandscape) } }
     @Published var promptText = ""
     @Published var previewActive = false
@@ -62,7 +104,15 @@ final class MobileTranscriber: ObservableObject {
     @Published var current = TranscriptRecord(lines: [])
     @Published var liveText = ""
     @Published var status = ""
+    /// Whether the recognition model is being downloaded or loaded. It carries on when the
+    /// recording that started it is stopped, so the banner shows its progress until it is ready.
+    @Published var modelLoading = false
+    /// The load in progress, which a recording started meanwhile waits for instead of starting another.
+    private var modelLoad: (engine: RecognitionEngine, task: Task<WhisperKit, Error>)?
     @Published var loadingStartedAt: Date?
+    /// How long this load should take, from the last one of the same model; nil when unknown,
+    /// such as when the model has to be compiled first. The banner then counts down instead of up.
+    @Published var expectedLoadSeconds: TimeInterval?
     @Published var loadingComponent: ModelComponent?
     @Published var downloadProgress: Double?
     @Published var busy = false
@@ -89,8 +139,6 @@ final class MobileTranscriber: ObservableObject {
     private var aiForwarding: AnyCancellable?
     let macLink = PhoneInputSender()
     private var macLinkForwarding: AnyCancellable?
-    /// The lines of the running session already sent to the Mac, so each goes once.
-    private var sentLineIDs: Set<String> = []
     private var calibrationTask: Task<Void, Never>?
     private let historyStore: TranscriptHistoryStore
     private var whisper: WhisperKit?
@@ -146,7 +194,8 @@ final class MobileTranscriber: ObservableObject {
         hintWebSearch = settings.aiHintWebSearch
         summaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
-        sendToMac = settings.phoneInput
+        sendToMacEnabled = settings.phoneInput
+        sendToMacMode = settings.phoneInputMode
         allowLandscape = settings.allowLandscape
         engineID = settings.recognitionEngine.rawValue
         languageID = settings.recognitionLanguage.id
@@ -219,7 +268,169 @@ final class MobileTranscriber: ObservableObject {
         liveText = ""
     }
 
+    /// Starts an ordinary recording, which sends nothing to the Mac unless the microphone is held.
     func start() { begin(preview: false) }
+
+    /// The microphone is being held: what is said until it is let go is recorded as one clip,
+    /// transcribed whole and shown as one line, also sent to the Mac when "Send to Mac" is on.
+    /// Starts a recording when none is running. In a running one, what was said before the hold
+    /// is committed first, as ordinary lines, and live decoding pauses until the clip is done.
+    func beginHold() {
+        // Not `locked`: that includes a running recording, which is exactly when a hold must work.
+        guard !holding, !stopping, !previewActive, !calibrating, !downloadingVoiceFilter else { return }
+        holdCount += 1
+        holding = true
+        liveForMac = sendToMacEnabled
+        waveform.reset()
+        guard var session, recording else {
+            // Idle or still preparing: the clip starts with the capture; see `begin`.
+            hold = (0, 0)
+            holdBoundary = holdBoundary ?? 0
+            if !(recording || busy) {
+                holdStartedRecording = true
+                recordingForHold = true
+                begin(preview: false)
+            }
+            return
+        }
+        if holdBoundary == nil {
+            session.commitTrailing(finalize: assembler.terminated)
+            publish(session)
+        }
+        liveText = ""
+        let press = Date().addingTimeInterval(-TimeInterval(Self.holdLeadIn))
+        let start = max(0, sessionTime(of: press, in: session), session.committedEnd)
+        hold = (start, captureSample(at: press))
+        holdBoundary = holdBoundary ?? start
+        holdTap?.keep(from: hold?.sample ?? 0)
+        if let transcriber { Task { await transcriber.pauseDecoding() } }
+        trace("beginHold \(String(describing: hold))")
+    }
+
+    private func sessionTime(of date: Date, in session: RecordingSession) -> Float {
+        Float(date.timeIntervalSince(session.startedAt))
+    }
+
+    /// The capture sample recorded at `date`.
+    private func captureSample(at date: Date) -> Int {
+        guard let captureStartedAt else { return 0 }
+        return max(0, Int(Float(date.timeIntervalSince(captureStartedAt)) * Float(WhisperKit.sampleRate)))
+    }
+
+    /// The microphone was let go: the clip is transcribed and committed as one line, then live
+    /// decoding resumes, or the recording stops when the hold started it.
+    func endHold() {
+        guard holding else { return }
+        holding = false
+        guard let session, let pressed = hold else {
+            // Let go before the recording was ready: nothing was said into it.
+            hold = nil
+            if holdTask == nil { holdBoundary = nil; liveForMac = false }
+            if holdStartedRecording {
+                holdStartedRecording = false
+                stop()
+            }
+            return
+        }
+        hold = nil
+        let release = Date().addingTimeInterval(TimeInterval(Self.holdTail))
+        let end = sessionTime(of: release, in: session)
+        let endSample = captureSample(at: release)
+        if let transcriber { Task { await transcriber.keepAudio(fromSample: endSample) } }
+        trace("endHold \(pressed.start)-\(end) samples=\(pressed.sample)-\(endSample)")
+        let previous = holdTask
+        let forMac = sendToMacEnabled
+        pendingHolds += 1
+        recognizingHold = true
+        holdTask = Task { [weak self] in
+            await previous?.value
+            await self?.finishHold(start: pressed.start, end: end, samples: pressed.sample..<endSample, forMac: forMac)
+        }
+    }
+
+    /// The microphone was let go away from it: what was said during the hold is dropped, not
+    /// transcribed. Live decoding resumes after it, or the recording the hold started stops.
+    func cancelHold() {
+        guard holding else { return }
+        // Not ready yet: nothing was said into it, the same as letting go on the button.
+        guard let session, hold != nil else { endHold(); return }
+        holding = false
+        hold = nil
+        let endSample = captureSample(at: Date())
+        if let transcriber { Task { await transcriber.keepAudio(fromSample: endSample) } }
+        trace("cancelHold at \(sessionTime(of: Date(), in: session))")
+        let previous = holdTask
+        pendingHolds += 1
+        holdTask = Task { [weak self] in
+            await previous?.value
+            await self?.settleHold()
+        }
+    }
+
+    /// Transcribes a hold's clip and commits whatever it says as one line, sent to the Mac when
+    /// `forMac`. After the last pending hold, live decoding resumes (or the recording the hold
+    /// started stops).
+    private func finishHold(start: Float, end: Float, samples: Range<Int>, forMac: Bool) async {
+        // The tap hears the capture a moment late: wait until it has the clip's end, or the capture stopped.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while let tap = holdTap, tap.count < samples.upperBound, transcriber != nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        let clip = holdTap?.clip(samples) ?? []
+        // A live decode that was running at the press shares the model: let it finish first.
+        if let transcriber { while await transcriber.isDecoding { try? await Task.sleep(for: .milliseconds(50)) } }
+        let text = await recognize(clip)
+        trace("finishHold clip=\(Float(clip.count) / Float(WhisperKit.sampleRate))s text=\(text)")
+        if var session, !text.isEmpty {
+            let from = max(start, session.committedEnd)
+            let segment = TranscriptionSegment(start: from, end: max(end, from + 0.1), text: text)
+            if let line = session.commitMerged(segments: [segment], assembler: assembler), forMac {
+                trace("committed hold line [\(line.start)-\(line.end)] \(line.text)")
+                // Kept with the record, so the line stays blue in the transcript and in history.
+                current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: macLink.send(line.text, mode: sendToMacMode)]) { $1 }
+            }
+            publish(session)
+        }
+        await settleHold()
+    }
+
+    /// One pending hold is done. After the last, live decoding resumes (or the recording the
+    /// hold started stops).
+    private func settleHold() async {
+        pendingHolds -= 1
+        if pendingHolds == 0 { recognizingHold = false }
+        // Another hold has begun or is still to be committed: it carries on from here.
+        guard pendingHolds == 0, !holding else { return }
+        holdTask = nil
+        holdBoundary = nil
+        holdTap?.keepLeadInOnly()
+        liveText = ""
+        liveForMac = false
+        await transcriber?.resumeDecoding()
+        if holdStartedRecording {
+            holdStartedRecording = false
+            stop()
+        }
+    }
+
+    /// The clip's text as Whisper hears it, with nothing filtered out.
+    private func recognize(_ clip: [Float]) async -> String {
+        guard !clip.isEmpty, let whisper, let decodingOptions else { return "" }
+        do {
+            let results = try await whisper.transcribe(audioArray: clip, decodeOptions: decodingOptions)
+            let text = results.flatMap(\.segments).map(\.text).joined()
+            return LiveTranscriber.droppingPartialCharacters(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            self.error = error.localizedDescription
+            return ""
+        }
+    }
+
+    /// For a line sent to the Mac, whether it went out; nil for every other line.
+    func macDelivery(of line: TranscriptLine) -> Bool? {
+        current.macDeliveries?[line.id]
+    }
+
     func startPreview() { begin(preview: true) }
 
     private func begin(preview: Bool) {
@@ -230,13 +441,17 @@ final class MobileTranscriber: ObservableObject {
         let preparationID = UUID()
         self.preparationID = preparationID
         busy = true
-        loadingStartedAt = nil
-        loadingComponent = nil
-        downloadProgress = nil
+        if !modelLoading {
+            loadingStartedAt = nil
+            loadingComponent = nil
+            downloadProgress = nil
+        }
         error = nil
+        startModelLoad(engine)
         task = Task {
             do {
-                status = "请求麦克风权限…"
+                // The model load's progress, when one is running, says more than this.
+                if !modelLoading { status = "请求麦克风权限…" }
                 let permitted = await AVAudioApplication.requestRecordPermission()
                 try checkPreparation(preparationID)
                 guard permitted else {
@@ -245,41 +460,9 @@ final class MobileTranscriber: ObservableObject {
                 let selected = engine
                 let chosen = RecognitionLanguage.choice(id: languageID)
                 let language = RecognitionLanguage.choices(for: selected).contains(chosen) ? chosen : RecognitionLanguage.defaultChoice(for: selected)
-                if whisper == nil || loadedEngine != selected {
-                    whisper = nil
-                    loadedEngine = nil
-                    let folder: URL
-                    if let cached = WhisperModelStore.cachedModelFolder(for: selected) { folder = cached }
-                    else {
-                        status = "首次下载模型，请保持应用在前台…"
-                        downloadProgress = 0
-                        folder = try await WhisperModelStore.download(selected) { [weak self] fraction in
-                            Task { @MainActor in
-                                guard let self, self.preparationID == preparationID, self.busy, self.downloadProgress != nil else { return }
-                                self.downloadProgress = fraction
-                                self.status = self.strings.downloadingModel(fraction)
-                            }
-                        }
-                    }
-                    try checkPreparation(preparationID)
-                    downloadProgress = nil
-                    loadingStartedAt = Date()
-                    status = strings.loadingModel
-                    let loaded = try await WhisperModelStore.load(modelFolder: folder) { [weak self] component in
-                        Task { @MainActor in
-                            guard let self, self.preparationID == preparationID, self.busy, self.loadingStartedAt != nil else { return }
-                            self.loadingComponent = component
-                            self.status = self.strings.loadingModel(component)
-                        }
-                    }
-                    try checkPreparation(preparationID)
-                    whisper = loaded
-                    loadingStartedAt = nil
-                    loadingComponent = nil
-                    loadedEngine = selected
-                }
+                // Stopping only stops waiting here: the model goes on loading, ready for next time.
+                let whisper = try await loadModel(selected)
                 try checkPreparation(preparationID)
-                guard let whisper else { throw CancellationError() }
                 let detector: SileroVoiceDetector?
                 if voiceFilter {
                     status = "加载人声检测模型…"
@@ -296,7 +479,6 @@ final class MobileTranscriber: ObservableObject {
                 session = RecordingSession(startedAt: startedAt, baseLines: preview ? [] : current.lines)
                 sessionLanguage = language
                 lastFinishedDecode = 0
-                sentLineIDs = []
                 liveText = ""
                 previewText = ""
                 unspokenIDs = []
@@ -315,14 +497,28 @@ final class MobileTranscriber: ObservableObject {
                 let prompt = RecognitionPrompt.load(from: dataRoot.appendingPathComponent("prompt.txt"))
                 let tokens = whisper.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
                 (whisper.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages = language.isAutomatic && !detectionLanguages.isEmpty ? Set(detectionLanguages) : nil
-                let source = MicrophoneAudioSource(capture: AudioCapture(), profile: noiseReduction ? noiseProfile : nil, mute: inputMute)
-                let transcriber = LiveTranscriber(whisperKit: whisper, options: TranscriptionLogic.decodingOptions(for: language, promptTokens: tokens),
+                #if DEBUG
+                let capture = UITestFixtures.makeCapture()
+                #else
+                let capture = AudioCapture()
+                #endif
+                let source = MicrophoneAudioSource(capture: capture, profile: noiseReduction ? noiseProfile : nil, mute: inputMute)
+                // Straight from the capture, so the waveform keeps moving while a decode runs.
+                source.onSamples = { [waveform] samples in waveform.push(samples) }
+                let options = TranscriptionLogic.decodingOptions(for: language, promptTokens: tokens)
+                decodingOptions = options
+                let tap = HoldAudioTap()
+                holdTap = tap
+                let transcriber = LiveTranscriber(whisperKit: whisper, options: options,
                     inputDeviceID: selectedInputID, silenceThreshold: LiveTranscriber.defaultSilenceThreshold, silenceDelay: LiveTranscriber.defaultSilenceDelay, speechEnergyFloor: settings.speechEnergyFloor,
                     voiceDetector: detector, delegate: self, audioProcessor: source,
                     levelHandler: { [weak self] value in Task { @MainActor in self?.level = value } },
-                    audioSink: { recorder?.append($0) })
+                    audioSink: { recorder?.append($0); tap.append($0) })
                 self.transcriber = transcriber
+                // Held while preparing: the clip starts with the capture, and nothing is decoded live.
+                if holding { tap.keep(from: 0); await transcriber.pauseDecoding() }
                 try await transcriber.start()
+                captureStartedAt = Date()
                 if var info = sessionInfo {
                     info.inputDevice = AVAudioSession.sharedInstance().currentRoute.inputs.first?.portName ?? "iOS microphone"
                     sessionInfo = info
@@ -344,6 +540,74 @@ final class MobileTranscriber: ObservableObject {
         }
     }
 
+    /// The loaded model for `engine`, downloading and loading it first if needed. The work runs in
+    /// a task of its own: cancelling the recording that waits for it does not cancel it, and a
+    /// recording started while it runs waits for the same load.
+    private func loadModel(_ engine: RecognitionEngine) async throws -> WhisperKit {
+        if let whisper, loadedEngine == engine { return whisper }
+        return try await startModelLoad(engine).value
+    }
+
+    /// Starts loading the model for `engine` unless it is loaded or loading already, without
+    /// waiting for it. Called the moment the microphone is pressed, so even a stop straight away,
+    /// while the microphone permission is still being asked for, leaves the model loading.
+    @discardableResult
+    private func startModelLoad(_ engine: RecognitionEngine) -> Task<WhisperKit, Error> {
+        if let whisper, loadedEngine == engine { return Task { whisper } }
+        if let modelLoad, modelLoad.engine == engine { return modelLoad.task }
+        // Set now, not when the task first runs, so a stop in between already sees the load.
+        modelLoading = true
+        let task = Task { @MainActor [weak self] () throws -> WhisperKit in
+            guard let self else { throw CancellationError() }
+            self.modelLoading = true
+            defer {
+                self.modelLoading = false
+                self.modelLoad = nil
+                self.loadingStartedAt = nil
+                self.loadingComponent = nil
+                self.downloadProgress = nil
+                // Loaded with nothing waiting for it: the banner goes, and the status with it.
+                if !self.busy && !self.recording && !self.stopping { self.status = self.strings.ready }
+            }
+            self.whisper = nil
+            self.loadedEngine = nil
+            let folder: URL
+            if let cached = WhisperModelStore.cachedModelFolder(for: engine) { folder = cached }
+            else {
+                self.status = "首次下载模型，请保持应用在前台…"
+                self.downloadProgress = 0
+                folder = try await WhisperModelStore.download(engine) { [weak self] fraction in
+                    Task { @MainActor in
+                        guard let self, self.modelLoading, self.downloadProgress != nil else { return }
+                        self.downloadProgress = fraction
+                        self.status = self.strings.downloadingModel(fraction)
+                    }
+                }
+            }
+            self.downloadProgress = nil
+            // The first load on this iOS build compiles the model for the Neural Engine: minutes, not seconds.
+            let compiling = !self.settings.compiledEngines().contains(engine)
+            self.expectedLoadSeconds = compiling ? nil : self.settings.modelLoadSeconds(engine)
+            let loadStart = Date()
+            self.loadingStartedAt = loadStart
+            self.status = self.strings.loadingModel
+            let loaded = try await WhisperModelStore.load(modelFolder: folder) { [weak self] component in
+                Task { @MainActor in
+                    guard let self, self.modelLoading, self.loadingStartedAt != nil else { return }
+                    self.loadingComponent = component
+                    self.status = self.strings.loadingModel(component)
+                }
+            }
+            self.settings.recordModelLoad(engine, seconds: Date().timeIntervalSince(loadStart), compiled: compiling)
+            self.settings.markCompiled(engine)
+            self.whisper = loaded
+            self.loadedEngine = engine
+            return loaded
+        }
+        modelLoad = (engine, task)
+        return task
+    }
+
     private func checkPreparation(_ id: UUID) throws {
         try Task.checkCancellation()
         guard preparationID == id else { throw CancellationError() }
@@ -356,14 +620,13 @@ final class MobileTranscriber: ObservableObject {
             task?.cancel()
             task = nil
             busy = false
-            loadingStartedAt = nil
-            loadingComponent = nil
-            downloadProgress = nil
-            status = strings.ready
+            // A model load in progress is left to finish, its progress still showing.
+            if !modelLoading { status = strings.ready }
             if transcriber != nil {
                 stopping = true
                 task = Task { await finishRecording() }
             } else {
+                endHolds()
                 startInputMeter()
             }
             return
@@ -380,6 +643,10 @@ final class MobileTranscriber: ObservableObject {
         transcriber = nil
         await active?.stop()
         let wasPreview = previewActive
+        // Stopped during a hold or before its clip was committed: what was said still goes.
+        holdStartedRecording = false
+        if holding { endHold() }
+        if let holdTask { await holdTask.value }
         if var session, !wasPreview {
             session.commitTrailing(finalize: assembler.terminated)
             publish(session)
@@ -396,17 +663,76 @@ final class MobileTranscriber: ObservableObject {
         if !wasPreview { save(); translateVisibleLines(); ai.update(current.lines) }
         if !wasPreview && current.lines.isEmpty && !hasAudio { historyStore.deleteIfEmpty(id: current.id) }
         busy = false
-        loadingStartedAt = nil
-        loadingComponent = nil
-        downloadProgress = nil
+        if !modelLoading {
+            loadingStartedAt = nil
+            loadingComponent = nil
+            downloadProgress = nil
+        }
         recording = false
         previewActive = false
         stopping = false
         liveText = ""
         level = 0
         UIApplication.shared.isIdleTimerDisabled = false
-        status = strings.ready
+        if !modelLoading { status = strings.ready }
+        // After the trailing sentence above has been sent.
+        endHolds()
         startInputMeter()
+    }
+
+    /// The recording is over, and with it any hold.
+    private func endHolds() {
+        recordingForHold = false
+        holding = false
+        recognizingHold = false
+        liveForMac = false
+        hold = nil
+        holdBoundary = nil
+        holdTask = nil
+        pendingHolds = 0
+        holdStartedRecording = false
+        holdTap = nil
+        captureStartedAt = nil
+    }
+
+    /// Deletes one line from the current record, also while it is being recorded into.
+    /// Replaces a line's text with what was typed. Also edits the running session, which would
+    /// otherwise put the old text back with its next commit. The old translation is dropped and
+    /// the line translated again; whether it was sent to the Mac stays as it was.
+    func editLine(_ line: TranscriptLine, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let index = current.lines.firstIndex(where: { $0.id == line.id }),
+              current.lines[index].text != text else { return }
+        if playingLineID != nil { stopPlayback() }
+        if var session {
+            session.replaceText(ofLine: line.id, with: text)
+            self.session = session
+        }
+        current.lines[index] = current.lines[index].replacingText(text)
+        failedTranslations.remove(line.id)
+        save()
+        translateVisibleLines()
+        ai.update(current.lines)
+    }
+
+    func deleteLine(_ line: TranscriptLine) {
+        if playingLineID != nil { stopPlayback() }
+        if var session {
+            session.removeLine(id: line.id)
+            self.session = session
+        }
+        current.lines.removeAll { $0.id == line.id }
+        current.macDeliveries?[line.id] = nil
+        unspokenIDs.remove(line.id)
+        if current.lines.isEmpty, !recording, !current.sessions.contains(where: { $0.audioFile != nil }) {
+            // Nothing left worth keeping: the record goes, as an empty one is never saved and the
+            // file on disk still holds the deleted line.
+            try? historyStore.delete(id: current.id)
+            records = historyStore.load()
+        } else {
+            save()
+        }
+        ai.update(current.lines)
     }
 
     func save() {
@@ -431,16 +757,52 @@ final class MobileTranscriber: ObservableObject {
     }
 }
 
+#if DEBUG
+import os
+/// End-to-end runs pass `--ui-log` to trace holds and decodes in the system log.
+private let holdLog: Logger? = ProcessInfo.processInfo.arguments.contains("--ui-log")
+    ? Logger(subsystem: "voiced.ui-test", category: "hold") : nil
+/// The same lines in Documents/ui-trace.log, which the simulator's log does not always keep.
+private let traceFile: FileHandle? = {
+    guard ProcessInfo.processInfo.arguments.contains("--ui-log"),
+          let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+    let url = documents.appendingPathComponent("ui-trace.log")
+    FileManager.default.createFile(atPath: url.path, contents: nil)
+    return try? FileHandle(forWritingTo: url)
+}()
+private func trace(_ message: @autoclosure () -> String) {
+    guard let holdLog else { return }
+    let text = message()
+    holdLog.notice("\(text, privacy: .public)")
+    let stamp = Date().formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).second(.twoDigits))
+    traceFile?.write(Data("\(stamp) \(text)\n".utf8))
+}
+#else
+private func trace(_ message: @autoclosure () -> String) {}
+#endif
+
+private func describe(_ segments: [TranscriptionSegment]) -> String {
+    segments.map { String(format: "[%.1f-%.1f %@]", $0.start, $0.end, $0.text) }.joined(separator: " ")
+}
+
 extension MobileTranscriber: LiveTranscriberDelegate {
     func transcriber(_ transcriber: LiveTranscriber, didUpdateLiveText text: String, decode: Int) {
-        guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil else { return }
+        // During a hold the live card waits for the clip's text instead.
+        guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil, holdBoundary == nil else { return }
         let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { if previewActive { previewText = assembler.normalized(trimmed) } else { liveText = assembler.normalized(trimmed) } }
     }
 
-    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) -> Float {
+    func transcriber(_ transcriber: LiveTranscriber, didDecode segments: [TranscriptionSegment], decode: Int) async -> Float {
         guard self.transcriber === transcriber, var session else { return 0 }
         lastFinishedDecode = max(lastFinishedDecode, decode)
+        trace("decode \(decode) hold=\(hold) committedEnd=\(session.committedEnd) segments=\(describe(segments))")
+        if let holdBoundary {
+            // A decode that was running at the press: what was said before it is ordinary, and
+            // the rest belongs to the hold's clip.
+            commitBeforeHold(segments.filter { $0.start < holdBoundary }, in: &session)
+            return session.committedEnd
+        }
         session.update(segments: segments, assembler: assembler)
         let draft = assembler.draft(from: session.pendingLines.map(\.text))
         if !draft.isEmpty { if previewActive { previewText = draft } else { liveText = draft } }
@@ -450,6 +812,7 @@ extension MobileTranscriber: LiveTranscriberDelegate {
 
     func transcriberDidDetectPause(_ transcriber: LiveTranscriber) -> Float {
         guard self.transcriber === transcriber, var session else { return 0 }
+        if holdBoundary != nil { return session.committedEnd }
         session.commitTrailing(finalize: assembler.terminated)
         liveText = ""
         if previewActive { previewText = session.transcript.last?.text ?? previewText }
@@ -463,12 +826,18 @@ extension MobileTranscriber: LiveTranscriberDelegate {
         stop()
     }
 
+    /// Commits speech that started before the press as ordinary lines: it was said before the hold
+    /// even when it is decoded during it.
+    private func commitBeforeHold(_ segments: [TranscriptionSegment], in session: inout RecordingSession) {
+        guard !segments.isEmpty else { return }
+        session.update(segments: segments, assembler: assembler)
+        session.commitTrailing(finalize: assembler.terminated)
+        publish(session)
+    }
+
     private func publish(_ session: RecordingSession) {
         self.session = session
         guard !previewActive else { return }
-        for line in session.committedLines where sentLineIDs.insert(line.id).inserted && sendToMac {
-            macLink.send(line.text)
-        }
         let transcript = session.transcript.keepingTranslations(from: current.lines)
         guard current.lines != transcript else { return }
         unspokenIDs.formUnion(Set(transcript.map(\.id)).subtracting(current.lines.map(\.id)))
@@ -476,6 +845,62 @@ extension MobileTranscriber: LiveTranscriberDelegate {
         save()
         translateVisibleLines()
         ai.update(current.lines)
+    }
+}
+
+/// The input's latest moment, for a waveform that shakes in place rather than scrolling, drawn
+/// as lo's radio card draws its mirrored scope: the current samples reduced to columns, started
+/// at a rising zero crossing so a steady sound stands still, tapered to the centre at both ends
+/// and eased frame to frame so speech does not strobe. Fed on the capture thread, read per frame.
+final class WaveformMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recent: [Float] = []
+    private var columns: [CGFloat] = []
+    /// About 128 ms at 16 kHz: half of it is drawn, the other half leaves room for the trigger.
+    private static let window = 2048
+
+    func push(_ chunk: [Float]) {
+        lock.withLock {
+            recent.append(contentsOf: chunk)
+            if recent.count > Self.window * 2 { recent.removeFirst(recent.count - Self.window) }
+        }
+    }
+
+    func reset() {
+        lock.withLock {
+            recent = []
+            columns = []
+        }
+    }
+
+    /// The next frame: `count` amplitudes from 0 to 1, eased toward the current samples.
+    func frame(columns count: Int) -> [CGFloat] {
+        lock.withLock {
+            if columns.count != count { columns = Array(repeating: 0, count: count) }
+            let samples = Array(recent.suffix(Self.window))
+            let span = samples.count / 2
+            guard span >= count, count > 1 else {
+                for index in columns.indices { columns[index] *= 0.4 }
+                return columns
+            }
+            var start = 0
+            for index in 1..<(samples.count - span) where samples[index - 1] < 0 && samples[index] >= 0 {
+                start = index
+                break
+            }
+            let bucket = Double(span) / Double(count)
+            for index in 0..<count {
+                let from = start + Int(Double(index) * bucket)
+                let to = max(from + 1, start + Int(Double(index + 1) * bucket))
+                // The loudest sample in the column, not the average, which would flatten a consonant.
+                let peak = samples[from..<to].reduce(Float(0)) { max($0, abs($1)) }
+                // Microphone speech is far quieter than full scale: lifted so it fills the card.
+                let target = CGFloat(pow(min(1, peak * 4), 0.7))
+                let taper = CGFloat(pow(sin(Double(index) / Double(count - 1) * .pi), 0.35))
+                columns[index] += (target * taper - columns[index]) * 0.6
+            }
+            return columns
+        }
     }
 }
 
@@ -544,13 +969,16 @@ extension MobileTranscriber {
     @discardableResult
     func tap(_ line: TranscriptLine, in record: TranscriptRecord) -> Bool {
         if playback.isPlaying { stopPlayback(); return false }
-        if lineClickAction == .play && !recording && !previewActive { play(record, from: line); return false }
+        // "Play row audio" plays just that line; "Play from row" plays on through the rest.
+        if lineClickAction.plays && !recording && !previewActive { play(record, from: line, onlyLine: lineClickAction == .play); return false }
         let texts = displayTexts(line)
         UIPasteboard.general.string = texts.secondary.map { texts.primary + "\n" + $0 } ?? texts.primary
         return true
     }
 
-    func play(_ record: TranscriptRecord, from line: TranscriptLine? = nil) {
+    /// Plays `record`'s audio from `line` (or from the start) to the end of the file, or only
+    /// `line` itself when `onlyLine`.
+    func play(_ record: TranscriptRecord, from line: TranscriptLine? = nil, onlyLine: Bool = false) {
         guard !locked else { return }
         if playback.isPlaying { stopPlayback(); return }
         let url: URL
@@ -567,15 +995,21 @@ extension MobileTranscriber {
         do {
             speaker.stop()
             try prepareOutput()
-            try playback.play(url, from: time)
+            try playback.play(url, from: time, until: onlyLine ? line.flatMap(record.audioEnd(of:)) : nil)
             playingRecordID = record.id
-            let cues = record.lines.compactMap { line -> (id: String, time: TimeInterval)? in
+            // Light the tapped line at once rather than on the first poll.
+            playingLineID = line?.id
+            let cues = (onlyLine ? line.map { [$0] } ?? [] : record.lines).compactMap { line -> (id: String, time: TimeInterval)? in
                 guard let position = record.audioPosition(of: line), position.file == url.lastPathComponent else { return nil }
                 return (line.id, position.time)
             }.sorted { $0.time < $1.time }
             playbackTask = Task { [weak self] in
                 while !Task.isCancelled {
-                    guard let self, let now = self.playback.currentTime else { return }
+                    guard let self, let reported = self.playback.currentTime else { return }
+                    // Right after the seek the player reports a moment before the start, which
+                    // briefly lit the line before the tapped one (the card below it). Never look
+                    // earlier than the start, and allow the same small slack as macOS.
+                    let now = max(reported, time) + 0.05
                     // Assign only on a change: every @Published write, even of the same value,
                     // redraws the whole home list, which made scrolling stutter during playback.
                     let id = cues.last(where: { $0.time <= now })?.id
@@ -755,13 +1189,81 @@ extension MobileTranscriber {
         hintWebSearch = settings.aiHintWebSearch
         summaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
-        sendToMac = settings.phoneInput
+        sendToMacEnabled = settings.phoneInput
+        sendToMacMode = settings.phoneInputMode
         allowLandscape = settings.allowLandscape
         configureAI()
         configureTranslation()
     }
 
+    /// Connects to the Mac while the switch is on. Turning it off also ends sending for a recording
+    /// that is running.
     func configureMacLink() {
-        if sendToMac { macLink.start() } else { macLink.stop() }
+        if sendToMacEnabled {
+            macLink.start()
+        } else {
+            macLink.stop()
+            endHold()
+        }
+    }
+
+}
+
+/// Keeps the session's captured audio from a chosen sample on, for transcribing holds as clips.
+/// Without a hold only the last couple of seconds are kept, for the next hold's lead-in.
+/// Fed on the transcriber's thread, read on the main actor.
+final class HoldAudioTap: @unchecked Sendable {
+    private let lock = NSLock()
+    /// Samples received since the capture started.
+    private var total = 0
+    /// The earliest capture sample still needed; nil keeps only the lead-in.
+    private var keepFrom: Int?
+    private var samples: [Float] = []
+    /// Capture index of `samples[0]`.
+    private var samplesStart = 0
+    private let leadIn = 2 * WhisperKit.sampleRate
+
+    var count: Int { lock.withLock { total } }
+
+    func append(_ chunk: [Float]) {
+        lock.withLock {
+            samples.append(contentsOf: chunk)
+            total += chunk.count
+            trim()
+        }
+    }
+
+    /// Keeps everything from capture sample `index` on (as far back as the lead-in reaches),
+    /// unless an earlier start is already kept.
+    func keep(from index: Int) {
+        lock.withLock {
+            keepFrom = min(keepFrom ?? Int.max, max(0, index))
+            trim()
+        }
+    }
+
+    /// Back to keeping only a lead-in, once every clip has been taken.
+    func keepLeadInOnly() {
+        lock.withLock {
+            keepFrom = nil
+            trim()
+        }
+    }
+
+    /// The captured samples in `range`, as far as they are kept.
+    func clip(_ range: Range<Int>) -> [Float] {
+        lock.withLock {
+            let lower = max(0, range.lowerBound - samplesStart)
+            let upper = min(samples.count, range.upperBound - samplesStart)
+            return lower < upper ? Array(samples[lower..<upper]) : []
+        }
+    }
+
+    private func trim() {
+        let from = keepFrom ?? (total - leadIn)
+        let drop = min(max(0, from - samplesStart), samples.count)
+        guard drop > 0 else { return }
+        samples.removeFirst(drop)
+        samplesStart += drop
     }
 }

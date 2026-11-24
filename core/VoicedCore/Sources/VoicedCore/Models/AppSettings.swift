@@ -32,8 +32,10 @@ public struct AppSettings {
         case aiSummary
         case summaryModel
         case phoneInput
+        case phoneInputMode
         case allowLandscape
         case compiledModels
+        case modelLoadSeconds
     }
 
     private let file: SettingsFile
@@ -211,6 +213,13 @@ public struct AppSettings {
         nonmutating set { set(newValue, for: .phoneInput) }
     }
 
+    /// What the Mac does with what is sent to it: type it, type it and press Return, or have
+    /// Claude Code carry it out. Typing alone by default.
+    public var phoneInputMode: PhoneInput.Mode {
+        get { rawValue(.phoneInputMode) ?? .type }
+        nonmutating set { set(newValue.rawValue, for: .phoneInputMode) }
+    }
+
     /// Whether the iPhone app turns to landscape with the device. On by default; off, it stays in
     /// portrait.
     public var allowLandscape: Bool {
@@ -255,6 +264,25 @@ public struct AppSettings {
     public func markCompiled(_ engine: RecognitionEngine, for build: String = OSBuild.current) {
         let engines = compiledEngines(for: build).union([engine]).map(\.rawValue).sorted()
         set([build: engines], for: .compiledModels)
+    }
+
+    /// How many seconds the last load of `engine`'s model took on `build`, once it had been
+    /// compiled; nil before any such load. A model loads in nearly the same time every time, so
+    /// the next load counts down from it. Stored as `{build: {engine: seconds}}`.
+    public func modelLoadSeconds(_ engine: RecognitionEngine, for build: String = OSBuild.current) -> TimeInterval? {
+        let stored = file[Key.modelLoadSeconds.rawValue] as? [String: [String: Double]] ?? [:]
+        return stored[build]?[engine.rawValue]
+    }
+
+    /// Records how long a load of `engine`'s model took. A load that compiled the model for the
+    /// Neural Engine takes minutes rather than seconds, so it is not recorded; nor is anything
+    /// for other builds kept, where the model would compile again.
+    public func recordModelLoad(_ engine: RecognitionEngine, seconds: TimeInterval, compiled: Bool, for build: String = OSBuild.current) {
+        guard !compiled, seconds > 0 else { return }
+        let stored = file[Key.modelLoadSeconds.rawValue] as? [String: [String: Double]] ?? [:]
+        var times = stored[build] ?? [:]
+        times[engine.rawValue] = seconds
+        set([build: times], for: .modelLoadSeconds)
     }
 
     /// Forgets every stored preference, so each reads its default again.
