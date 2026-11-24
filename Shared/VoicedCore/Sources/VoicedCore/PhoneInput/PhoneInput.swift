@@ -2,8 +2,9 @@ import Foundation
 import Network
 
 /// Typing on the Mac with the phone's voice: the iPhone app sends each sentence it commits to a
-/// Mac on the same network, and the Mac app types it wherever the cursor is, such as a terminal
-/// prompt. The Mac advertises itself over Bonjour; the phone finds it and connects over TCP.
+/// Mac on the same network, and the Voiced Input service (core/) types it wherever the cursor is,
+/// such as a terminal prompt. The Mac advertises itself over Bonjour; the phone finds it and
+/// connects over TCP. The service keeps a copy of the decoding side; keep the two in step.
 ///
 /// Each message is one JSON object on a line of its own, so later versions can add fields that
 /// older ones ignore.

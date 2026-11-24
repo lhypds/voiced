@@ -203,16 +203,17 @@ public struct AppSettings {
         nonmutating set { setModelName(newValue, for: .summaryModel) }
     }
 
-    /// Phone input, off by default. On the Mac: whether sentences sent from the iPhone app are
-    /// typed into the focused app, which needs the Accessibility permission. On the iPhone:
-    /// whether committed sentences are sent to a Mac on the same network.
+    /// Phone input, off by default: whether the iPhone app sends committed sentences to a Mac on
+    /// the same network. On the Mac the Voiced Input service in core/ types them whenever it
+    /// runs, so the Mac app does not use this.
     public var phoneInput: Bool {
         get { file[Key.phoneInput.rawValue] as? Bool ?? false }
         nonmutating set { set(newValue, for: .phoneInput) }
     }
 
     /// Whether the Mac presses Return after typing each sentence from the phone, sending it at a
-    /// prompt. Off by default, so a sentence can be checked or added to before it is sent.
+    /// prompt. Off by default, so a sentence can be checked or added to before it is sent. The
+    /// Voiced Input service reads it for every sentence.
     public var phoneInputReturn: Bool {
         get { file[Key.phoneInputReturn.rawValue] as? Bool ?? false }
         nonmutating set { set(newValue, for: .phoneInputReturn) }

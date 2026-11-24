@@ -26,11 +26,6 @@ enum KeyboardTyper {
         return AXIsProcessTrustedWithOptions(options)
     }
 
-    static func openAccessibilitySettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
-        NSWorkspace.shared.open(url)
-    }
-
     /// The clipboard as it was before the first of a run of pastes, and the change count of the
     /// latest paste. A sentence arriving while the previous one's restore is pending must not save
     /// that sentence as the clipboard to restore.

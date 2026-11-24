@@ -92,6 +92,8 @@ Model variants are listed in `RecognitionEngine.swift`, each with the Hugging Fa
 
 `Shared/VoicedCore/Package.swift` exports the `VoicedCore` library for macOS 14+ and iOS 17+. Both apps and `VoicedSimulate` depend on that library. The root `Package.swift` is macOS-only; the iOS project references only `../Shared/VoicedCore`, so Xcode never needs to index desktop executable sources for iOS. Open the repository’s `Voiced.xcworkspace` and choose **Voiced iOS** for iPhone builds. The auto-generated Swift Package executable scheme **Voiced** is macOS-only. Do not copy core source files into platform targets or reimplement recognition rules in their controllers.
 
+`core/` is a separate macOS package, the Voiced Input service that types sentences sent from the iPhone (see [core/README.md](../core/README.md)). It does not depend on `VoicedCore`, so it builds without WhisperKit; build it with `core/build.sh`.
+
 | Responsibility | Shared implementation | Platform adapter |
 | --- | --- | --- |
 | Audio input | `AudioCapturing`, `MicrophoneAudioSource`, denoising, energy calculation | macOS `InputCapture`; iOS `AudioCapture` |

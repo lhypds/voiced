@@ -251,50 +251,16 @@ struct SettingsView: View {
     private var phoneInputGroup: some View {
         SettingsGroup {
             SettingsRow(title: strings.phoneInput, hint: strings.phoneInputHint) {
-                Toggle(strings.phoneInput, isOn: $controller.phoneInputEnabled)
+                EmptyView()
+            }
+
+            Divider()
+
+            SettingsRow(title: strings.phoneInputReturn, hint: strings.phoneInputReturnHint) {
+                Toggle(strings.phoneInputReturn, isOn: $controller.phoneInputPressesReturn)
                     .labelsHidden()
                     .toggleStyle(.switch)
             }
-
-            if controller.phoneInputEnabled {
-                Divider()
-
-                SettingsRow(title: strings.phoneInputReturn, hint: strings.phoneInputReturnHint) {
-                    Toggle(strings.phoneInputReturn, isOn: $controller.phoneInputPressesReturn)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-
-                Divider()
-
-                phoneInputStatus
-                    .font(.caption)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 10)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var phoneInputStatus: some View {
-        let receiver = controller.phoneInput
-        if !KeyboardTyper.isTrusted {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(strings.phoneInputNeedsAccess)
-                    .foregroundStyle(.red)
-                Button(strings.openAccessibilitySettings) {
-                    KeyboardTyper.openAccessibilitySettings()
-                }
-            }
-        } else if let error = receiver.error {
-            Text(strings.phoneInputFailed(error))
-                .foregroundStyle(.red)
-        } else if receiver.connectionCount > 0 {
-            Text(strings.phoneInputConnected(receiver.connectionCount))
-                .foregroundStyle(.secondary)
-        } else {
-            Text(strings.phoneInputWaiting)
-                .foregroundStyle(.secondary)
         }
     }
 
