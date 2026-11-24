@@ -9,6 +9,7 @@
 #   voiced start          询问在 macOS 还是 iOS 上启动 Voiced
 #   voiced start macos    打开 Mac 版（需要时先构建）
 #   voiced start ios      从已连接的 iPhone 和模拟器中选择，构建、安装并打开
+#   voiced start ios device  直接构建、安装并打开到已配对的 iPhone，不显示列表
 #   voiced stop           停止服务，登录时不再启动
 #   voiced stop macos     退出 Mac 版
 #   voiced restart        重启服务（可加文件夹）；voiced restart macos 重启 Mac 版
@@ -35,7 +36,7 @@ UI_EXECUTABLE="$UI_APP/Contents/MacOS/Voiced"
 
 usage() {
     print -u2 "Usage: voiced [folder]"
-    print -u2 "       voiced start [macos|ios]"
+    print -u2 "       voiced start [macos|ios [device]]"
     print -u2 "       voiced stop [macos]"
     print -u2 "       voiced restart [macos|folder]"
     print -u2 "       voiced status"
@@ -55,6 +56,7 @@ cursor, and starts the Voiced apps.
   voiced start macos           open the Mac app, building it first if needed
   voiced start ios             pick a connected iPhone or a simulator, then build, install and
                                open the app there
+  voiced start ios device      the same on the paired iPhone, without the list
   voiced stop                  stop the service; it no longer starts at login
   voiced stop macos            quit the Mac app
   voiced restart [folder]      restart the service
@@ -326,12 +328,14 @@ case "${1:-}" in
         show_help
         ;;
     start)
-        (( $# <= 2 )) || usage
+        (( $# <= 3 )) || usage
         platform="${2:-}"
         [[ -n "$platform" ]] || choose_platform || exit 1
-        case "$platform" in
-            macos) start_ui ;;
-            ios) start_ios ;;
+        case "$platform:${3:-}" in
+            macos:) start_ui ;;
+            ios:) start_ios ;;
+            # The first paired iPhone, without the list.
+            ios:device) "$ROOT/ios/deploy.sh" ;;
             *) usage ;;
         esac
         ;;

@@ -26,6 +26,7 @@ voiced restart [folder]
 voiced start        # ask whether to start Voiced on macOS or iOS
 voiced start macos  # open the Mac app
 voiced start ios    # pick a connected iPhone or a simulator and run the app there
+voiced start ios device  # the same on the paired iPhone, without the list
 voiced stop macos   # quit the Mac app
 voiced status
 voiced help

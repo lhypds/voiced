@@ -2,7 +2,7 @@
 
 ## Building
 
-`./build.sh` builds everything: the macOS app, the voiced service and the iOS app (for the simulator; `./build.sh device` for a real iPhone).
+`./build.sh` builds everything: the macOS app, the voiced service and the iOS app (for the simulator; `./build.sh device` for a real iPhone). `./restart.sh` runs it, then restarts the voiced service, keeping its folder, and the macOS app, so both run the new build.
 
 Three scripts at the repository root cover each part. Run one without arguments to pick an action from a menu, or pass the action:
 
