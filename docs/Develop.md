@@ -2,6 +2,8 @@
 
 ## Building
 
+The macOS app is the Swift package in `macos/`. Run the commands in this section and in Release, Tests and Simulating live input from a file from that folder.
+
 ```sh
 swift build                 # debug build of all targets
 ./Scripts/build-app.sh      # release build, packaged as .build/Voiced.app
@@ -90,7 +92,7 @@ Model variants are listed in `RecognitionEngine.swift`, each with the Hugging Fa
 
 ## Shared core
 
-`Shared/VoicedCore/Package.swift` exports the `VoicedCore` library for macOS 14+ and iOS 17+. Both apps and `VoicedSimulate` depend on that library. The root `Package.swift` is macOS-only; the iOS project references only `../Shared/VoicedCore`, so Xcode never needs to index desktop executable sources for iOS. Open the repository’s `Voiced.xcworkspace` and choose **Voiced iOS** for iPhone builds. The auto-generated Swift Package executable scheme **Voiced** is macOS-only. Do not copy core source files into platform targets or reimplement recognition rules in their controllers.
+`Shared/VoicedCore/Package.swift` exports the `VoicedCore` library for macOS 14+ and iOS 17+. Both apps and `VoicedSimulate` depend on that library. `macos/Package.swift` is macOS-only; the iOS project references only `../Shared/VoicedCore`, so Xcode never needs to index desktop executable sources for iOS. Open the repository’s `Voiced.xcworkspace` and choose **Voiced iOS** for iPhone builds. The auto-generated Swift Package executable scheme **Voiced** is macOS-only. Do not copy core source files into platform targets or reimplement recognition rules in their controllers.
 
 `core/` is a separate macOS package, the Voiced Input service that types sentences sent from the iPhone (see [core/README.md](../core/README.md)). It does not depend on `VoicedCore`, so it builds without WhisperKit; build it with `core/build.sh`.
 
@@ -109,7 +111,7 @@ The apps now share `TranscriptAI` for hint filtering, bounded context, duplicate
 
 The file layout is the same on both platforms: settings JSON plus `history/<id>/transcript.json` and WAV recordings. macOS retains `~/.voiced`; iOS uses its sandbox's `Library/Application Support/Voiced`. `MobileDataMigration` imports the initial iOS history/settings without overwriting migrated records and retains the original history as a backup. The common format does not automatically sync devices.
 
-Core tests live in `Tests/VoicedCoreTests` and depend only on the library. Platform tests remain in `Tests/VoicedTests`. Run `swift test` for both, or `swift test --filter VoicedCoreTests` for the shared logic. Migration and audio-adapter tests use temporary files and fake capture, with no microphone or model download required.
+Core tests live in `macos/Tests/VoicedCoreTests` and depend only on the library. Platform tests remain in `macos/Tests/VoicedTests`. Run `swift test` for both, or `swift test --filter VoicedCoreTests` for the shared logic. Migration and audio-adapter tests use temporary files and fake capture, with no microphone or model download required.
 
 ## Code layout
 
@@ -123,15 +125,15 @@ Shared/VoicedCore/             Independent cross-platform Swift Package
   Transcription/               Live recognition, audio-source interface and buffer, sentence
                                assembly, model loading, history, WAV recording, playback,
                                translation service/rules, AI clients and hint policy
-Sources/Voiced/                macOS entry point, views, controller, Core Audio capture,
+macos/Sources/Voiced/          macOS entry point, views, controller, Core Audio capture,
                                input monitoring/calibration and Translation framework host
-Sources/VoicedSimulate/        File-input adapter and pipeline driver; imports VoicedCore
+macos/Sources/VoicedSimulate/  File-input adapter and pipeline driver; imports VoicedCore
                                directly, with no source symlinks
-iOS/Voiced/                   iOS SwiftUI views, lifecycle controller and AVAudioSession capture
-iOS/Voiced.xcodeproj/         iOS app target with local VoicedCore package dependency
+iOS1/Voiced/                  iOS SwiftUI views, lifecycle controller and AVAudioSession capture
+iOS1/Voiced.xcodeproj/        iOS app target with local VoicedCore package dependency
 Voiced.xcworkspace/           Repository entry point; use the Voiced iOS scheme
-Tests/VoicedCoreTests/         Shared logic, audio-adapter and migration tests
-Tests/VoicedTests/             macOS integration and platform tests
-Scripts/                       App bundling and icon generation
-Support/                       macOS Info.plist and app icon
+macos/Tests/VoicedCoreTests/   Shared logic, audio-adapter and migration tests
+macos/Tests/VoicedTests/       macOS integration and platform tests
+macos/Scripts/                 App bundling and icon generation
+macos/Support/                 macOS Info.plist and app icon
 ```

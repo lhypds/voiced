@@ -42,8 +42,8 @@
 
 ## 验证范围
 
-- `swift test`：共享算法、设置/历史迁移、AI 请求与取消边界、音频适配器等；不调用真实 OpenAI API。
-- `iOS/VoicedUITests/FeatureParityUITests.swift`：真实模拟器交互，覆盖 AI 设置、提示显示和关闭、历史摘要生成/打开、翻译规则与显示、语音入口、语言切换、提示词/预览入口及 WAV 回放。
+- `swift test`（在 `macos/` 中运行）：共享算法、设置/历史迁移、AI 请求与取消边界、音频适配器等；不调用真实 OpenAI API。
+- `iOS1/VoicedUITests/FeatureParityUITests.swift`：真实模拟器交互，覆盖 AI 设置、提示显示和关闭、历史摘要生成/打开、翻译规则与显示、语音入口、语言切换、提示词/预览入口及 WAV 回放。
 - UI 测试使用独立的临时目录和模拟 AI/翻译服务，不读取实际密钥、不改动用户历史、不下载模型、不启动麦克风。Debug 模式下仅显式 `--ui-testing` 参数启用这些测试数据；Release 不含测试实现。
 - iPhone 设备 SDK 构建用于检查真机目标编译。真实麦克风/蓝牙路由、模型速度、语言包下载和付费 API 响应仍需要在自己的设备和账户上确认；模拟服务测试不能证明这些外部条件可用。
 

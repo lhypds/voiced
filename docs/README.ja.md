@@ -24,11 +24,11 @@ Voiced は、ローカルでリアルタイム音声認識を行うネイティ�
 macOS 14 以降が必要です。Apple Silicon を推奨します。
 
 ```sh
-./Scripts/build-app.sh
-open .build/Voiced.app
+./macos/Scripts/build-app.sh
+open macos/.build/Voiced.app
 ```
 
-リポジトリ直下の `start.sh`、`stop.sh`、`restart.sh` も同じことを行い、必要に応じて再ビルドします。
+`macos/` の `start.sh`、`stop.sh`、`restart.sh` も同じことを行い、必要に応じて再ビルドします。
 
 `./install.sh` は `/usr/local/bin/voiced` に `voiced` コマンドをインストールします。ターミナルで `voiced` または `voiced start` がアプリを開き、`voiced stop` が終了、`voiced restart` が再起動します。`./uninstall.sh` で削除できます。アプリの Voiced メニューにも同じ「voiced コマンドをインストール」があります。
 

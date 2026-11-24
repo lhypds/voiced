@@ -4,7 +4,7 @@
 # voiced：在 /usr/local/bin 下放一个启动脚本，之后在终端输入 voiced 即可打开 Voiced。
 # voiced stop 退出应用，voiced restart 重新启动，voiced start 与不带参数相同。
 # vd：链接到仓库根目录的 vd 脚本，控制 Voiced Input 服务（vd start / stop / restart [ui]、vd status）。
-# 应用本身留在 .build/Voiced.app，restart.sh 重新构建后命令不用重装。
+# 应用本身留在 macos/.build/Voiced.app，macos/restart.sh 重新构建后命令不用重装。
 #
 # 用法：
 #   ./install.sh                 # 安装到 /usr/local/bin（需要时会要求 sudo 密码）
@@ -15,14 +15,14 @@
 set -euo pipefail
 
 ROOT="${0:A:h}"
-APP="$ROOT/.build/Voiced.app"
+APP="$ROOT/macos/.build/Voiced.app"
 BIN_DIR="${PREFIX:-/usr/local}/bin"
 TARGET="$BIN_DIR/voiced"
 
 cd "$ROOT"
 
 if [[ ! -d "$APP" ]]; then
-    "$ROOT/Scripts/build-app.sh"
+    "$ROOT/macos/Scripts/build-app.sh"
 fi
 
 # sudo only when the bin directory, or the nearest ancestor that exists, is not writable.
@@ -32,7 +32,7 @@ SUDO=()
 [[ -w "$PROBE" ]] || SUDO=(sudo)
 
 # The launcher body below is the same script the app's menu installs; keep it in step with
-# Sources/Voiced/Models/CommandLineTool.swift.
+# macos/Sources/Voiced/Models/CommandLineTool.swift.
 LAUNCHER_HEAD="#!/bin/sh
 # Starts, stops or restarts Voiced. Installed by install.sh; remove with uninstall.sh.
 #

@@ -122,14 +122,14 @@ final class StatusMenu: NSObject {
     }
 
     /// The Voiced app built from the same checkout: this binary is core/.build/vd and the app is
-    /// .build/Voiced.app at the repository root.
+    /// macos/.build/Voiced.app at the repository root.
     private static var voicedAppURL: URL? {
         guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else { return nil }
         let root = executable
             .deletingLastPathComponent() // core/.build
             .deletingLastPathComponent() // core
             .deletingLastPathComponent() // repository root
-        let app = root.appending(path: ".build/Voiced.app")
+        let app = root.appending(path: "macos/.build/Voiced.app")
         return FileManager.default.fileExists(atPath: app.path) ? app : nil
     }
 }

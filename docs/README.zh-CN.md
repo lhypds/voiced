@@ -24,11 +24,11 @@ Voiced 是一个原生 macOS 本地实时语音识别应用。它可以监听任
 要求 macOS 14 或更高版本，推荐 Apple Silicon。
 
 ```sh
-./Scripts/build-app.sh
-open .build/Voiced.app
+./macos/Scripts/build-app.sh
+open macos/.build/Voiced.app
 ```
 
-根目录的 `start.sh`、`stop.sh`、`restart.sh` 作用相同，并会在需要时自动重新构建。
+`macos/` 中的 `start.sh`、`stop.sh`、`restart.sh` 作用相同，并会在需要时自动重新构建。
 
 `./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令：在终端输入 `voiced` 或 `voiced start` 打开应用，`voiced stop` 退出，`voiced restart` 重新启动；`./uninstall.sh` 删除该命令。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
 
@@ -92,7 +92,7 @@ Voiced 保存的所有内容都在 `~/.voiced` 下：
 
 ## iOS 版本
 
-同一仓库的 [`iOS/`](../iOS/README.md) 提供原生 iPhone / iPad 版本，支持麦克风本地转写、历史记录和文字分享。使用 Xcode 和免费 Apple ID 的 Personal Team 即可连接自己的设备运行，无需付费 Apple Developer Program；具体签名步骤与当前功能范围见 [iOS 说明](../iOS/README.md)。
+同一仓库的 [`iOS1/`](../iOS1/README.md) 提供原生 iPhone / iPad 版本，支持麦克风本地转写、历史记录和文字分享。使用 Xcode 和免费 Apple ID 的 Personal Team 即可连接自己的设备运行，无需付费 Apple Developer Program；具体签名步骤与当前功能范围见 [iOS 说明](../iOS1/README.md)。
 
 macOS、iOS 和文件模拟工具统一依赖 `VoicedCore` 共享库。识别、分句、设置、历史、录音保存及相关服务使用同一套函数，结构说明见 [开发文档](Develop.md#shared-core)。
 

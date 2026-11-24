@@ -26,11 +26,11 @@ Interface languages: English, Chinese, Japanese, French, Spanish, German. The sy
 Requires macOS 14 or later. Apple Silicon is recommended.
 
 ```sh
-./Scripts/build-app.sh
-open .build/Voiced.app
+./macos/Scripts/build-app.sh
+open macos/.build/Voiced.app
 ```
 
-`start.sh`, `stop.sh` and `restart.sh` in the repository root do the same and rebuild when needed.
+`start.sh`, `stop.sh` and `restart.sh` in `macos/` do the same and rebuild when needed.
 
 `./install.sh` installs a `voiced` command at `/usr/local/bin/voiced`: `voiced` or `voiced start` opens the app from a terminal, `voiced stop` quits it and `voiced restart` relaunches it. It also installs `vd` (a link to [`./vd`](vd)), which controls the Voiced Input service: `vd start|stop|restart`, `vd start|stop|restart ui` to include the Voiced window, and `vd status`. `./uninstall.sh` removes both commands. The same installer is in the app's Voiced menu as "Install 'voiced' Command".
 
@@ -98,6 +98,6 @@ See [docs/Develop.md](docs/Develop.md) for tests, the file-based simulator, code
 
 ## iOS version
 
-A native iPhone / iPad app lives in [`iOS/`](iOS/README.md), with on-device microphone transcription, local history, and text sharing. Open `Voiced.xcworkspace` in Xcode, choose the **Voiced iOS** scheme, and select your free Apple ID's Personal Team to run on your own device. A paid Apple Developer Program membership is not required for personal device testing. See the [iOS setup guide](iOS/README.md) for signing instructions and current feature differences.
+A native iPhone / iPad app lives in [`iOS1/`](iOS1/README.md), with on-device microphone transcription, local history, and text sharing. Open `Voiced.xcworkspace` in Xcode, choose the **Voiced iOS** scheme, and select your free Apple ID's Personal Team to run on your own device. A paid Apple Developer Program membership is not required for personal device testing. See the [iOS setup guide](iOS1/README.md) for signing instructions and current feature differences.
 
 Both native apps and the file-input simulator now depend on the shared `VoicedCore` Swift Package library. See [shared-core architecture](docs/Develop.md#shared-core) for the source layout and platform adapter boundaries.

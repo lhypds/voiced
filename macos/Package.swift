@@ -9,7 +9,7 @@ let package = Package(
         .executable(name: "Voiced", targets: ["Voiced"])
     ],
     dependencies: [
-        .package(path: "Shared/VoicedCore"),
+        .package(path: "../Shared/VoicedCore"),
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.1")
     ],
     targets: [

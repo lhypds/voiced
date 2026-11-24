@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
-PROJECT="$ROOT/iOS/Voiced.xcodeproj"
+PROJECT="${0:A:h}/Voiced.xcodeproj"
 SCHEME="Voiced iOS"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 TARGET="${1:-simulator}"

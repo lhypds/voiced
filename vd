@@ -29,7 +29,7 @@ SERVICE_EXECUTABLE="$CORE/.build/vd"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/VoicedInput.log"
 
-UI_APP="$ROOT/.build/Voiced.app"
+UI_APP="$ROOT/macos/.build/Voiced.app"
 UI_EXECUTABLE="$UI_APP/Contents/MacOS/Voiced"
 
 usage() {
@@ -160,7 +160,7 @@ start_ui() {
         print "Voiced is already running."
         return 0
     fi
-    [[ -x "$UI_EXECUTABLE" ]] || "$ROOT/Scripts/build-app.sh"
+    [[ -x "$UI_EXECUTABLE" ]] || "$ROOT/macos/Scripts/build-app.sh"
     open "$UI_APP"
     print "Started Voiced."
 }
