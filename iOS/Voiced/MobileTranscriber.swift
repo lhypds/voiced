@@ -43,6 +43,8 @@ final class MobileTranscriber: ObservableObject {
     @Published var hintWebSearch: Bool { didSet { settings.aiHintWebSearch = hintWebSearch; configureAI() } }
     @Published var summaryEnabled: Bool { didSet { settings.aiSummary = summaryEnabled } }
     @Published var summaryModel: String { didSet { settings.summaryModel = summaryModel } }
+    /// Whether committed sentences are sent to a Mac running Voiced, which types them at its cursor.
+    @Published var sendToMac: Bool { didSet { settings.phoneInput = sendToMac; configureMacLink() } }
     @Published var promptText = ""
     @Published var previewActive = false
     @Published var previewText = ""
@@ -84,6 +86,10 @@ final class MobileTranscriber: ObservableObject {
     private var failedTranslations: Set<String> = []
     private var unspokenIDs: Set<String> = []
     private var aiForwarding: AnyCancellable?
+    let macLink = PhoneInputSender()
+    private var macLinkForwarding: AnyCancellable?
+    /// The lines of the running session already sent to the Mac, so each goes once.
+    private var sentLineIDs: Set<String> = []
     private var calibrationTask: Task<Void, Never>?
     private let historyStore: TranscriptHistoryStore
     private var whisper: WhisperKit?
@@ -139,6 +145,7 @@ final class MobileTranscriber: ObservableObject {
         hintWebSearch = settings.aiHintWebSearch
         summaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
+        sendToMac = settings.phoneInput
         engineID = settings.recognitionEngine.rawValue
         languageID = settings.recognitionLanguage.id
         timestampID = settings.timestampMode.rawValue
@@ -157,6 +164,8 @@ final class MobileTranscriber: ObservableObject {
         inputLevelMonitor.setNoiseProfile(noiseProfile)
         meterForwarding = inputLevelMonitor.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         aiForwarding = ai.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        macLinkForwarding = macLink.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        configureMacLink()
         speaker.onPlayingChange = { [inputMute] playing in inputMute.isMuted = playing }
         playback.onFinish = { [weak self] in self?.stopPlayback() }
         for name in [AVAudioSession.interruptionNotification, AVAudioSession.routeChangeNotification, UIApplication.didEnterBackgroundNotification, UIApplication.didBecomeActiveNotification] {
@@ -284,6 +293,7 @@ final class MobileTranscriber: ObservableObject {
                 session = RecordingSession(startedAt: startedAt, baseLines: preview ? [] : current.lines)
                 sessionLanguage = language
                 lastFinishedDecode = 0
+                sentLineIDs = []
                 liveText = ""
                 previewText = ""
                 unspokenIDs = []
@@ -453,6 +463,9 @@ extension MobileTranscriber: LiveTranscriberDelegate {
     private func publish(_ session: RecordingSession) {
         self.session = session
         guard !previewActive else { return }
+        for line in session.committedLines where sentLineIDs.insert(line.id).inserted && sendToMac {
+            macLink.send(line.text)
+        }
         let transcript = session.transcript.keepingTranslations(from: current.lines)
         guard current.lines != transcript else { return }
         unspokenIDs.formUnion(Set(transcript.map(\.id)).subtracting(current.lines.map(\.id)))
@@ -739,7 +752,12 @@ extension MobileTranscriber {
         hintWebSearch = settings.aiHintWebSearch
         summaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
+        sendToMac = settings.phoneInput
         configureAI()
         configureTranslation()
+    }
+
+    func configureMacLink() {
+        if sendToMac { macLink.start() } else { macLink.stop() }
     }
 }

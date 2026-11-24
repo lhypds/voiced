@@ -1,0 +1,179 @@
+import Foundation
+import Network
+
+/// Typing on the Mac with the phone's voice: the iPhone app sends each sentence it commits to a
+/// Mac on the same network, and the Mac app types it wherever the cursor is, such as a terminal
+/// prompt. The Mac advertises itself over Bonjour; the phone finds it and connects over TCP.
+///
+/// Each message is one JSON object on a line of its own, so later versions can add fields that
+/// older ones ignore.
+public enum PhoneInput {
+    /// The Bonjour service type the Mac advertises and the phone browses for.
+    public static let serviceType = "_voiced-input._tcp"
+
+    public struct Message: Codable, Equatable, Sendable {
+        public var text: String
+
+        public init(text: String) {
+            self.text = text
+        }
+    }
+
+    /// The bytes sent for one sentence: its message as JSON, ended by a line feed. JSON escapes
+    /// any line break inside the text, so a line feed only ever ends a message.
+    public static func encode(_ text: String) -> Data {
+        var data = (try? JSONEncoder().encode(Message(text: text))) ?? Data()
+        data.append(0x0A)
+        return data
+    }
+
+    /// Collects received bytes and hands back the messages completed by them. A message split
+    /// across reads waits in the buffer for its end; a line that is not a message is dropped.
+    public struct Decoder: Sendable {
+        private var buffer = Data()
+
+        public init() {}
+
+        public mutating func feed(_ data: Data) -> [Message] {
+            buffer.append(data)
+            var messages: [Message] = []
+            while let end = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<end]
+                buffer.removeSubrange(buffer.startIndex...end)
+                if let message = try? JSONDecoder().decode(Message.self, from: line) {
+                    messages.append(message)
+                }
+            }
+            return messages
+        }
+    }
+
+    /// What is typed for a received sentence. Sentences typed one after another must not run
+    /// together: one ending in a Latin letter or ASCII punctuation is followed by a space, while
+    /// Chinese and Japanese, written without spaces, are typed as they are. Nothing is added
+    /// when Return follows, which ends the line anyway.
+    public static func typedText(for text: String, pressesReturn: Bool) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pressesReturn, let last = trimmed.unicodeScalars.last, last.isASCII else { return trimmed }
+        return trimmed + " "
+    }
+}
+
+/// The phone's side: finds a Mac running Voiced on the local network, keeps a connection to it
+/// and sends it sentences. Connects to the first Mac found, by name, and looks again whenever the
+/// connection ends. A sentence sent while no Mac is connected is dropped rather than typed late.
+@MainActor
+public final class PhoneInputSender: ObservableObject {
+    /// The name of the Mac sentences go to; nil while none is connected.
+    @Published public private(set) var connectedName: String?
+    /// Whether the sender is looking for, or connected to, a Mac.
+    @Published public private(set) var isActive = false
+
+    private let queue = DispatchQueue(label: "Voiced.PhoneInputSender")
+    private var browser: NWBrowser?
+    private var connection: NWConnection?
+    private var results: [NWBrowser.Result] = []
+    private var retry: Task<Void, Never>?
+
+    public init() {}
+
+    public func start() {
+        guard browser == nil else { return }
+        isActive = true
+        let browser = NWBrowser(for: .bonjour(type: PhoneInput.serviceType, domain: nil), using: .tcp)
+        browser.browseResultsChangedHandler = { [weak self] results, _ in
+            Task { @MainActor in self?.browsed(results, by: browser) }
+        }
+        browser.stateUpdateHandler = { [weak self] state in
+            guard case .failed = state else { return }
+            Task { @MainActor in self?.restartBrowser(browser) }
+        }
+        self.browser = browser
+        browser.start(queue: queue)
+    }
+
+    public func stop() {
+        isActive = false
+        retry?.cancel()
+        retry = nil
+        browser?.cancel()
+        browser = nil
+        results = []
+        connection?.cancel()
+        connection = nil
+        connectedName = nil
+    }
+
+    /// Sends one sentence to the connected Mac, if there is one.
+    public func send(_ text: String) {
+        guard let connection, connectedName != nil else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        connection.send(content: PhoneInput.encode(trimmed), completion: .contentProcessed { _ in })
+    }
+
+    private func browsed(_ results: Set<NWBrowser.Result>, by browser: NWBrowser) {
+        guard self.browser === browser else { return }
+        self.results = results.sorted { Self.name(of: $0.endpoint) < Self.name(of: $1.endpoint) }
+        connectIfIdle()
+    }
+
+    private func restartBrowser(_ failed: NWBrowser) {
+        guard browser === failed else { return }
+        browser?.cancel()
+        browser = nil
+        scheduleRetry { $0.start() }
+    }
+
+    private func connectIfIdle() {
+        guard connection == nil, let result = results.first else { return }
+        let connection = NWConnection(to: result.endpoint, using: .tcp)
+        let name = Self.name(of: result.endpoint)
+        connection.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in self?.update(connection, name: name, state: state) }
+        }
+        self.connection = connection
+        connection.start(queue: queue)
+        watchForClose(connection)
+    }
+
+    /// The Mac never sends anything, so a receive only completes when the connection ends.
+    private nonisolated func watchForClose(_ connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1024) { [weak self] _, _, isComplete, error in
+            if isComplete || error != nil {
+                connection.cancel()
+            } else {
+                self?.watchForClose(connection)
+            }
+        }
+    }
+
+    private func update(_ connection: NWConnection, name: String, state: NWConnection.State) {
+        guard self.connection === connection else { return }
+        switch state {
+        case .ready:
+            connectedName = name
+        case .failed, .cancelled, .waiting:
+            connection.cancel()
+            self.connection = nil
+            connectedName = nil
+            scheduleRetry { $0.connectIfIdle() }
+        default:
+            break
+        }
+    }
+
+    private func scheduleRetry(_ action: @escaping @MainActor (PhoneInputSender) -> Void) {
+        retry?.cancel()
+        retry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self, self.isActive else { return }
+            action(self)
+        }
+    }
+
+    private static func name(of endpoint: NWEndpoint) -> String {
+        if case .service(let name, _, _, _) = endpoint { return name }
+        return endpoint.debugDescription
+    }
+}

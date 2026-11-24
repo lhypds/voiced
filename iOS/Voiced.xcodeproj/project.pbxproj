@@ -178,6 +178,8 @@ C22A2DFB042608F3CCE39954,
 				GENERATE_INFOPLIST_FILE = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = Voiced;
+				INFOPLIST_FILE = Voiced/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Voiced finds your Mac on the local network to type the sentences you say on it.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Voiced uses your microphone to transcribe speech locally on your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -204,6 +206,8 @@ C22A2DFB042608F3CCE39954,
 				GENERATE_INFOPLIST_FILE = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = Voiced;
+				INFOPLIST_FILE = Voiced/Info.plist;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Voiced finds your Mac on the local network to type the sentences you say on it.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Voiced uses your microphone to transcribe speech locally on your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

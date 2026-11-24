@@ -31,6 +31,8 @@ public struct AppSettings {
         case aiHintWebSearch
         case aiSummary
         case summaryModel
+        case phoneInput
+        case phoneInputReturn
         case compiledModels
     }
 
@@ -199,6 +201,21 @@ public struct AppSettings {
     public var summaryModel: String {
         get { OpenAIChatCompletion.modelName(string(.summaryModel)) }
         nonmutating set { setModelName(newValue, for: .summaryModel) }
+    }
+
+    /// Phone input, off by default. On the Mac: whether sentences sent from the iPhone app are
+    /// typed into the focused app, which needs the Accessibility permission. On the iPhone:
+    /// whether committed sentences are sent to a Mac on the same network.
+    public var phoneInput: Bool {
+        get { file[Key.phoneInput.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .phoneInput) }
+    }
+
+    /// Whether the Mac presses Return after typing each sentence from the phone, sending it at a
+    /// prompt. Off by default, so a sentence can be checked or added to before it is sent.
+    public var phoneInputReturn: Bool {
+        get { file[Key.phoneInputReturn.rawValue] as? Bool ?? false }
+        nonmutating set { set(newValue, for: .phoneInputReturn) }
     }
 
     /// Stores a model name trimmed, and the default name as nothing, so the file only holds

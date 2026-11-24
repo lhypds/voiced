@@ -159,6 +159,20 @@ final class TranscriptionController: ObservableObject {
             if !targets.contains(rule.target) { targets.append(rule.target) }
         }
     }
+    /// Whether sentences sent from the iPhone app are typed at the cursor. Turning it on asks
+    /// for the Accessibility permission when it is missing.
+    @Published var phoneInputEnabled: Bool {
+        didSet {
+            settings.phoneInput = phoneInputEnabled
+            configurePhoneInput()
+        }
+    }
+    /// Whether Return follows each sentence typed from the phone.
+    @Published var phoneInputPressesReturn: Bool {
+        didSet { settings.phoneInputReturn = phoneInputPressesReturn }
+    }
+    /// Listens for the iPhone app while phone input is on.
+    let phoneInput = PhoneInputReceiver()
     /// Translates lines on the device. Nil where the system offers no translation (macOS 14).
     let translator: (any SentenceTranslating)?
     /// Voice-detection energy floor; takes effect immediately, even mid-recording.
@@ -272,6 +286,7 @@ final class TranscriptionController: ObservableObject {
     /// Forwards the preview's changes as this object's own: views read `preview.isActive` through
     /// the controller to enable their controls, so they must redraw when the preview stops.
     private var previewForwarding: AnyCancellable?
+    private var phoneInputForwarding: AnyCancellable?
 
     var isRecording: Bool { phase == .recording }
     var canPreview: Bool { phase == .ready && selectedDeviceID != nil }
@@ -372,6 +387,8 @@ final class TranscriptionController: ObservableObject {
             ?? [TranslationRule(source: nil, target: settings.translationLanguage ?? settings.appLanguage)]
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
+        phoneInputEnabled = settings.phoneInput
+        phoneInputPressesReturn = settings.phoneInputReturn
         pinLanguageToEngine()
         configureTranslator()
         speaker.onPlayingChange = { [inputMute] playing in
@@ -386,6 +403,14 @@ final class TranscriptionController: ObservableObject {
         if voiceFilterEnabled {
             prepareVoiceFilter()
         }
+        phoneInput.onText = { [weak self] text in
+            guard let self else { return }
+            KeyboardTyper.type(PhoneInput.typedText(for: text, pressesReturn: phoneInputPressesReturn), pressReturn: phoneInputPressesReturn)
+        }
+        phoneInputForwarding = phoneInput.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        configurePhoneInput(promptForAccess: false)
         configureAI()
         aiForwarding = ai.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         refreshAudioDevices()
@@ -540,6 +565,8 @@ final class TranscriptionController: ObservableObject {
         translationRules = [TranslationRule(source: nil, target: settings.appLanguage)]
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
+        phoneInputEnabled = settings.phoneInput
+        phoneInputPressesReturn = settings.phoneInputReturn
         openAIAPIKey = settings.openAIAPIKey ?? ""
         aiHintsEnabled = settings.aiHints
         aiHintLanguage = settings.aiHintLanguage
@@ -549,6 +576,20 @@ final class TranscriptionController: ObservableObject {
         summaryModel = settings.summaryModel
         // The assignments above wrote each default back; start the file over so it holds none.
         settings.reset()
+    }
+
+    /// Starts or stops listening for the iPhone app to match the setting. Turned on by the
+    /// user, the system is asked for the Accessibility permission typing needs; at launch the
+    /// prompt is left out, and Settings shows that the permission is missing instead.
+    private func configurePhoneInput(promptForAccess: Bool = true) {
+        if phoneInputEnabled {
+            if promptForAccess && !KeyboardTyper.isTrusted {
+                KeyboardTyper.requestAccess()
+            }
+            phoneInput.start()
+        } else {
+            phoneInput.stop()
+        }
     }
 
     /// Keeps a saved language the model supports; a choice it cannot honour, such as one saved
