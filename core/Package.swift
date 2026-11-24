@@ -12,7 +12,12 @@ let package = Package(
         .executable(name: "VoicedInput", targets: ["VoicedInput"])
     ],
     targets: [
-        .executableTarget(name: "VoicedInput")
+        .executableTarget(
+            name: "VoicedInput",
+            // The service ships as a single binary rather than an app bundle, so its Info.plist
+            // (identifier, name) is embedded in it; the identifier names its preferences domain.
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", "Info.plist"])]
+        )
     ],
     swiftLanguageModes: [.v5]
 )

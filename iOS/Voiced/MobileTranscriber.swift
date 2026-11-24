@@ -45,6 +45,7 @@ final class MobileTranscriber: ObservableObject {
     @Published var summaryModel: String { didSet { settings.summaryModel = summaryModel } }
     /// Whether committed sentences are sent to a Mac running Voiced, which types them at its cursor.
     @Published var sendToMac: Bool { didSet { settings.phoneInput = sendToMac; configureMacLink() } }
+    @Published var allowLandscape: Bool { didSet { settings.allowLandscape = allowLandscape; OrientationLock.apply(allowLandscape: allowLandscape) } }
     @Published var promptText = ""
     @Published var previewActive = false
     @Published var previewText = ""
@@ -146,6 +147,7 @@ final class MobileTranscriber: ObservableObject {
         summaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
         sendToMac = settings.phoneInput
+        allowLandscape = settings.allowLandscape
         engineID = settings.recognitionEngine.rawValue
         languageID = settings.recognitionLanguage.id
         timestampID = settings.timestampMode.rawValue
@@ -166,6 +168,7 @@ final class MobileTranscriber: ObservableObject {
         aiForwarding = ai.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         macLinkForwarding = macLink.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         configureMacLink()
+        OrientationLock.apply(allowLandscape: allowLandscape)
         speaker.onPlayingChange = { [inputMute] playing in inputMute.isMuted = playing }
         playback.onFinish = { [weak self] in self?.stopPlayback() }
         for name in [AVAudioSession.interruptionNotification, AVAudioSession.routeChangeNotification, UIApplication.didEnterBackgroundNotification, UIApplication.didBecomeActiveNotification] {
@@ -753,6 +756,7 @@ extension MobileTranscriber {
         summaryEnabled = settings.aiSummary
         summaryModel = settings.summaryModel
         sendToMac = settings.phoneInput
+        allowLandscape = settings.allowLandscape
         configureAI()
         configureTranslation()
     }

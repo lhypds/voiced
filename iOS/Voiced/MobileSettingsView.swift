@@ -206,6 +206,10 @@ struct MobileSettingsView: View {
             } header: { Text("转写显示") } footer: { Text("相对时间从本次录音开始计时。当前时间显示每句话说出时的时间。") }
                 .listRowBackground(Color.white)
             Section {
+                Toggle("允许横屏", isOn: $model.allowLandscape)
+            } footer: { Text("关闭后界面始终保持竖屏，不随设备旋转。") }
+                .listRowBackground(Color.white)
+            Section {
                 Toggle("发送到 Mac", isOn: $model.sendToMac)
                 if model.sendToMac {
                     HStack {
@@ -215,7 +219,7 @@ struct MobileSettingsView: View {
                         else { Text("正在查找…").foregroundStyle(.secondary) }
                     }
                 }
-            } footer: { Text("录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 版设置中打开“iPhone 语音输入”。未连接时说的话不会补发。") }
+            } footer: { Text("录音时，每句识别完成的话都会发送到同一网络中运行 Voiced 的 Mac，并输入到 Mac 的光标处，例如终端的提示符。需在 Mac 上运行 vd start 启动 Voiced Input 服务。未连接时说的话不会补发。") }
                 .listRowBackground(Color.white)
             Section {
                 Button("重置所有设置", role: .destructive) { confirmReset = true }.disabled(model.locked)

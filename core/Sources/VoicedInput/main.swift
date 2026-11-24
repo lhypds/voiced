@@ -1,13 +1,15 @@
+import AppKit
 import Foundation
 
 // Voiced Input: waits for the iPhone app's connections and types every sentence it sends at the
 // cursor of the focused app, such as a terminal prompt. Runs on its own, without the Voiced
-// window; core/install.sh makes launchd start it at login and keep it running.
+// window; `vd start` makes launchd start it at login and keep it running. While it runs, an icon
+// in the menu bar shows its status and can stop it.
 //
 // Usage: VoicedInput [--return | --no-return]
 //
-// Without a flag, whether Return follows each sentence is read from "phoneInputReturn" in
-// ~/.voiced/settings.json for every sentence, so the switch in the app's Settings applies at once.
+// Without a flag, whether Return follows each sentence is the "Press Return after each sentence"
+// switch in the menu bar card, stored in the service's own defaults.
 
 let usage = "Usage: VoicedInput [--return | --no-return]"
 var pressReturnOverride: Bool?
@@ -24,20 +26,20 @@ for argument in CommandLine.arguments.dropFirst() {
     }
 }
 
-let settingsURL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".voiced/settings.json")
-
 func pressesReturn() -> Bool {
-    if let pressReturnOverride { return pressReturnOverride }
-    guard let data = try? Data(contentsOf: settingsURL),
-          let settings = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-    return settings["phoneInputReturn"] as? Bool ?? false
+    pressReturnOverride ?? ServiceSettings.pressesReturn
 }
 
-// Top-level code runs on the main thread; the typer and the listener live on the main actor.
-// The listener is kept here for the life of the process.
-let listener = MainActor.assumeIsolated {
+// Top-level code runs on the main thread; the typer, the listener and the menu live on the main
+// actor. They are kept here for the life of the process.
+let app = NSApplication.shared
+let (listener, statusMenu) = MainActor.assumeIsolated {
+    // A menu bar item only: no Dock icon, no main menu.
+    app.setActivationPolicy(.accessory)
+    let status = ServiceStatus()
+
     if !KeyboardTyper.requestAccess() {
-        log("Waiting for the Accessibility permission: allow VoicedInput in System Settings → Privacy & Security → Accessibility. Sentences received until then are dropped.")
+        log("Waiting for the Accessibility permission: allow vd in System Settings → Privacy & Security → Accessibility. Sentences received until then are dropped.")
     }
 
     let listener = PhoneInputListener()
@@ -48,10 +50,15 @@ let listener = MainActor.assumeIsolated {
         }
         let pressReturn = pressesReturn()
         KeyboardTyper.type(PhoneInputMessages.typedText(for: text, pressesReturn: pressReturn), pressReturn: pressReturn)
+        status.sentencesTyped += 1
+        status.lastSentenceAt = Date()
     }
+    listener.onReady = { status.listener = .listening(port: $0) }
+    listener.onConnectionsChanged = { status.connections = $0 }
     // launchd starts the service again after it exits, so a failed listener is not retried here.
     listener.onFailure = { detail in
         log("Listener failed: \(detail)")
+        status.listener = .failed(detail)
         exit(1)
     }
     do {
@@ -60,7 +67,7 @@ let listener = MainActor.assumeIsolated {
         log("Cannot listen: \(error.localizedDescription)")
         exit(1)
     }
-    return listener
+    return (listener, StatusMenu(status: status))
 }
 
-dispatchMain()
+app.run()

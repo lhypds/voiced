@@ -207,8 +207,6 @@ struct SettingsView: View {
             }
         }
 
-        phoneInputGroup
-
         SettingsGroup {
             SettingsRow(title: strings.timestamp) {
                 HStack(spacing: 12) {
@@ -244,22 +242,6 @@ struct SettingsView: View {
                     }
                     Button(strings.cancel, role: .cancel) {}
                 }
-            }
-        }
-    }
-
-    private var phoneInputGroup: some View {
-        SettingsGroup {
-            SettingsRow(title: strings.phoneInput, hint: strings.phoneInputHint) {
-                EmptyView()
-            }
-
-            Divider()
-
-            SettingsRow(title: strings.phoneInputReturn, hint: strings.phoneInputReturnHint) {
-                Toggle(strings.phoneInputReturn, isOn: $controller.phoneInputPressesReturn)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
             }
         }
     }

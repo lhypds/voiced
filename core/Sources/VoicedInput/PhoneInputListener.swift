@@ -8,6 +8,10 @@ final class PhoneInputListener {
     var onText: (String) -> Void = { _ in }
     /// Called when the listener can no longer accept connections.
     var onFailure: (String) -> Void = { _ in }
+    /// Called with the port once the service is advertised.
+    var onReady: (UInt16) -> Void = { _ in }
+    /// Called with the number of open connections whenever it changes.
+    var onConnectionsChanged: (Int) -> Void = { _ in }
 
     private let queue = DispatchQueue(label: "VoicedInput.PhoneInputListener")
     private var listener: NWListener?
@@ -30,6 +34,7 @@ final class PhoneInputListener {
         switch state {
         case .ready:
             log("Listening on port \(listener?.port.map { "\($0.rawValue)" } ?? "?") as \(PhoneInputMessages.serviceType)")
+            onReady(listener?.port?.rawValue ?? 0)
         case .failed(let failure):
             onFailure(failure.localizedDescription)
         default:
@@ -42,6 +47,7 @@ final class PhoneInputListener {
         let peer = connection.endpoint.debugDescription
         connections[id] = connection
         log("Connected: \(peer) (\(connections.count) open)")
+        onConnectionsChanged(connections.count)
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed, .cancelled:
@@ -72,6 +78,7 @@ final class PhoneInputListener {
     private func drop(_ id: ObjectIdentifier, peer: String) {
         guard connections.removeValue(forKey: id) != nil else { return }
         log("Disconnected: \(peer) (\(connections.count) open)")
+        onConnectionsChanged(connections.count)
     }
 }
 

@@ -32,7 +32,7 @@ public struct AppSettings {
         case aiSummary
         case summaryModel
         case phoneInput
-        case phoneInputReturn
+        case allowLandscape
         case compiledModels
     }
 
@@ -211,12 +211,11 @@ public struct AppSettings {
         nonmutating set { set(newValue, for: .phoneInput) }
     }
 
-    /// Whether the Mac presses Return after typing each sentence from the phone, sending it at a
-    /// prompt. Off by default, so a sentence can be checked or added to before it is sent. The
-    /// Voiced Input service reads it for every sentence.
-    public var phoneInputReturn: Bool {
-        get { file[Key.phoneInputReturn.rawValue] as? Bool ?? false }
-        nonmutating set { set(newValue, for: .phoneInputReturn) }
+    /// Whether the iPhone app turns to landscape with the device. On by default; off, it stays in
+    /// portrait.
+    public var allowLandscape: Bool {
+        get { file[Key.allowLandscape.rawValue] as? Bool ?? true }
+        nonmutating set { set(newValue ? nil : false, for: .allowLandscape) }
     }
 
     /// Stores a model name trimmed, and the default name as nothing, so the file only holds

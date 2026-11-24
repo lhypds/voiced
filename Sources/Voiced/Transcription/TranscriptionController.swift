@@ -159,11 +159,6 @@ final class TranscriptionController: ObservableObject {
             if !targets.contains(rule.target) { targets.append(rule.target) }
         }
     }
-    /// Whether Return follows each sentence typed from the phone. The Voiced Input service in
-    /// core/ does the typing and reads this from the settings file for every sentence.
-    @Published var phoneInputPressesReturn: Bool {
-        didSet { settings.phoneInputReturn = phoneInputPressesReturn }
-    }
     /// Translates lines on the device. Nil where the system offers no translation (macOS 14).
     let translator: (any SentenceTranslating)?
     /// Voice-detection energy floor; takes effect immediately, even mid-recording.
@@ -377,7 +372,6 @@ final class TranscriptionController: ObservableObject {
             ?? [TranslationRule(source: nil, target: settings.translationLanguage ?? settings.appLanguage)]
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
-        phoneInputPressesReturn = settings.phoneInputReturn
         pinLanguageToEngine()
         configureTranslator()
         speaker.onPlayingChange = { [inputMute] playing in
@@ -546,7 +540,6 @@ final class TranscriptionController: ObservableObject {
         translationRules = [TranslationRule(source: nil, target: settings.appLanguage)]
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
-        phoneInputPressesReturn = settings.phoneInputReturn
         openAIAPIKey = settings.openAIAPIKey ?? ""
         aiHintsEnabled = settings.aiHints
         aiHintLanguage = settings.aiHintLanguage
