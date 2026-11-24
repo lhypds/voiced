@@ -3,22 +3,21 @@
 # voiced：运行 voiced 服务（launchd 用户代理），并启动 Voiced 应用。
 # 在仓库根目录直接运行 ./voiced，或用 ./install.sh 安装为系统命令 voiced（./uninstall.sh 删除）。
 #
-#   voiced                启动服务，并在每次登录时自动启动（文件夹为主目录）
-#   voiced .              启动服务，文件夹设为当前文件夹（AI 目标在此文件夹中运行）
-#   voiced ~/abc          启动服务，文件夹设为该路径
+#   voiced                启动服务，并在每次登录时自动启动
 #   voiced start          询问在 macOS 还是 iOS 上启动 Voiced
 #   voiced start macos    打开 Mac 版（需要时先构建）
 #   voiced start ios      从已连接的 iPhone 和模拟器中选择，构建、安装并打开
 #   voiced start ios device  直接构建、安装并打开到已配对的 iPhone，不显示列表
 #   voiced stop           停止服务，登录时不再启动
 #   voiced stop macos     退出 Mac 版
-#   voiced restart        重启服务（可加文件夹）；voiced restart macos 重启 Mac 版
+#   voiced restart        重启服务；voiced restart macos 重启 Mac 版
 #   voiced restart ios [device]  重新构建、安装并重新打开 iOS 版（device：已配对的 iPhone）
 #   voiced status         显示服务和 Mac 版的状态
 #   voiced help           显示帮助
 #
-# 服务运行时菜单栏右上角有一个图标，点击可查看状态、设置 Claude Code 的文件夹或停止服务。
-# 每句话如何处理（输入、输入后回车、用 Claude Code 执行）由 iPhone 上的“发送到 Mac”方式决定。
+# 服务运行时菜单栏右上角有一个图标，点击可查看状态或停止服务。
+# 每句话如何处理（输入、输入后回车、用 Claude Code 执行）由 iPhone 上的“发送到 Mac”方式决定，
+# Claude Code 的文件夹也在 iPhone 上设置。
 
 set -euo pipefail
 
@@ -36,10 +35,10 @@ UI_APP="$ROOT/macos/.build/Voiced.app"
 UI_EXECUTABLE="$UI_APP/Contents/MacOS/Voiced"
 
 usage() {
-    print -u2 "Usage: voiced [folder]"
+    print -u2 "Usage: voiced"
     print -u2 "       voiced start [macos|ios [device]]"
     print -u2 "       voiced stop [macos]"
-    print -u2 "       voiced restart [macos|ios [device]|folder]"
+    print -u2 "       voiced restart [macos|ios [device]]"
     print -u2 "       voiced status"
     print -u2 "       voiced help"
     exit 2
@@ -51,8 +50,6 @@ voiced runs the voiced service, which types what Voiced on the iPhone hears at t
 cursor, and starts the Voiced apps.
 
   voiced                       start the service, and at every login
-  voiced <folder>              the same, with Claude Code running in that folder
-                               (voiced . for the current folder; without one, the home folder)
   voiced start                 ask whether to start Voiced on macOS or iOS
   voiced start macos           open the Mac app, building it first if needed
   voiced start ios             pick a connected iPhone or a simulator, then build, install and
@@ -60,24 +57,15 @@ cursor, and starts the Voiced apps.
   voiced start ios device      the same on the paired iPhone, without the list
   voiced stop                  stop the service; it no longer starts at login
   voiced stop macos            quit the Mac app
-  voiced restart [folder]      restart the service
+  voiced restart               restart the service
   voiced restart macos         restart the Mac app
   voiced restart ios [device]  rebuild, reinstall and reopen the iOS app (device: the paired iPhone)
-  voiced status                show the service, the Mac app and the folder
+  voiced status                show the service and the Mac app
 
 What happens to each sentence (typed at the cursor, typed and followed by Return, or run
-by Claude Code) is the "Send to Mac" mode chosen on the iPhone.
+by Claude Code) is the "Send to Mac" mode chosen on the iPhone, as is the folder Claude Code
+runs in.
 HELP
-}
-
-# MARK: Settings (the service's defaults domain; it reads them for every sentence)
-
-set_work_folder() {
-    defaults write "$LABEL" workFolder -string "$1"
-}
-
-current_work_folder() {
-    defaults read "$LABEL" workFolder 2>/dev/null || print "$HOME"
 }
 
 # MARK: Service
@@ -300,31 +288,13 @@ show_status() {
     else
         print "Voiced app:   stopped"
     fi
-    print "Folder:       $(current_work_folder)"
 }
 
 # MARK: Commands
 
-# Exits when the argument is not a folder. Called directly, not inside $(...), so the exit
-# ends the script.
-require_folder() {
-    if [[ ! -d "$1" ]]; then
-        print -u2 "voiced: $1 is not a folder"
-        exit 2
-    fi
-}
-
-# Starts the service with the given folder, or the home folder.
-start_service_in() {
-    local folder="${1:-$HOME}"
-    set_work_folder "$folder"
-    start_service
-    print "Folder: $folder"
-}
-
 case "${1:-}" in
     "")
-        start_service_in
+        start_service
         ;;
     help|-h|--help)
         show_help
@@ -359,17 +329,11 @@ case "${1:-}" in
             # Rebuild, reinstall and relaunch: the deploy and emulate scripts end the running app first.
             ios:) start_ios ;;
             ios:device) "$ROOT/ios/deploy.sh" ;;
-            ios:*) usage ;;
-            *:?*) usage ;;
-            *)
-                folder=""
-                if [[ -n "${2:-}" ]]; then
-                    require_folder "$2"
-                    folder="${2:A}"
-                fi
+            :)
                 stop_service
-                start_service_in "$folder"
+                start_service
                 ;;
+            *) usage ;;
         esac
         ;;
     status)
@@ -377,9 +341,6 @@ case "${1:-}" in
         show_status
         ;;
     *)
-        # voiced <folder>: start the service with that folder.
-        (( $# == 1 )) || usage
-        require_folder "$1"
-        start_service_in "${1:A}"
+        usage
         ;;
 esac

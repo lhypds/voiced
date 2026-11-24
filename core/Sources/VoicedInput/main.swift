@@ -51,8 +51,16 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
             KeyboardTyper.type(PhoneInputMessages.typedText(for: message.text, pressesReturn: pressReturn), pressReturn: pressReturn)
             status.deliveryError = nil
         case .claude:
-            // A prompt is always sent, so it gets no trailing space and always Return.
-            status.deliveryError = AgentTerminal.send(message.text, in: ServiceSettings.workFolder)
+            // A prompt is always sent, so it gets no trailing space and always Return. The folder
+            // is set on the phone and comes with the sentence.
+            let folder = message.resolvedFolder
+            var isFolder: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue else {
+                log("Dropped a sentence: \(folder) is not a folder")
+                status.deliveryError = "Dropped a sentence: \(folder) is not a folder"
+                return
+            }
+            status.deliveryError = AgentTerminal.send(message.text, in: folder)
             if status.deliveryError != nil { return }
         }
         status.sentencesTyped += 1

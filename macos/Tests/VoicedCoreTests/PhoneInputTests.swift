@@ -39,6 +39,15 @@ final class PhoneInputTests: XCTestCase {
                                             PhoneInput.Message(text: "fix the tests", mode: .claude)])
     }
 
+    func testTheFolderTravelsWithARunSentenceAndIsOptional() {
+        var decoder = PhoneInput.Decoder()
+        let data = PhoneInput.encode("fix the tests", mode: .claude, folder: "~/code/voiced")
+            + Data("{\"text\":\"old phone\",\"mode\":\"claude\"}\n".utf8)
+
+        XCTAssertEqual(decoder.feed(data), [PhoneInput.Message(text: "fix the tests", mode: .claude, folder: "~/code/voiced"),
+                                            PhoneInput.Message(text: "old phone", mode: .claude)])
+    }
+
     func testAMessageWithoutAModeOrWithAnUnknownOneIsTyped() {
         var decoder = PhoneInput.Decoder()
         let data = Data("{\"text\":\"old phone\"}\n{\"text\":\"newer phone\",\"mode\":\"later\"}\n".utf8)

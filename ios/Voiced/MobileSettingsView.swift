@@ -95,6 +95,19 @@ struct MobileSettingsView: View {
     @State private var isAPIKeyRevealed = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
+    /// "Send to Mac" → Run (true) or Type (false); the wire still carries one of three modes.
+    private var sendsToClaude: Binding<Bool> {
+        Binding { model.sendToMacMode == .claude } set: { run in
+            // Choosing Type again while already typing keeps the Return switch as it is.
+            if run { model.sendToMacMode = .claude } else if model.sendToMacMode == .claude { model.sendToMacMode = .type }
+        }
+    }
+
+    /// Under Type: whether Return follows the typed text.
+    private var pressesReturn: Binding<Bool> {
+        Binding { model.sendToMacMode == .typeAndReturn } set: { model.sendToMacMode = $0 ? .typeAndReturn : .type }
+    }
+
     private static let apiKeyLines = 4
     /// The key's font: monospaced at the caption size the reader has chosen, small enough that
     /// a whole key fits in the box's four lines on a phone.
@@ -212,21 +225,26 @@ struct MobileSettingsView: View {
             Section {
                 Toggle("发送到 Mac", isOn: $model.sendToMacEnabled)
                 if model.sendToMacEnabled {
-                    ChoicePicker("方式", selection: $model.sendToMacMode, options: PhoneInput.Mode.allCases) { mode in
-                        switch mode {
-                        case .type: Text("输入")
-                        case .typeAndReturn: Text("输入后回车")
-                        case .claude: Text("执行")
-                        }
-                    }
                     HStack {
                         Text("Mac")
                         Spacer()
                         if let name = model.macLink.connectedName { Text(name).foregroundStyle(.secondary) }
                         else { Text("正在查找…").foregroundStyle(.secondary) }
                     }
+                    // Two choices, Type and Run; Return is a switch under Type rather than a third mode.
+                    ChoicePicker("方式", selection: sendsToClaude, options: [false, true]) { run in
+                        run ? Text("执行") : Text("输入")
+                    }
+                    if model.sendToMacMode == .claude {
+                        // A path on the Mac, which the phone cannot browse: typed, `~` for the home folder.
+                        LabeledContent("工作目录") {
+                            FolderField(text: $model.claudeFolder, placeholder: AppSettings.defaultClaudeFolder)
+                        }
+                    } else {
+                        Toggle("输入后按回车", isOn: pressesReturn)
+                    }
                 }
-            } footer: { Text("打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符；“输入后回车”输入后再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，工作文件夹由 voiced 命令设置。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。") }
+            } footer: { Text("打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符，打开“输入后按回车”会再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，位置是上面的“工作目录”（Mac 上的路径，~ 为主目录）。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。") }
                 .listRowBackground(Color.white)
             Section {
                 Button("重置所有设置", role: .destructive) { confirmReset = true }.disabled(model.locked)
@@ -401,6 +419,8 @@ struct MobileSettingsView: View {
                         } label: {
                             Label { Text(model.strings.delete) } icon: { Image(systemName: "trash").imageScale(.small) }
                         }
+                        // The settings' tint would otherwise win over the destructive role's red.
+                        .foregroundStyle(.red)
                     }
                     Button("添加翻译规则", systemImage: "plus") {
                         let used = Set(model.translationRules.compactMap(\.source))
@@ -588,5 +608,58 @@ private struct ChoiceList<Value: Hashable>: View {
                 }
             }.listRowBackground(Color.white)
         }.settingsSurface(title: title)
+    }
+}
+
+/// The working folder's box. A tap anywhere in it puts the cursor at the end, after the default
+/// `~/`, so a folder is typed straight on; SwiftUI's field puts it where the tap lands, which in a
+/// right-aligned box is usually before the text.
+private struct FolderField: UIViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.delegate = context.coordinator
+        field.placeholder = placeholder
+        field.textAlignment = .right
+        field.textColor = .secondaryLabel
+        field.font = .preferredFont(forTextStyle: .body)
+        field.adjustsFontForContentSizeCategory = true
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.spellCheckingType = .no
+        field.keyboardType = .URL
+        field.returnKeyType = .done
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        return field
+    }
+
+    func updateUIView(_ field: UITextField, context: Context) {
+        context.coordinator.text = $text
+        if field.text != text { field.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        @objc func changed(_ field: UITextField) { text.wrappedValue = field.text ?? "" }
+
+        func textFieldDidBeginEditing(_ field: UITextField) {
+            // The tap places the cursor after editing begins; move it once that has happened.
+            DispatchQueue.main.async {
+                field.selectedTextRange = field.textRange(from: field.endOfDocument, to: field.endOfDocument)
+            }
+        }
+
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            field.resignFirstResponder()
+            return true
+        }
     }
 }

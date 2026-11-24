@@ -22,16 +22,31 @@ enum PhoneInputMessages {
         /// Missing from phones older than the modes, and unknown for modes added later: both
         /// are typed at the cursor.
         var mode: Mode
+        /// The folder Claude Code runs in, for `claude`, set on the phone; `~` stands for the
+        /// home folder. Missing or empty: the home folder.
+        var folder: String?
 
-        init(text: String, mode: Mode = .type) {
+        init(text: String, mode: Mode = .type, folder: String? = nil) {
             self.text = text
             self.mode = mode
+            self.folder = folder
         }
 
         init(from decoder: any Swift.Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             text = try container.decode(String.self, forKey: .text)
             mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
+            folder = try? container.decodeIfPresent(String.self, forKey: .folder)
+        }
+
+        /// `folder` as a path on this Mac: `~` expanded, the home folder when none was sent.
+        var resolvedFolder: String {
+            let trimmed = folder?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            if trimmed.isEmpty || trimmed == "~" { return home }
+            // Standardized so `~/` and `~` are the same folder and continue one conversation.
+            if trimmed.hasPrefix("~/") { return ((home + trimmed.dropFirst(1)) as NSString).standardizingPath }
+            return (trimmed as NSString).standardizingPath
         }
     }
 

@@ -99,9 +99,15 @@ final class FeatureParityUITests: XCTestCase {
         app.launch()
         let start = app.buttons["开始录音"]
         XCTAssertTrue(start.waitForExistence(timeout: 30))
-        start.tap()
+        // The first tap only loads the model; a tap once it is loaded starts recording. A tap while
+        // it is still loading does nothing, so tapping on until the recording starts is harmless.
         let stop = app.buttons["停止录音"]
-        XCTAssertTrue(stop.waitForExistence(timeout: 900), "the recording did not start")
+        let deadline = Date().addingTimeInterval(900)
+        while !stop.exists && Date() < deadline {
+            if start.exists { start.tap() }
+            _ = stop.waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(stop.exists, "the recording did not start")
         print("MARK-RECORDING")
         sleep(8)
         print("MARK-HOLD-START")

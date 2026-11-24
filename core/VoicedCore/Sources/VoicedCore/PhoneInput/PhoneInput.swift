@@ -29,23 +29,28 @@ public enum PhoneInput {
         /// Missing from phones older than the modes, and unknown for modes added later: both
         /// are typed at the cursor.
         public var mode: Mode
+        /// The Mac folder Claude Code runs in, for `claude`, set on the phone; `~` stands for the
+        /// home folder. Missing or empty: the home folder.
+        public var folder: String?
 
-        public init(text: String, mode: Mode = .type) {
+        public init(text: String, mode: Mode = .type, folder: String? = nil) {
             self.text = text
             self.mode = mode
+            self.folder = folder
         }
 
         public init(from decoder: any Swift.Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             text = try container.decode(String.self, forKey: .text)
             mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
+            folder = try? container.decodeIfPresent(String.self, forKey: .folder)
         }
     }
 
     /// The bytes sent for one sentence: its message as JSON, ended by a line feed. JSON escapes
     /// any line break inside the text, so a line feed only ever ends a message.
-    public static func encode(_ text: String, mode: Mode = .type) -> Data {
-        var data = (try? JSONEncoder().encode(Message(text: text, mode: mode))) ?? Data()
+    public static func encode(_ text: String, mode: Mode = .type, folder: String? = nil) -> Data {
+        var data = (try? JSONEncoder().encode(Message(text: text, mode: mode, folder: folder))) ?? Data()
         data.append(0x0A)
         return data
     }
@@ -127,14 +132,14 @@ public final class PhoneInputSender: ObservableObject {
         connectedName = nil
     }
 
-    /// Sends one sentence, for the Mac to handle as `mode` says. Returns false when no Mac is
-    /// connected, so nothing went out.
+    /// Sends one sentence, for the Mac to handle as `mode` says; `folder` is where Claude Code
+    /// runs it in `claude` mode. Returns false when no Mac is connected, so nothing went out.
     @discardableResult
-    public func send(_ text: String, mode: PhoneInput.Mode = .type) -> Bool {
+    public func send(_ text: String, mode: PhoneInput.Mode = .type, folder: String? = nil) -> Bool {
         guard let connection, connectedName != nil else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        connection.send(content: PhoneInput.encode(trimmed, mode: mode), completion: .contentProcessed { _ in })
+        connection.send(content: PhoneInput.encode(trimmed, mode: mode, folder: mode == .claude ? folder : nil), completion: .contentProcessed { _ in })
         return true
     }
 

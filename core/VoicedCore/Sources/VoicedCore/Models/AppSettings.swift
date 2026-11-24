@@ -33,6 +33,7 @@ public struct AppSettings {
         case summaryModel
         case phoneInput
         case phoneInputMode
+        case claudeFolder
         case allowLandscape
         case compiledModels
         case modelLoadSeconds
@@ -218,6 +219,19 @@ public struct AppSettings {
     public var phoneInputMode: PhoneInput.Mode {
         get { rawValue(.phoneInputMode) ?? .type }
         nonmutating set { set(newValue.rawValue, for: .phoneInputMode) }
+    }
+
+    /// The Mac folder Claude Code runs in when what is sent is run ("Send to Mac" → Run). Sent
+    /// with every such sentence, so the Mac keeps no folder of its own. `~` is the home folder;
+    /// the default is `~/`, so a folder in it is typed straight after.
+    public static let defaultClaudeFolder = "~/"
+
+    public var claudeFolder: String {
+        get { string(.claudeFolder) ?? Self.defaultClaudeFolder }
+        nonmutating set {
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            set(trimmed.isEmpty || trimmed == "~" || trimmed == "~/" ? nil : trimmed, for: .claudeFolder)
+        }
     }
 
     /// Whether the iPhone app turns to landscape with the device. On by default; off, it stays in

@@ -49,6 +49,8 @@ final class MobileTranscriber: ObservableObject {
     /// What the Mac does with what is sent: type it at the cursor, type it and press Return, or
     /// have Claude Code carry it out. Sent with every sentence, so the Mac needs no setting.
     @Published var sendToMacMode: PhoneInput.Mode { didSet { settings.phoneInputMode = sendToMacMode } }
+    /// The Mac folder Claude Code runs in for Run; `~` is the home folder. Sent with every sentence.
+    @Published var claudeFolder: String { didSet { settings.claudeFolder = claudeFolder } }
     /// Whether the microphone is being held, so speech now goes to the Mac.
     @Published private(set) var holding = false
     /// The input's loudness over the last few seconds while the microphone is held, for the
@@ -196,6 +198,7 @@ final class MobileTranscriber: ObservableObject {
         summaryModel = settings.summaryModel
         sendToMacEnabled = settings.phoneInput
         sendToMacMode = settings.phoneInputMode
+        claudeFolder = settings.claudeFolder
         allowLandscape = settings.allowLandscape
         engineID = settings.recognitionEngine.rawValue
         languageID = settings.recognitionLanguage.id
@@ -387,7 +390,7 @@ final class MobileTranscriber: ObservableObject {
             if let line = session.commitMerged(segments: [segment], assembler: assembler), forMac {
                 trace("committed hold line [\(line.start)-\(line.end)] \(line.text)")
                 // Kept with the record, so the line stays blue in the transcript and in history.
-                current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: macLink.send(line.text, mode: sendToMacMode)]) { $1 }
+                current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder)]) { $1 }
             }
             publish(session)
         }
@@ -537,6 +540,23 @@ final class MobileTranscriber: ObservableObject {
                 self.error = error.localizedDescription
                 await finishRecording()
             }
+        }
+    }
+
+    /// Whether the selected engine's model is loaded, so a press on the microphone can start at once.
+    var modelReady: Bool { whisper != nil && loadedEngine == engine }
+
+    /// Loads the selected engine's model without starting anything: a press on the microphone
+    /// before it is loaded only does this, and once loaded the microphone is back to idle, waiting
+    /// for the next press.
+    func prepareModel() {
+        guard !modelReady, !modelLoading, !locked else { return }
+        error = nil
+        let task = startModelLoad(engine)
+        Task { [weak self] in
+            do { _ = try await task.value }
+            catch is CancellationError {}
+            catch { self?.error = error.localizedDescription; if self?.locked == false { self?.status = self?.strings.ready ?? "" } }
         }
     }
 
@@ -720,7 +740,7 @@ final class MobileTranscriber: ObservableObject {
     @discardableResult
     func sendLineToMac(_ line: TranscriptLine) -> Bool {
         guard sendToMacEnabled, current.lines.contains(where: { $0.id == line.id }) else { return false }
-        let delivered = macLink.send(line.text, mode: sendToMacMode)
+        let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder)
         current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: delivered]) { $1 }
         save()
         return delivered
@@ -1202,6 +1222,7 @@ extension MobileTranscriber {
         summaryModel = settings.summaryModel
         sendToMacEnabled = settings.phoneInput
         sendToMacMode = settings.phoneInputMode
+        claudeFolder = settings.claudeFolder
         allowLandscape = settings.allowLandscape
         configureAI()
         configureTranslation()

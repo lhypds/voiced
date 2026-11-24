@@ -54,6 +54,9 @@ struct ContentView: View {
     @State private var micHolding = false
     /// Whether the finger has moved off the microphone; letting go there cancels a hold.
     @State private var micOutside = false
+    /// Whether the current touch on the microphone only started loading the model, so letting go
+    /// does nothing.
+    @State private var micLoadOnly = false
     /// Bumped by a tap or hold on the microphone, to bring the list back to its top, where the LIVE card is.
     @State private var scrollToTopRequest = 0
     /// Turns the current touch into a hold once it has lasted half a second.
@@ -486,6 +489,13 @@ struct ContentView: View {
         micTouching = true
         micHolding = false
         micHoldTimer?.cancel()
+        // The model is not loaded yet: the press, tap or hold, only loads it, and nothing starts
+        // until the next press once it is ready.
+        micLoadOnly = !(model.recording || model.busy || model.previewActive) && !model.modelReady
+        if micLoadOnly {
+            model.prepareModel()
+            return
+        }
         micHoldTimer = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, micTouching, !model.previewActive, !model.stopping else { return }
@@ -507,7 +517,9 @@ struct ContentView: View {
         micOutside = false
         micHoldTimer?.cancel()
         micHoldTimer = nil
-        if micHolding {
+        if micLoadOnly {
+            micLoadOnly = false
+        } else if micHolding {
             micHolding = false
             // Let go away from the button (or the touch was cancelled): the hold is dropped.
             if inside { model.endHold() } else { model.cancelHold() }
@@ -522,6 +534,9 @@ struct ContentView: View {
         scrollToTopRequest += 1
         if model.recording || model.busy || model.previewActive {
             model.stop()
+        } else if !model.modelReady {
+            // Not loaded yet: only load it; the next tap, once it is ready, starts recording.
+            model.prepareModel()
         } else {
             clearSearch()
             model.start()
@@ -553,11 +568,12 @@ struct ContentView: View {
                 Button {} label: {
                     if model.stopping { ProgressView() }
                     else {
-                        Image(systemName: model.recording || model.busy || model.previewActive ? "stop.fill" : "mic.fill")
+                        // Held: speaking into it, so it shows the microphone even over a running recording.
+                        Image(systemName: !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
                             .font(.system(size: 33, weight: .regular))
                     }
                 }
-                .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside))
+                .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly))
                 .disabled(model.stopping)
                 .allowsHitTesting(false)
                 .overlay {

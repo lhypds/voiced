@@ -1,7 +1,7 @@
 #!/bin/zsh
 #
 # 安装 voiced 命令：链接到仓库根目录的 voiced 脚本，之后在终端输入 voiced 即可使用。
-#   voiced [文件夹]                 启动 voiced 服务；voiced stop / restart 停止、重启
+#   voiced                          启动 voiced 服务；voiced stop / restart 停止、重启
 #   voiced start [macos|ios]        启动 Mac 版，或在所选 iPhone / 模拟器上启动 iOS 版
 #   voiced status                   查看状态
 # 命令是链接，修改 ./voiced 或重新构建后不用重装。

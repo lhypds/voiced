@@ -30,7 +30,7 @@ open macos/.build/Voiced.app
 
 `macos/` 中的 `start.sh`、`stop.sh`、`restart.sh` 作用相同，并会在需要时自动重新构建。
 
-`./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令（指向 [`./voiced`](../voiced) 的链接）：`voiced` 启动 voiced 服务（`voiced .` 或 `voiced <文件夹>` 设置 Claude Code 运行的文件夹），`voiced stop`、`voiced restart` 停止和重启服务，`voiced start` 在 macOS 或所选的 iPhone、模拟器上启动 Voiced，其余命令见 `voiced help`；`./uninstall.sh` 删除该命令。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
+`./install.sh` 会在 `/usr/local/bin/voiced` 安装 `voiced` 命令（指向 [`./voiced`](../voiced) 的链接）：`voiced` 启动 voiced 服务（Claude Code 运行的文件夹在 iPhone 上设置），`voiced stop`、`voiced restart` 停止和重启服务，`voiced start` 在 macOS 或所选的 iPhone、模拟器上启动 Voiced，其余命令见 `voiced help`；`./uninstall.sh` 删除该命令。应用的 Voiced 菜单里也有同样的“安装 voiced 命令”。
 
 首次运行需要允许麦克风访问。即使选择的是虚拟音频设备，macOS 仍会把它归类为麦克风输入，因此没有物理麦克风时也需要这项权限。
 

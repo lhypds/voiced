@@ -2227,47 +2227,6 @@
         }
       }
     },
-    "打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符；“输入后回车”输入后再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，工作文件夹由 voiced 命令设置。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wenn aktiviert, halte das Mikrofon gedrückt und sprich: Was vor dem Loslassen gesagt wird, geht an einen Mac im selben Netzwerk, auf dem Voiced läuft, auch während einer Aufnahme. „Eingeben“ tippt es am Cursor des Mac ein, etwa an einer Terminal-Eingabeaufforderung; „Eingeben und Return“ drückt danach Return; „Ausführen“ lässt es Claude Code auf dem Mac ausführen, geöffnet im Terminal im mit dem Befehl voiced festgelegten Ordner. Gesendetes erscheint im Transkript blau. Ein Tippen auf das Mikrofon startet oder stoppt nur die Aufnahme und sendet nichts. Starte auf dem Mac mit voiced den voiced-Dienst. Ohne Verbindung Gesagtes wird nicht nachgesendet."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When on, hold the microphone and speak: what is said before letting go is sent to a Mac running Voiced on the same network, also while recording. \"Type\" types it at the Mac's cursor, such as a terminal prompt; \"Type and Return\" also presses Return; \"Run\" has Claude Code on the Mac carry it out, opened in Terminal in the folder set with the voiced command. Sent speech is shown in blue in the transcript. A tap on the microphone only starts or stops recording and sends nothing. Run voiced on the Mac to start the voiced service. Speech while not connected is not sent later."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Al activarlo, mantén pulsado el micrófono y habla: lo dicho antes de soltar se envía a un Mac con Voiced en la misma red, también mientras se graba. «Escribir» lo escribe en el cursor del Mac, como el prompt de un terminal; «Escribir y Retorno» además pulsa Retorno; «Ejecutar» se lo pasa a Claude Code en el Mac, abierto en Terminal en la carpeta fijada con el comando voiced. Lo enviado aparece en azul en la transcripción. Un toque en el micrófono solo inicia o detiene la grabación y no envía nada. Ejecuta voiced en el Mac para iniciar el servicio voiced. Lo dicho sin conexión no se envía después."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Une fois activé, maintenez le micro et parlez : ce qui est dit avant de relâcher est envoyé à un Mac exécutant Voiced sur le même réseau, même pendant un enregistrement. « Saisir » le tape au curseur du Mac, par exemple à l'invite d'un terminal ; « Saisir et Entrée » appuie aussi sur Entrée ; « Exécuter » le confie à Claude Code sur le Mac, ouvert dans Terminal dans le dossier défini par la commande voiced. Le texte envoyé apparaît en bleu dans la transcription. Un toucher sur le micro démarre ou arrête seulement l'enregistrement, sans rien envoyer. Lancez voiced sur le Mac pour démarrer le service voiced. Ce qui est dit sans connexion n'est pas envoyé plus tard."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "オンにすると、マイクを押したまま話した内容が、離したときに同じネットワーク上で Voiced を実行している Mac に送信されます。録音中でも押せます。「入力」は Mac のカーソル位置（ターミナルのプロンプトなど）に入力し、「入力して Return」は入力後に Return を押し、「実行」は Mac の Claude Code に実行させます（ターミナルで開き、作業フォルダは voiced コマンドで設定）。送信した内容は記録に青で表示されます。マイクをタップすると録音の開始・停止のみで、送信しません。Mac で voiced を実行して voiced サービスを起動してください。未接続中の発話は後から送信されません。"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符；“输入后回车”输入后再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，工作文件夹由 voiced 命令设置。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。"
-          }
-        }
-      }
-    },
     "执行" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5507,47 +5466,6 @@
         }
       }
     },
-    "输入后回车" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eingeben und Return"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Type and Return"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Escribir y Retorno"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saisir et Entrée"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "入力して Return"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "输入后回车"
-          }
-        }
-      }
-    },
     "输入设备" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6159,6 +6077,129 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mac に送信しました"
+          }
+        }
+      }
+    },
+    "工作目录" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arbeitsverzeichnis"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Working Directory"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Directorio de trabajo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Répertoire de travail"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作業ディレクトリ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作目录"
+          }
+        }
+      }
+    },
+    "输入后按回车" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Danach Return drücken"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press Return After Typing"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pulsar Retorno después"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appuyer sur Entrée ensuite"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力後に Return"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入后按回车"
+          }
+        }
+      }
+    },
+    "打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符，打开“输入后按回车”会再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，位置是上面的“工作目录”（Mac 上的路径，~ 为主目录）。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wenn aktiviert, halte das Mikrofon gedrückt und sprich: Was vor dem Loslassen gesagt wird, geht an einen Mac im selben Netzwerk, auf dem Voiced läuft, auch während einer Aufnahme. „Eingeben“ tippt es am Cursor des Mac ein, etwa an einer Terminal-Eingabeaufforderung; mit „Danach Return drücken“ folgt Return. „Ausführen“ lässt es Claude Code auf dem Mac ausführen, geöffnet im Terminal im oben eingestellten „Arbeitsverzeichnis“ (ein Pfad auf dem Mac, ~ ist der Benutzerordner). Gesendetes erscheint im Transkript blau. Ein Tippen auf das Mikrofon startet oder stoppt nur die Aufnahme und sendet nichts. Starte auf dem Mac mit voiced den voiced-Dienst. Ohne Verbindung Gesagtes wird nicht nachgesendet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When on, hold the microphone and speak: what you say before letting go is sent to a Mac running Voiced on the same network, even during a recording. “Type” types it at the Mac’s cursor, such as a Terminal prompt; with “Press Return After Typing” on, Return follows. “Run” has Claude Code on the Mac carry it out, opened in Terminal in the “Working Directory” above (a path on the Mac, ~ is the home folder). What is sent shows blue in the transcript. A tap on the microphone only starts or stops recording and sends nothing. Run voiced on the Mac to start the voiced service. What is said while not connected is not sent later."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al activarlo, mantén pulsado el micrófono y habla: lo que digas antes de soltarlo se envía a un Mac con Voiced en la misma red, incluso durante una grabación. «Escribir» lo escribe en el cursor del Mac, como un prompt de Terminal; con «Pulsar Retorno después» activado, se pulsa Retorno. «Ejecutar» hace que Claude Code lo ejecute en el Mac, abierto en Terminal en el «Directorio de trabajo» de arriba (una ruta del Mac, ~ es la carpeta de inicio). Lo enviado aparece en azul en la transcripción. Tocar el micrófono solo inicia o detiene la grabación y no envía nada. Ejecuta voiced en el Mac para iniciar el servicio voiced. Lo dicho sin conexión no se envía después."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une fois activé, maintenez le micro et parlez : ce que vous dites avant de relâcher est envoyé à un Mac exécutant Voiced sur le même réseau, même pendant un enregistrement. « Saisir » le tape au curseur du Mac, par exemple à une invite du Terminal ; avec « Appuyer sur Entrée ensuite » activé, Entrée suit. « Exécuter » le confie à Claude Code sur le Mac, ouvert dans le Terminal dans le « Répertoire de travail » ci-dessus (un chemin sur le Mac, ~ est le dossier personnel). Ce qui est envoyé apparaît en bleu dans la transcription. Toucher le micro démarre ou arrête seulement l’enregistrement, sans rien envoyer. Lancez voiced sur le Mac pour démarrer le service voiced. Ce qui est dit sans connexion n’est pas renvoyé."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オンにすると、マイクを長押しして話した内容が、離すまでの分だけ同じネットワーク上で Voiced を実行している Mac に送られます（録音中でも長押しできます）。「入力」は Mac のカーソル位置（ターミナルのプロンプトなど）に入力し、「入力後に Return」をオンにすると続けて Return を押します。「実行」は Mac の Claude Code に実行させ、上の「作業ディレクトリ」（Mac 上のパス、~ はホーム）でターミナルに開きます。送った内容は記録に青で表示されます。マイクをタップすると録音の開始・停止だけで送信しません。Mac で voiced を実行して voiced サービスを起動してください。未接続中に話した内容は後から送られません。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符，打开“输入后按回车”会再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，位置是上面的“工作目录”（Mac 上的路径，~ 为主目录）。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。"
           }
         }
       }
