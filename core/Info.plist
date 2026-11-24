@@ -20,6 +20,8 @@
     <string>1.0.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>vd opens Claude Code or Codex in Terminal and brings its window to the front when the target is AI.</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

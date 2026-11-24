@@ -20,6 +20,14 @@ final class ServiceStatus {
     var pressesReturn = ServiceSettings.pressesReturn {
         didSet { ServiceSettings.pressesReturn = pressesReturn }
     }
+    var target = ServiceSettings.target {
+        didSet { if target != oldValue { ServiceSettings.target = target } }
+    }
+    var workFolder = ServiceSettings.workFolder {
+        didSet { if workFolder != oldValue { ServiceSettings.workFolder = workFolder } }
+    }
+    /// Why the latest sentence could not be delivered; cleared by the next one that is.
+    var deliveryError: String?
     let startedAt = Date()
 }
 
@@ -108,6 +116,9 @@ final class StatusMenu: NSObject {
 
     private func refresh() {
         status.accessibilityAllowed = KeyboardTyper.isTrusted
+        // `vd target` and `vd start <folder>` change these from outside.
+        status.target = ServiceSettings.target
+        status.workFolder = ServiceSettings.workFolder
     }
 
     /// The Voiced app built from the same checkout: this binary is core/.build/vd and the app is
@@ -128,6 +139,24 @@ final class StatusMenu: NSObject {
 /// on every change, which would undo a change made here.
 enum ServiceSettings {
     private static let pressReturnKey = "pressReturn"
+    private static let targetKey = "target"
+    private static let workFolderKey = "workFolder"
+
+    /// Where sentences go. `vd target` sets it too.
+    static var target: Target {
+        get { UserDefaults.standard.string(forKey: targetKey).flatMap(Target.init(rawValue:)) ?? .cursor }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: targetKey) }
+    }
+
+    /// The folder Claude Code or Codex starts in. `vd start` sets it to the home folder, and
+    /// `vd start <folder>` (such as `vd start .`) to that folder.
+    static var workFolder: String {
+        get {
+            if let folder = UserDefaults.standard.string(forKey: workFolderKey), !folder.isEmpty { return folder }
+            return FileManager.default.homeDirectoryForCurrentUser.path
+        }
+        set { UserDefaults.standard.set(newValue, forKey: workFolderKey) }
+    }
 
     /// Whether Return follows each sentence, sending it at a prompt. Off by default, so a
     /// sentence can be checked or added to first. Taken over once from "phoneInputReturn" in
@@ -215,17 +244,36 @@ private struct StatusCard: View {
 
             Divider()
 
-            Toggle(isOn: $status.pressesReturn) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Press Return after each sentence").font(.callout)
-                    Text("Sends it at a prompt right away. Off, it stays at the cursor to check first.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Target").font(.callout).foregroundStyle(.secondary)
+                Picker("Target", selection: $status.target) {
+                    ForEach(Target.allCases) { Text($0.title).tag($0) }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-            .toggleStyle(.switch)
-            .controlSize(.small)
+
+            if status.target == .cursor {
+                returnToggle
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder").foregroundStyle(.secondary)
+                    Text(abbreviated(status.workFolder))
+                        .font(.callout)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                    Spacer()
+                    Button("Change…") { chooseFolder() }.buttonStyle(.link)
+                }
+                Text("Opens \(status.target.title) in Terminal with the first sentence and types each later one into it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let error = status.deliveryError {
+                Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
 
             if case .failed(let detail) = status.listener {
                 Text(detail).font(.caption).foregroundStyle(.red)
@@ -245,7 +293,39 @@ private struct StatusCard: View {
             }
         }
         .padding(14)
-        .frame(width: 280)
+        .frame(width: 300)
+    }
+
+    private var returnToggle: some View {
+        Toggle(isOn: $status.pressesReturn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Press Return after each sentence").font(.callout)
+                Text("Sends it at a prompt right away. Off, it stays at the cursor to check first.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+    }
+
+    private func abbreviated(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: status.workFolder)
+        panel.prompt = "Choose"
+        NSApp.activate(ignoringOtherApps: true)
+        if panel.runModal() == .OK, let url = panel.url {
+            status.workFolder = url.path
+        }
     }
 
     private func row(_ title: String, _ value: String) -> some View {

@@ -11,6 +11,10 @@
 #   vd restart ui     重启两者
 #   vd status         显示两者的状态
 #
+#   vd start .        在当前文件夹启动（AI 目标在此文件夹中运行）；不带文件夹时使用主目录
+#   vd target         显示目标；vd target cursor | claude | codex 设置目标：
+#                     cursor 输入到当前光标处，claude / codex 在终端中打开 Claude Code / Codex 并发送每句话
+#
 # 服务运行时菜单栏右上角有一个图标，点击可查看状态或停止服务。
 
 set -euo pipefail
@@ -29,9 +33,33 @@ UI_APP="$ROOT/.build/Voiced.app"
 UI_EXECUTABLE="$UI_APP/Contents/MacOS/Voiced"
 
 usage() {
-    print -u2 "Usage: vd start|stop|restart [ui]"
+    print -u2 "Usage: vd start|restart [ui] [folder]"
+    print -u2 "       vd stop [ui]"
+    print -u2 "       vd target [cursor|claude|codex]"
     print -u2 "       vd status"
     exit 2
+}
+
+# MARK: Settings (the service's defaults domain; it reads them for every sentence)
+
+set_work_folder() {
+    defaults write "$LABEL" workFolder -string "$1"
+}
+
+current_target() {
+    defaults read "$LABEL" target 2>/dev/null || print cursor
+}
+
+current_work_folder() {
+    defaults read "$LABEL" workFolder 2>/dev/null || print "$HOME"
+}
+
+target_title() {
+    case "$1" in
+        claude) print "Claude Code" ;;
+        codex) print "Codex" ;;
+        *) print "Cursor" ;;
+    esac
 }
 
 # MARK: Service
@@ -175,36 +203,69 @@ show_status() {
     else
         print "Voiced:       stopped"
     fi
+    print "Target:       $(target_title "$(current_target)")"
+    print "Folder:       $(current_work_folder)"
 }
 
 # MARK: Commands
 
-(( $# >= 1 && $# <= 2 )) || usage
+(( $# >= 1 )) || usage
 action="$1"
-target="${2:-}"
-[[ -z "$target" || "$target" == "ui" ]] || usage
+shift
+
+# start and restart take "ui" and a folder, in either order; stop takes "ui".
+with_ui=0
+folder=""
+if [[ "$action" == (start|stop|restart) ]]; then
+    for argument in "$@"; do
+        if [[ "$argument" == "ui" ]]; then
+            with_ui=1
+        elif [[ "$action" != stop && -z "$folder" ]]; then
+            if [[ ! -d "$argument" ]]; then
+                print -u2 "vd: $argument is not a folder"
+                exit 2
+            fi
+            folder="${argument:A}"
+        else
+            usage
+        fi
+    done
+fi
 
 case "$action" in
     start)
+        set_work_folder "${folder:-$HOME}"
         start_service
-        [[ -z "$target" ]] || start_ui
+        (( ! with_ui )) || start_ui
+        print "Folder: ${folder:-$HOME}"
         ;;
     stop)
-        [[ -z "$target" ]] || stop_ui
+        (( ! with_ui )) || stop_ui
         stop_service
         ;;
     restart)
-        [[ -z "$target" ]] || stop_ui
+        set_work_folder "${folder:-$HOME}"
+        (( ! with_ui )) || stop_ui
         stop_service
         start_service
-        [[ -z "$target" ]] || start_ui
+        (( ! with_ui )) || start_ui
+        print "Folder: ${folder:-$HOME}"
+        ;;
+    target)
+        (( $# <= 1 )) || usage
+        if (( $# == 0 )); then
+            print "$(target_title "$(current_target)")"
+        else
+            case "$1" in
+                cursor|claude|codex) defaults write "$LABEL" target -string "$1" ;;
+                *) usage ;;
+            esac
+            print "Target: $(target_title "$1")"
+        fi
         ;;
     status)
-        [[ -z "$target" ]] || usage
+        (( $# == 0 )) || usage
         show_status
-        ;;
-    -h|--help|help)
-        usage
         ;;
     *)
         usage

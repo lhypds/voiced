@@ -8,8 +8,10 @@ import Foundation
 //
 // Usage: VoicedInput [--return | --no-return]
 //
-// Without a flag, whether Return follows each sentence is the "Press Return after each sentence"
-// switch in the menu bar card, stored in the service's own defaults.
+// Sentences go to the target chosen in the menu bar card or with `vd target`: the cursor, or
+// Claude Code or Codex in a Terminal window (AgentTerminal). For the cursor, without a flag,
+// whether Return follows each sentence is the "Press Return after each sentence" switch in the
+// card, stored in the service's own defaults.
 
 let usage = "Usage: VoicedInput [--return | --no-return]"
 var pressReturnOverride: Bool?
@@ -44,12 +46,21 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
 
     let listener = PhoneInputListener()
     listener.onText = { text in
-        guard KeyboardTyper.isTrusted else {
-            log("Dropped a sentence: no Accessibility permission")
-            return
+        let target = ServiceSettings.target
+        if target == .cursor {
+            guard KeyboardTyper.isTrusted else {
+                log("Dropped a sentence: no Accessibility permission")
+                status.deliveryError = "Dropped a sentence: no Accessibility permission"
+                return
+            }
+            let pressReturn = pressesReturn()
+            KeyboardTyper.type(PhoneInputMessages.typedText(for: text, pressesReturn: pressReturn), pressReturn: pressReturn)
+            status.deliveryError = nil
+        } else {
+            // An agent's prompt is always sent, so it gets no trailing space and always Return.
+            status.deliveryError = AgentTerminal.send(text, to: target, in: ServiceSettings.workFolder)
+            if status.deliveryError != nil { return }
         }
-        let pressReturn = pressesReturn()
-        KeyboardTyper.type(PhoneInputMessages.typedText(for: text, pressesReturn: pressReturn), pressReturn: pressReturn)
         status.sentencesTyped += 1
         status.lastSentenceAt = Date()
     }
