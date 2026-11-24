@@ -8,28 +8,29 @@ The package at the root of this folder is the service. `VoicedCore/` is a separa
 
 ```sh
 core/install.sh     # build, register with launchd, start now and at every login
-core/uninstall.sh   # stop and unregister (same as vd stop)
+core/uninstall.sh   # stop and unregister (same as voiced stop)
 ```
 
-`install.sh` builds the service, a single binary at `core/.build/voiced`, and starts it through `vd`. Run it again after changing the source to rebuild and restart it.
+`install.sh` builds the service, a single binary at `core/.build/voiced`, and starts it through `voiced`. Run it again after changing the source to rebuild and restart it.
 
-## vd
+## voiced
 
-`vd`, at the repository root, controls the service. Run it as `./vd`, or install it as a system command with the root `./install.sh` (removed by `./uninstall.sh`).
+`voiced`, at the repository root, controls the service; with no argument it opens the Voiced window. Run it as `./voiced`, or install it as a system command with the root `./install.sh` (removed by `./uninstall.sh`).
 
 ```sh
-vd start            # start the service, and at every login
-vd stop             # stop it; it no longer starts at login
-vd restart
-vd start ui         # the service and the Voiced window
-vd stop ui          # quit Voiced and stop the service
-vd restart ui
-vd status
+voiced              # open the Voiced window
+voiced start        # start the service, and at every login
+voiced stop         # stop it; it no longer starts at login
+voiced restart
+voiced start ui     # the service and the Voiced window
+voiced stop ui      # quit Voiced and stop the service
+voiced restart ui
+voiced status
 ```
 
-The service is the launch agent `~/Library/LaunchAgents/com.local.voiced.input.plist`; launchd restarts it if it exits. `vd start` writes the plist and loads it, `vd stop` unloads and removes it.
+The service is the launch agent `~/Library/LaunchAgents/com.local.voiced.input.plist`; launchd restarts it if it exits. `voiced start` writes the plist and loads it, `voiced stop` unloads and removes it.
 
-While the service runs, a black-and-white waveform icon sits at the right of the menu bar. Clicking it opens a card with the service's status (iPhones connected, sentences typed, the Accessibility permission) and a "Press Return after each sentence" switch, and buttons to open Voiced and to stop the service, the same as `vd stop`. The icon first appears among the system icons at the right, so a menu bar manager such as Hidden Bar or a full menu bar on a Mac with a notch does not hide it; ⌘-drag it elsewhere and macOS keeps it there.
+While the service runs, a black-and-white waveform icon sits at the right of the menu bar. Clicking it opens a card with the service's status (iPhones connected, sentences typed, the Accessibility permission) and a "Press Return after each sentence" switch, and buttons to open Voiced and to stop the service, the same as `voiced stop`. The icon first appears among the system icons at the right, so a menu bar manager such as Hidden Bar or a full menu bar on a Mac with a notch does not hide it; ⌘-drag it elsewhere and macOS keeps it there.
 
 On the first start macOS asks for the Accessibility permission, which posting the paste needs: allow `voiced` in System Settings → Privacy & Security → Accessibility. The binary is signed with a fixed identifier, so the permission survives rebuilds. The service logs connections and errors to `~/Library/Logs/VoicedInput.log`.
 
@@ -49,4 +50,4 @@ core/build.sh
 core/.build/voiced [--return | --no-return]
 ```
 
-Run by hand from a terminal, the Accessibility permission is the terminal's. Stop the launch agent first (`vd stop`) so the phone does not connect to the other copy.
+Run by hand from a terminal, the Accessibility permission is the terminal's. Stop the launch agent first (`voiced stop`) so the phone does not connect to the other copy.

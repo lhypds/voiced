@@ -10,7 +10,7 @@ Three scripts at the repository root cover each part. Run one without arguments 
 ./core.sh  [build | start | stop | restart | status]    # the Voiced Input service
 ```
 
-`macos.sh` builds the app at `macos/.build/Voiced.app`. `ios.sh emulate` builds and starts the iOS app in a simulator; `ios.sh deploy` installs and starts it on a paired, unlocked iPhone with Developer Mode on. `core.sh` builds the service at `core/.build/voiced` and runs it through `vd`; `core.sh restart` rebuilds first.
+`macos.sh` builds the app at `macos/.build/Voiced.app`. `ios.sh emulate` builds and starts the iOS app in a simulator; `ios.sh deploy` installs and starts it on a paired, unlocked iPhone with Developer Mode on. `core.sh` builds the service at `core/.build/voiced` and runs it through `voiced`; `core.sh restart` rebuilds first.
 
 The macOS app is the Swift package in `macos/`. Run the commands below and in Release, Tests and Simulating live input from a file from that folder.
 
