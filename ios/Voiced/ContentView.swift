@@ -46,8 +46,18 @@ struct ContentView: View {
     @EnvironmentObject private var model: MobileTranscriber
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showSettings = false
-    /// The line being edited from its card's menu.
-    @State private var editingLine: TranscriptLine?
+    /// The line being edited in its own card, from the card's menu, and the text being typed.
+    @State private var editingLineID: String?
+    @State private var editText = ""
+    @FocusState private var editFocused: Bool
+    /// Where the field being edited is on screen, so a tap anywhere else ends the editing.
+    @State private var editorFrame: CGRect = .zero
+    /// The card being edited and the keyboard's top edge on screen. The keyboard covers the list
+    /// rather than shrinking it, so the list's content is lifted by `editLift`, without scrolling,
+    /// until the card sits above the keyboard; it drops back once the editing ends.
+    @State private var editingCardFrame: CGRect = .zero
+    @State private var keyboardTop: CGFloat?
+    @State private var editLift: CGFloat = 0
     /// Whether a finger is on the microphone; the ring is filled meanwhile.
     @State private var micTouching = false
     /// Whether the current touch on the microphone has become a hold.
@@ -100,7 +110,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                header.simultaneousGesture(dismissSearchKeyboard)
+                header.simultaneousGesture(dismissHeaderKeyboard)
                 if searching {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
@@ -164,11 +174,31 @@ struct ContentView: View {
                     .frame(maxWidth: 820).frame(maxWidth: .infinity)
                     // The whole content, padding included, so scrolling to it shows the very top.
                     .id(Self.listTopID)
+                    .offset(y: -editLift)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // While a line is edited the list stays put; a drag anywhere but in the field ends
+                // the editing instead, which saves it and lets the card drop back.
+                .scrollDisabled(editingLineID != nil)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8, coordinateSpace: .global).onChanged { drag in
+                        if editingLineID != nil, !editorFrame.contains(drag.startLocation) { editFocused = false }
+                    },
+                    including: editingLineID != nil ? .all : .subviews
+                )
                 .modifier(ScrollOffsetReader(fade: scrollFade, limit: Self.topFadeHeight))
                 .onChange(of: scrollToTopRequest) {
                     withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.listTopID, anchor: .top) }
+                }
+                .onChange(of: keyboardTop) { liftEditedCard() }
+                .onChange(of: editingCardFrame.height) { liftEditedCard() }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                    guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+                    let screen = UIScreen.main.bounds.height
+                    keyboardTop = frame.minY < screen ? frame.minY : nil
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    keyboardTop = nil
                 }
                 }
                 // As on macOS: cards fade out under the header once scrolled.
@@ -210,9 +240,6 @@ struct ContentView: View {
             .ignoresSafeArea(.keyboard, edges: .bottom)
             .modifier(MobileTranslationHost(translator: model.translator))
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(item: $editingLine) { line in
-                LineEditor(original: line.text) { model.editLine(line, text: $0) }
-            }
             .sheet(isPresented: $showSettings, onDismiss: { model.stopInputMeter(); if model.previewActive || model.busy || model.calibrating { model.stop() }; model.savePrompt() }) { MobileSettingsView().environmentObject(model) }
             .sheet(isPresented: $showHistory, onDismiss: {
                 // A record opened from a history search shows only its matching lines; any other
@@ -254,8 +281,18 @@ struct ContentView: View {
     }
 
     /// Alongside whatever the tap does, so the cards and buttons still answer it.
+    /// Also ends editing a line, which saves it, for a tap anywhere but the field being edited,
+    /// where a tap moves the cursor.
     private var dismissSearchKeyboard: some Gesture {
-        TapGesture().onEnded { searchFocused = false }
+        SpatialTapGesture(coordinateSpace: .global).onEnded { tap in
+            searchFocused = false
+            if editingLineID != nil, !editorFrame.contains(tap.location) { editFocused = false }
+        }
+    }
+
+    /// The header holds no field being edited: any tap there ends the editing.
+    private var dismissHeaderKeyboard: some Gesture {
+        TapGesture().onEnded { searchFocused = false; editFocused = false }
     }
 
     private var header: some View {
@@ -295,38 +332,59 @@ struct ContentView: View {
     private func transcriptCard(label: String, text: String, live: Bool = false, secondary: String? = nil, line: TranscriptLine? = nil,
                                 mac: Bool? = nil) -> some View {
         let note: String? = mac == false ? "未连接 Mac，未发送" : nil
+        let editing = line != nil && line?.id == editingLineID
         return Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) {
                     timestampLabel(label, live: live, mac: mac != nil)
-                    transcriptText(text, secondary: secondary, note: note)
+                    transcriptText(text, secondary: secondary, note: note, editing: editing ? line : nil)
                 }
             } else {
                 HStack(alignment: .center, spacing: 16) {
                     timestampLabel(label, live: live, mac: mac != nil).frame(width: timestampColumnWidth, alignment: .leading)
-                    transcriptText(text, secondary: secondary, note: note).frame(maxWidth: .infinity, alignment: .leading)
+                    transcriptText(text, secondary: secondary, note: note, editing: editing ? line : nil)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
         .foregroundStyle(live ? MobileTheme.ink.opacity(0.5) : MobileTheme.ink)
         .padding(16).frame(maxWidth: .infinity, minHeight: live ? 64 : nil, alignment: .leading)
         .background(cardFill(line: line, mac: mac != nil), in: RoundedRectangle(cornerRadius: 18))
+        // Nil for the other cards, so starting to edit this one reports its frame even though it has not moved.
+        .onGeometryChange(for: CGRect?.self) { editing ? $0.frame(in: .global) : nil } action: { if let frame = $0 { editingCardFrame = frame } }
         .textSelection(.enabled)
-        .onTapGesture { if let line, model.tap(line, in: model.current) { showCopiedToast() } }
+        // While editing, a tap places the cursor instead of copying or playing the line.
+        // A tap on another card while editing only ends the editing, which saves it.
+        .onTapGesture {
+            if editing { return }
+            if editingLineID != nil { editFocused = false; return }
+            if let line, model.tap(line, in: model.current) { showCopiedToast() }
+        }
         .contextMenu {
-            Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = text; showCopiedToast() }
-            if let line {
+            // No menu over the text being edited: a long press there selects text.
+            if !editing {
+                Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = text; showCopiedToast() }
+            }
+            if let line, !editing {
                 Button("从此处播放", systemImage: "play") { model.play(model.current, from: line) }
                     .disabled(model.locked || model.current.audioPosition(of: line) == nil)
-                Button("编辑", systemImage: "pencil") { editingLine = line }
+                Button("编辑", systemImage: "pencil") { beginEditing(line) }
                 // Only with "Send to Mac" on in Settings; again for a line already sent.
                 if model.sendToMacEnabled {
                     Button("发送到 Mac", systemImage: "laptopcomputer") {
                         show(model.sendLineToMac(line) ? .sentToMac : .notSentToMac, for: .seconds(2))
                     }
                 }
-                Button("删除", systemImage: "trash", role: .destructive) {
+                // The view's tint would colour the symbol with the accent and leave only the title
+                // red; an image drawn red in its own colours is kept as it is.
+                Button(role: .destructive) {
                     withAnimation(.easeOut(duration: 0.2)) { model.deleteLine(line) }
+                } label: {
+                    Label {
+                        Text("删除")
+                    } icon: {
+                        Image(uiImage: UIImage(systemName: "trash")!.withTintColor(.systemRed, renderingMode: .alwaysOriginal))
+                    }
                 }
             }
         }
@@ -373,9 +431,72 @@ struct ContentView: View {
         return playing ? MobileTheme.cardActive : MobileTheme.card
     }
 
-    private func transcriptText(_ primary: String, secondary: String?, note: String? = nil) -> some View {
+    /// Edits a line in its own card: the original text, not a translation shown in its place.
+    /// Typed straight in, with no buttons: Return, or the keyboard going away, saves it. Left
+    /// empty, the line stays as it was.
+    private func lineEditor(_ line: TranscriptLine) -> some View {
+        // The field is a few points taller than the text, all of it below the glyphs: laid over the
+        // same text, hidden, from the top, so the card keeps its size and the text does not move.
+        Text(editText.isEmpty ? " " : editText)
+            .font(.body.bold())
+            .hidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topLeading) { lineField(line).fixedSize(horizontal: false, vertical: true) }
+    }
+
+    private func lineField(_ line: TranscriptLine) -> some View {
+        TextField("", text: $editText, axis: .vertical)
+            .font(.body.bold())
+            .focused($editFocused)
+            .submitLabel(.done)
+            .accessibilityIdentifier("line-editor")
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { editorFrame = $0 }
+            // A vertical field takes Return as a line break; a line has none, so it saves instead.
+            .onChange(of: editText) { _, value in
+                guard value.contains("\n") else { return }
+                editText = value.replacingOccurrences(of: "\n", with: "")
+                finishEditing(line)
+            }
+            // The keyboard put away, by scrolling or a tap elsewhere: what was typed is kept.
+            .onChange(of: editFocused) { _, focused in
+                if !focused { finishEditing(line) }
+            }
+    }
+
+    /// Lifts the list until the card being edited sits just above the keyboard, when the keyboard
+    /// covers any of it; again when the card grows a line. A card clear of it stays where it is.
+    /// The card's frame is where it is drawn, lift included, so only the rest is added.
+    private func liftEditedCard() {
+        guard editingLineID != nil, let keyboardTop, editingCardFrame.height > 0 else { return }
+        let covered = editingCardFrame.maxY - (keyboardTop - Self.rowGap)
+        guard covered > 0.5 else { return }
+        withAnimation(.easeOut(duration: 0.25)) { editLift += covered }
+    }
+
+    private func beginEditing(_ line: TranscriptLine) {
+        editText = line.text
+        editingLineID = line.id
+        // After the context menu has closed, or the field is not there yet to take focus.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            if editingLineID == line.id { editFocused = true }
+        }
+    }
+
+    private func finishEditing(_ line: TranscriptLine) {
+        guard editingLineID == line.id else { return }
+        editingCardFrame = .zero
+        model.editLine(line, text: editText)
+        editFocused = false
+        editingLineID = nil
+        withAnimation(.easeOut(duration: 0.25)) { editLift = 0 }
+    }
+
+    /// While `editing`, the field takes the main text's place and everything else stays, so
+    /// nothing moves.
+    private func transcriptText(_ primary: String, secondary: String?, note: String? = nil, editing: TranscriptLine? = nil) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(primary).font(.body.bold())
+            if let editing { lineEditor(editing) } else { Text(primary).font(.body.bold()) }
             if let secondary { Text(secondary).font(.subheadline).foregroundStyle(.secondary) }
             if let note { Text(LocalizedStringKey(note)).font(.caption).foregroundStyle(.secondary) }
         }
@@ -665,36 +786,6 @@ private struct WaveformView: View {
 /// An AI note laid out like a transcript card, as on macOS: "AI" where a card has its timestamp,
 /// the topic in purple and the note beside it. It has no close button: it leaves on its own once
 /// it has been on screen long enough to read. A tap keeps it until tapped again.
-/// Edits a transcript line's text: the original, not a translation shown in its place.
-private struct LineEditor: View {
-    let original: String
-    let save: (String) -> Void
-    @State private var text = ""
-    @FocusState private var focused: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            TextEditor(text: $text)
-                .font(.body)
-                .focused($focused)
-                .padding(.horizontal, 12)
-                .accessibilityIdentifier("line-editor")
-                .navigationTitle(Text("编辑"))
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { save(text); dismiss() }
-                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-        }
-        .presentationDetents([.medium, .large])
-        .onAppear { text = original; focused = true }
-    }
-}
-
 private struct HintCard: View {
     let hint: TranscriptHint
     /// Width of the transcript cards' timestamp column, so the texts line up.

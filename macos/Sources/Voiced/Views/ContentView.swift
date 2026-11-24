@@ -20,6 +20,10 @@ struct ContentView: View {
     /// Measured height of the model banner above the record button, 0 while there is none.
     @State private var preparationBannerHeight: CGFloat = 0
     @State private var copiedToastResetTask: Task<Void, Never>?
+    /// The line whose text is being edited in its row, chosen from the row's menu.
+    @State private var editingLineID: String?
+    /// When the last edit ended, so the click that ended it does not also act on its row.
+    @State private var editEndedAt: Date?
 
     private var strings: AppStrings { controller.strings }
 
@@ -225,11 +229,14 @@ struct ContentView: View {
                                 model: row,
                                 timestampWidth: timestampWidth,
                                 isPlaying: controller.playingLineID == row.id,
-                                onTap: { tap(row.line) }
+                                isEditing: editingLineID == row.id,
+                                onTap: { tap(row.line) },
+                                onEndEditing: { endEditing(row.line, text: $0) }
                             )
                             // Compared by value, closure aside, so a row whose texts are the same
                             // keeps its body when the list is rebuilt for a new LIVE text or line.
                             .equatable()
+                            .contextMenu { lineMenu(row.line) }
                         }
                     }
                     .animation(.easeOut(duration: 0.25), value: controller.hints)
@@ -286,7 +293,45 @@ struct ContentView: View {
     /// A click plays from the line when clicking plays and nothing is being recognized, and stops
     /// the playback, whichever row is clicked, while one runs. While recording a click copies,
     /// as it always did.
+    /// A row's menu, opened by a right-click or Control-click: the same actions as a sentence's
+    /// menu on the iPhone, less sending to the Mac.
+    @ViewBuilder
+    private func lineMenu(_ line: TranscriptLine) -> some View {
+        Button(strings.copy, systemImage: "doc.on.doc") {
+            controller.copy(line)
+            showCopiedToast()
+        }
+        Button(strings.playFromRow, systemImage: "play") {
+            if controller.playingLineID != nil { controller.stopPlayback() }
+            controller.togglePlayback(of: line, onlyLine: false)
+        }
+        .disabled(!controller.canPlay(from: line))
+        Button(strings.edit, systemImage: "pencil") { editingLineID = line.id }
+        Divider()
+        Button(role: .destructive) {
+            withAnimation(.easeOut(duration: 0.2)) { controller.deleteLine(line) }
+        } label: {
+            DeleteMenuLabel(title: strings.delete)
+        }
+    }
+
+    /// Ends the edit of `line`'s row, keeping `text`, or the old text when nil. Only the first
+    /// end counts: Return or Escape is followed by the field losing focus.
+    private func endEditing(_ line: TranscriptLine, text: String?) {
+        guard editingLineID == line.id else { return }
+        editingLineID = nil
+        editEndedAt = Date()
+        if let text { controller.editLine(line, text: text) }
+    }
+
     private func tap(_ line: TranscriptLine) {
+        // A click on another row while editing only ends the edit. The field may already have
+        // lost focus, and ended it, when the button went down, before this click arrives.
+        if editingLineID != nil {
+            NSApp.keyWindow?.makeFirstResponder(nil)
+            return
+        }
+        if let editEndedAt, Date().timeIntervalSince(editEndedAt) < 0.5 { return }
         if controller.lineClickAction.plays, !controller.isRecording {
             controller.togglePlayback(of: line, onlyLine: controller.lineClickAction == .play)
         } else {
@@ -563,14 +608,21 @@ private struct TranscriptRow: View, Equatable {
     let timestampWidth: CGFloat
     /// Whether the row's audio is being heard; the row then keeps its hover tint.
     let isPlaying: Bool
+    /// Whether the sentence is shown as a field to edit it in place.
+    let isEditing: Bool
     let onTap: () -> Void
+    /// Called with the edited text on Return or when the field loses focus, nil on Escape.
+    let onEndEditing: (String?) -> Void
 
     @State private var isHovering = false
+    @State private var draft = ""
+    @FocusState private var isFieldFocused: Bool
 
-    /// Everything but the tap closure, which SwiftUI could not compare and which only ever
-    /// does the same thing for the same line.
+    /// Everything but the closures, which SwiftUI could not compare and which only ever do the
+    /// same thing for the same line.
     static func == (lhs: TranscriptRow, rhs: TranscriptRow) -> Bool {
         lhs.model == rhs.model && lhs.timestampWidth == rhs.timestampWidth && lhs.isPlaying == rhs.isPlaying
+            && lhs.isEditing == rhs.isEditing
     }
 
     private var timestampPieces: [String] {
@@ -591,9 +643,32 @@ private struct TranscriptRow: View, Equatable {
             .foregroundStyle(Theme.timestamp)
             .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
             VStack(alignment: .leading, spacing: Theme.secondaryTextGap) {
-                Text(model.primaryText)
-                    .font(.system(size: Theme.bodyFontSize))
-                if let secondaryText = model.secondaryText {
+                if isEditing {
+                    // The sentence itself is edited, whichever text the row shows first.
+                    TextField("", text: $draft, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: Theme.bodyFontSize))
+                        .focused($isFieldFocused)
+                        .onSubmit { onEndEditing(draft) }
+                        .onExitCommand { onEndEditing(nil) }
+                        .onAppear {
+                            draft = model.line.text
+                            isFieldFocused = true
+                            // A focused field selects all its text; put the cursor at the end
+                            // instead, once the field editor has taken focus.
+                            DispatchQueue.main.async {
+                                guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+                                editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+                            }
+                        }
+                        .onChange(of: isFieldFocused) { _, focused in
+                            if !focused { onEndEditing(draft) }
+                        }
+                } else {
+                    Text(model.primaryText)
+                        .font(.system(size: Theme.bodyFontSize))
+                }
+                if !isEditing, let secondaryText = model.secondaryText {
                     Text(secondaryText)
                         .font(.system(size: Theme.secondaryFontSize))
                         .foregroundStyle(.secondary)
@@ -610,7 +685,8 @@ private struct TranscriptRow: View, Equatable {
         .padding(.horizontal, -8)
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .onTapGesture(perform: onTap)
+        // A click while editing places the cursor rather than copying or playing the line.
+        .onTapGesture { if !isEditing { onTap() } }
     }
 }
 

@@ -122,28 +122,64 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertTrue(app.buttons["停止录音"].exists, "the recording stopped after the hold")
     }
 
+    /// A card low on the screen, which the keyboard would cover, scrolls up above it when edited.
+    func testAnEditedCardStaysAboveTheKeyboard() {
+        app.launchArguments.append("--ui-many-lines")
+        app.launch()
+        XCTAssertTrue(app.staticTexts["第 1 句测试转写，用来填满屏幕。"].waitForExistence(timeout: 15))
+        let microphone = app.buttons["开始录音"]
+        // The lowest card still clear of the microphone, low enough for the keyboard to cover it.
+        let rows = (1...14).map { app.staticTexts["第 \($0) 句测试转写，用来填满屏幕。"] }
+            .filter { $0.exists && $0.isHittable && $0.frame.maxY < microphone.frame.minY - 20 }
+        let row = try! XCTUnwrap(rows.max { $0.frame.minY < $1.frame.minY })
+        let text = row.label
+        let before = row.frame
+        XCTAssertGreaterThan(row.frame.minY, app.frame.height / 2, "no card low enough to test")
+        row.press(forDuration: 1)
+        app.buttons["编辑"].tap()
+        let editor = app.textFields["line-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        let keyboard = app.keyboards.element
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
+        sleep(1)
+        try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/private/tmp/claude-501/-Users-liu-code-voiced/082fc323-465c-434b-8a3d-70b73a866f8a/scratchpad/kb.png"))
+        XCTAssertEqual(editor.value as? String, text)
+        XCTAssertLessThanOrEqual(editor.frame.maxY, keyboard.frame.minY, "the edited card is behind the keyboard")
+        XCTAssertGreaterThan(editor.frame.minY, 0)
+        // A drag on the list does not scroll it: it ends the editing, and the card drops back.
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 150)))
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 3), "the drag did not end the editing")
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
+        sleep(1)
+        XCTAssertEqual(row.frame.minY, before.minY, accuracy: 1, "the card did not go back to where it was")
+    }
+
     func testEditingALineFromItsMenu() {
         app.launch()
         let row = app.staticTexts["这是一条测试转写。"]
         XCTAssertTrue(row.waitForExistence(timeout: 15))
-        // Cancel leaves the line as it was.
         row.press(forDuration: 1)
         XCTAssertTrue(app.buttons["编辑"].waitForExistence(timeout: 3))
         app.buttons["编辑"].tap()
-        let editor = app.textViews["line-editor"]
+        // Edited in the card itself, typed straight in, with no buttons: Return saves it.
+        let editor = app.textFields["line-editor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 3))
         XCTAssertEqual(editor.value as? String, "这是一条测试转写。")
-        app.buttons["取消"].tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 3))
-        // Done replaces its text.
-        row.press(forDuration: 1)
-        app.buttons["编辑"].tap()
-        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["完成"].exists)
         editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 12))
-        editor.typeText("Edited by hand.")
-        app.buttons["完成"].tap()
+        editor.typeText("Edited by hand.\n")
         XCTAssertTrue(app.staticTexts["Edited by hand."].waitForExistence(timeout: 3))
         XCTAssertFalse(app.staticTexts["这是一条测试转写。"].exists)
+        // A tap elsewhere saves it too.
+        let edited = app.staticTexts["Edited by hand."]
+        edited.press(forDuration: 1)
+        app.buttons["编辑"].tap()
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        editor.typeText(" Again.")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)).tap()
+        XCTAssertTrue(app.staticTexts["Edited by hand. Again."].waitForExistence(timeout: 3))
+        XCTAssertFalse(editor.exists)
     }
 
     func testSendToMacIsOnlyInTheMenuWithTheSwitchOn() {

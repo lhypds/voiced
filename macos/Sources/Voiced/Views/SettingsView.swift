@@ -632,7 +632,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
                         .font(.caption)
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(.red)
                         .padding(.leading, 4)
                     }
                     Spacer(minLength: 0)
@@ -700,7 +700,7 @@ struct SettingsView: View {
                 Button(strings.delete, action: onDelete)
                     .buttonStyle(.plain)
                     .font(.caption)
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(.red)
                     .padding(.leading, 4)
             }
             Spacer(minLength: 0)

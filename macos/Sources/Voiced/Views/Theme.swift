@@ -44,3 +44,22 @@ enum Theme {
         return max(bodyLineHeight, line * 2 + timestampLineSpacing)
     }()
 }
+
+/// A menu item's label for deleting, in red. A destructive role alone leaves both black in a
+/// macOS menu; the symbol is drawn red in its own colours, which the menu keeps.
+struct DeleteMenuLabel: View {
+    let title: String
+
+    var body: some View {
+        Label {
+            Text(title).foregroundStyle(.red)
+        } icon: {
+            Image(nsImage: Self.trash)
+        }
+    }
+
+    private static let trash: NSImage = {
+        let symbol = NSImage(systemSymbolName: "trash", accessibilityDescription: nil) ?? NSImage()
+        return symbol.withSymbolConfiguration(.init(paletteColors: [.systemRed])) ?? symbol
+    }()
+}

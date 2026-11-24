@@ -29,6 +29,8 @@ enum UITestFixtures {
         let ai = TranscriptAI(makeHintProvider: { _, _, _ in HintStub() }, makeSummarizer: { _, _ in SummaryStub() })
         let model = MobileTranscriber(directory: directory, aiService: ai, translationService: TranslationStub())
         model.resume(record)
+        // The fixture line stands for one just recognized, so it is translated like one.
+        model.adoptIntoConversation(model.current.lines)
         if ProcessInfo.processInfo.arguments.contains("--ui-hints") {
             model.aiHintsEnabled = true
             let new = TranscriptLine(id: "new-question", start: 2, end: 4, recordedAt: now, text: "什么是 SwiftUI？")

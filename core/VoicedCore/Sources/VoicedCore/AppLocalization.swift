@@ -263,6 +263,8 @@ public struct AppStrings: Sendable {
     public var resetAllSettingsConfirmation: String { value("重置所有设置？", "すべての設定をリセットしますか？", "Reset all settings?", "Réinitialiser tous les réglages ?", "¿Restablecer todos los ajustes?", "Alle Einstellungen zurücksetzen?") }
     public var cancel: String { value("取消", "キャンセル", "Cancel", "Annuler", "Cancelar", "Abbrechen") }
     public var delete: String { value("删除", "削除", "Delete", "Supprimer", "Eliminar", "Löschen") }
+    public var copy: String { value("复制", "コピー", "Copy", "Copier", "Copiar", "Kopieren") }
+    public var edit: String { value("编辑", "編集", "Edit", "Modifier", "Editar", "Bearbeiten") }
     public var ai: String { "AI" }
     public var openAIAPIKey: String { value("OpenAI API 密钥", "OpenAI API キー", "OpenAI API Key", "Clé API OpenAI", "Clave de API de OpenAI", "OpenAI-API-Schlüssel") }
     public var showAPIKey: String { value("显示密钥", "キーを表示", "Show key", "Afficher la clé", "Mostrar clave", "Schlüssel anzeigen") }

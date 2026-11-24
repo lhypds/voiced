@@ -259,6 +259,9 @@ final class TranscriptionController: ObservableObject {
     /// Lines recognized in this recording whose translation has not been read aloud yet. Lines
     /// already on screen before it, such as a resumed record's, are never read.
     private var unspokenLineIDs: Set<String> = []
+    /// The lines recognized since the shown record was started or opened: only these are
+    /// translated, so opening a record from the history translates nothing.
+    private var conversationLineIDs: Set<String> = []
     private let ai: TranscriptAI
     private var aiForwarding: AnyCancellable?
     private let speaker = TranslationSpeaker()
@@ -881,6 +884,7 @@ final class TranscriptionController: ObservableObject {
         lines = []
         liveText = ""
         currentRecordID = nil
+        conversationLineIDs = []
         clearHints()
         let now = Date()
         pendingRecord = (historyStore.unusedID(startedAt: now), now)
@@ -901,6 +905,52 @@ final class TranscriptionController: ObservableObject {
         let texts = displayTexts(for: line)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(texts.secondary.map { texts.primary + "\n" + $0 } ?? texts.primary, forType: .string)
+    }
+
+    /// Whether the current record has audio for `line`, so it can be played from there.
+    func canPlay(from line: TranscriptLine) -> Bool {
+        !isRecording && currentRecord?.audioPosition(of: line) != nil
+    }
+
+    /// Gives `line` the text edited from its menu. Its translation goes with the old text and is
+    /// made again for the new one.
+    func editLine(_ line: TranscriptLine, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let index = lines.firstIndex(where: { $0.id == line.id }),
+              lines[index].text != text else { return }
+        if playingLineID != nil { stopPlayback() }
+        session?.replaceText(ofLine: line.id, with: text)
+        lines[index] = lines[index].replacingText(text)
+        untranslatableLineIDs.remove(line.id)
+        persistTranscript()
+        translateVisibleLines()
+        requestHints()
+    }
+
+    /// Removes `line` from the transcript and its record. A record left with no lines and no
+    /// audio is deleted, as an empty one is never kept.
+    func deleteLine(_ line: TranscriptLine) {
+        guard lines.contains(where: { $0.id == line.id }) else { return }
+        if playingLineID != nil { stopPlayback() }
+        session?.removeLine(id: line.id)
+        lines.removeAll { $0.id == line.id }
+        unspokenLineIDs.remove(line.id)
+        if lines.isEmpty {
+            // persistTranscript keeps no empty transcript, so the record is emptied here.
+            if let record = currentRecord {
+                if isRecording || record.sessions.contains(where: { $0.audioFile != nil }) {
+                    var emptied = record
+                    emptied.lines = []
+                    emptied.updatedAt = Date()
+                    store(emptied, makeCurrent: true)
+                } else {
+                    deleteRecord(record)
+                }
+            }
+        } else {
+            persistTranscript()
+        }
+        requestHints()
     }
 
     func timestamp(for line: TranscriptLine) -> String {
@@ -981,7 +1031,9 @@ final class TranscriptionController: ObservableObject {
     /// have their translation read aloud.
     private func show(_ transcript: [TranscriptLine]) {
         let shownIDs = Set(lines.map(\.id))
-        unspokenLineIDs.formUnion(transcript.map(\.id).filter { !shownIDs.contains($0) })
+        let addedIDs = transcript.map(\.id).filter { !shownIDs.contains($0) }
+        unspokenLineIDs.formUnion(addedIDs)
+        conversationLineIDs.formUnion(addedIDs)
         lines = transcript
     }
 
@@ -1047,7 +1099,8 @@ final class TranscriptionController: ObservableObject {
         let next = lines.lazy.reversed().compactMap { line in
             self.translationPair(for: line).map { (line, $0) }
         }.first { line, pair in
-            line.needsTranslation(into: pair.target) && !self.untranslatableLineIDs.contains(line.id)
+            self.conversationLineIDs.contains(line.id)
+                && line.needsTranslation(into: pair.target) && !self.untranslatableLineIDs.contains(line.id)
         }
         guard let (line, pair) = next else { return }
         if !activePairs.contains(pair) {
@@ -1131,9 +1184,11 @@ final class TranscriptionController: ObservableObject {
         lines = record.lines
         liveText = ""
         currentRecordID = record.id
+        // Its lines are shown with the translations they already have; only what is said
+        // from now on is translated.
+        conversationLineIDs = []
         clearHints()
         ai.reset(existingLines: record.lines)
-        translateVisibleLines()
     }
 
     /// Shows the record's directory, with its transcript and audio files, in Finder.

@@ -208,7 +208,7 @@ private struct HistoryRow: View {
                         }
                         rowAction(showsCopied ? "checkmark" : "doc.on.doc", help: strings.copyAll, action: copyTranscript)
                         rowAction("folder", help: strings.openFolder, action: openFolder)
-                        rowAction("trash", help: strings.delete, action: delete)
+                        rowAction("trash", help: strings.delete, color: .red, action: delete)
                     }
                     .opacity(isHovered || showsCopied ? 1 : 0)
                     .allowsHitTesting(isHovered)
@@ -255,7 +255,7 @@ private struct HistoryRow: View {
             }
             Button(strings.copyAll, action: copyTranscript)
             Button(strings.openFolder, action: openFolder)
-            Button(strings.delete, role: .destructive, action: delete)
+            Button(role: .destructive, action: delete) { DeleteMenuLabel(title: strings.delete) }
         }
     }
 
@@ -270,11 +270,11 @@ private struct HistoryRow: View {
         }
     }
 
-    private func rowAction(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+    private func rowAction(_ symbol: String, help: String, color: Color = Theme.accent, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(color)
                 .frame(width: 16, height: 16)
                 .contentShape(Rectangle())
         }

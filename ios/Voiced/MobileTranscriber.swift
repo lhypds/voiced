@@ -138,6 +138,9 @@ final class MobileTranscriber: ObservableObject {
     private var activePairs: [LanguagePair] = []
     private var failedTranslations: Set<String> = []
     private var unspokenIDs: Set<String> = []
+    /// The lines recognized since the shown record was started or opened: only these are
+    /// translated, so opening a record from the history translates nothing.
+    private var conversationLineIDs: Set<String> = []
     private var aiForwarding: AnyCancellable?
     let macLink = PhoneInputSender()
     private var macLinkForwarding: AnyCancellable?
@@ -266,6 +269,7 @@ final class MobileTranscriber: ObservableObject {
         save()
         stopPlayback()
         current = TranscriptRecord(lines: [])
+        conversationLineIDs = []
         ai.reset()
         configureTranslation()
         liveText = ""
@@ -871,7 +875,9 @@ extension MobileTranscriber: LiveTranscriberDelegate {
         guard !previewActive else { return }
         let transcript = session.transcript.keepingTranslations(from: current.lines)
         guard current.lines != transcript else { return }
-        unspokenIDs.formUnion(Set(transcript.map(\.id)).subtracting(current.lines.map(\.id)))
+        let addedIDs = Set(transcript.map(\.id)).subtracting(current.lines.map(\.id))
+        unspokenIDs.formUnion(addedIDs)
+        conversationLineIDs.formUnion(addedIDs)
         current.lines = transcript
         save()
         translateVisibleLines()
@@ -974,9 +980,18 @@ extension MobileTranscriber {
         guard !locked else { return }
         stopPlayback()
         current = records.first(where: { $0.id == record.id }) ?? record
+        // Its lines keep the translations they already have; only what is said from now on is translated.
+        conversationLineIDs = []
         ai.reset(existingLines: current.lines)
         liveText = ""
         configureTranslation()
+    }
+
+    /// Treats `lines` as recognized in the conversation under way, so they are translated. For
+    /// the UI tests' fixture, whose record is opened rather than recorded.
+    func adoptIntoConversation(_ lines: [TranscriptLine]) {
+        conversationLineIDs.formUnion(lines.map(\.id))
+        translateVisibleLines()
     }
 
     func audioURLs(for record: TranscriptRecord) -> [URL] {
@@ -1093,7 +1108,7 @@ extension MobileTranscriber {
     private func translateVisibleLines() {
         guard translationEnabled, let translator, translationTask == nil else { return }
         guard let (line, pair) = current.lines.reversed().compactMap({ line in translationPair(for: line).map { (line, $0) } })
-            .first(where: { $0.0.needsTranslation(into: $0.1.target) && !failedTranslations.contains($0.0.id) }) else { return }
+            .first(where: { conversationLineIDs.contains($0.0.id) && $0.0.needsTranslation(into: $0.1.target) && !failedTranslations.contains($0.0.id) }) else { return }
         if !activePairs.contains(pair) { activePairs.append(pair); translator.setPairs(activePairs) }
         let generation = translationGeneration
         let recordID = current.id
