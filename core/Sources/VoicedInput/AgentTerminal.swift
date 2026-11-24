@@ -8,8 +8,10 @@ import Foundation
 /// the sentence out, prints its answer and exits. That way it never stops at the question whether
 /// to trust the work folder, which an interactive `claude` asks in every folder it has not seen.
 /// The first sentence opens a window in the work folder and starts a conversation; each later one
-/// continues it (`--continue`) in the same window, after the run before it has finished. A new
-/// window, and a new conversation, are started when the old window was closed or the folder changed.
+/// continues it (`--continue`), in the same window once the run before it has finished. Three
+/// seconds after the last run is over the window closes by itself, as ~/code/tm's run windows do;
+/// the next sentence then opens a new one and still continues the conversation. Changing the folder
+/// starts a new conversation.
 ///
 /// A run without anyone at the keyboard cannot ask for permission, so the permission mode decides
 /// what Claude may do: `acceptEdits` unless the service's `claudePermissionMode` default says
@@ -23,9 +25,15 @@ enum AgentTerminal {
     }
 
     private static var session: Session?
+    /// The folder of the conversation the last run belonged to: a sentence for the same folder
+    /// continues it, even in a new window.
+    private static var conversationFolder: String?
     /// Sentences waiting for the run before them to finish, oldest first.
     private static var queue: [String] = []
-    private static var draining: Task<Void, Never>?
+    /// Runs the queue in the window, then closes it once everything is over.
+    private static var worker: Task<Void, Never>?
+    /// How long the window stays after the last run before it closes.
+    private static let closeDelay: Duration = .seconds(3)
 
     private static let permissionModes = ["default", "acceptEdits", "auto", "plan", "dontAsk", "bypassPermissions"]
     static var permissionMode: String {
@@ -38,15 +46,16 @@ enum AgentTerminal {
     static func send(_ text: String, in folder: String) -> String? {
         if let session, session.folder == folder, windowExists(session.windowID) {
             queue.append(text)
-            drain(in: session.windowID)
+            startWorker()
             return nil
         }
 
-        // A new window starts a new conversation; anything queued for the old one is dropped.
+        // A new window; anything queued for an old one in another folder is dropped.
         queue = []
-        draining?.cancel()
-        draining = nil
-        let shellCommand = "cd \(shellQuoted(folder)) && \(claudeCommand(text, continuing: false))"
+        worker?.cancel()
+        worker = nil
+        let continuing = conversationFolder == folder
+        let shellCommand = "cd \(shellQuoted(folder)) && \(claudeCommand(text, continuing: continuing))"
         let result = run("""
             tell application "Terminal"
                 activate
@@ -57,7 +66,9 @@ enum AgentTerminal {
         if let error = result.error { return error }
         guard let windowID = result.value?.int32Value, windowID != 0 else { return "Terminal did not open a window" }
         session = Session(windowID: Int(windowID), folder: folder)
-        log("Started Claude Code in \(folder) (Terminal window \(windowID), \(permissionMode))")
+        conversationFolder = folder
+        log("\(continuing ? "Continued" : "Started") Claude Code in \(folder) (Terminal window \(windowID), \(permissionMode))")
+        startWorker()
         return nil
     }
 
@@ -65,31 +76,44 @@ enum AgentTerminal {
         "claude -p\(continuing ? " --continue" : "") --permission-mode \(permissionMode) \(shellQuoted(text))"
     }
 
-    /// Runs the queued sentences in the window one after another, each once the run before it has
-    /// finished, continuing the window's conversation.
-    private static func drain(in windowID: Int) {
-        guard draining == nil else { return }
-        draining = Task {
-            defer { draining = nil }
-            while !queue.isEmpty {
-                while isBusy(windowID) {
-                    try? await Task.sleep(for: .milliseconds(500))
-                    if Task.isCancelled || !windowExists(windowID) { queue = []; return }
-                }
-                let text = queue.removeFirst()
-                if let error = run("""
-                    tell application "Terminal"
-                        do script \(appleScriptQuoted(claudeCommand(text, continuing: true))) in selected tab of window id \(windowID)
-                        set index of window id \(windowID) to 1
-                        activate
-                    end tell
-                    """).error {
-                    log("Could not send to Claude Code: \(error)")
+    /// Watches the session's window: runs each queued sentence once the run before it has finished,
+    /// continuing the conversation, and closes the window `closeDelay` after the last run is over
+    /// unless another sentence came in meanwhile.
+    private static func startWorker() {
+        guard worker == nil else { return }
+        worker = Task {
+            defer { worker = nil }
+            while !Task.isCancelled {
+                // Terminal reports the tab busy only once a command has started.
+                try? await Task.sleep(for: .milliseconds(500))
+                guard let current = session, windowExists(current.windowID) else {
+                    session = nil
                     queue = []
                     return
                 }
-                // Terminal reports the tab busy only once the command has started.
-                try? await Task.sleep(for: .milliseconds(500))
+                if isBusy(current.windowID) { continue }
+                if !queue.isEmpty {
+                    let text = queue.removeFirst()
+                    if let error = run("""
+                        tell application "Terminal"
+                            do script \(appleScriptQuoted(claudeCommand(text, continuing: true))) in selected tab of window id \(current.windowID)
+                            set index of window id \(current.windowID) to 1
+                            activate
+                        end tell
+                        """).error {
+                        log("Could not send to Claude Code: \(error)")
+                        queue = []
+                    }
+                    continue
+                }
+                // Everything is over: leave the answer up for a moment, then close the window.
+                log("Claude Code is done in window \(current.windowID); closing it in 3 s")
+                try? await Task.sleep(for: closeDelay)
+                guard !Task.isCancelled, queue.isEmpty, !isBusy(current.windowID) else { continue }
+                _ = run("tell application \"Terminal\" to if exists window id \(current.windowID) then close window id \(current.windowID)")
+                log("Closed Terminal window \(current.windowID)")
+                session = nil
+                return
             }
         }
     }
