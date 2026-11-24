@@ -83,7 +83,7 @@ struct ContentView: View {
     /// The notice shown above the microphone for a moment: after a copy, or after a hold while
     /// "Send to Mac" is off.
     @State private var toast: Toast?
-    private enum Toast { case copied, releaseToCancel }
+    private enum Toast { case copied, releaseToCancel, sentToMac, notSentToMac }
     @State private var copiedToastResetTask: Task<Void, Never>?
 
     private var lines: [TranscriptLine] {
@@ -316,6 +316,12 @@ struct ContentView: View {
                 Button("从此处播放", systemImage: "play") { model.play(model.current, from: line) }
                     .disabled(model.locked || model.current.audioPosition(of: line) == nil)
                 Button("编辑", systemImage: "pencil") { editingLine = line }
+                // Only with "Send to Mac" on in Settings; again for a line already sent.
+                if model.sendToMacEnabled {
+                    Button("发送到 Mac", systemImage: "laptopcomputer") {
+                        show(model.sendLineToMac(line) ? .sentToMac : .notSentToMac, for: .seconds(2))
+                    }
+                }
                 Button("删除", systemImage: "trash", role: .destructive) {
                     withAnimation(.easeOut(duration: 0.2)) { model.deleteLine(line) }
                 }
@@ -389,6 +395,8 @@ struct ContentView: View {
             switch toast {
             case .copied: Label(model.strings.copied, systemImage: "checkmark")
             case .releaseToCancel: Label("松开手指，取消识别", systemImage: "xmark")
+            case .sentToMac: Label("已发送到 Mac", systemImage: "laptopcomputer")
+            case .notSentToMac: Label("未连接 Mac，未发送", systemImage: "laptopcomputer.slash")
             }
         }
             .font(.callout.weight(.medium))

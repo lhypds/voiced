@@ -140,6 +140,29 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["这是一条测试转写。"].exists)
     }
 
+    func testSendToMacIsOnlyInTheMenuWithTheSwitchOn() {
+        app.launch()
+        let row = app.staticTexts["这是一条测试转写。"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["编辑"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["发送到 Mac"].exists)
+    }
+
+    /// Sends to whatever Mac the simulator finds: run it with a stand-in receiver, not the real service.
+    func testSendingALineToTheMacFromItsMenu() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["VOICED_MAC_RECEIVER"] == nil, "needs a stand-in Mac receiver")
+        app.launchArguments.append("--ui-send-to-mac")
+        app.launch()
+        let row = app.staticTexts["这是一条测试转写。"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        sleep(3) // time to find and connect to the Mac
+        row.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["发送到 Mac"].waitForExistence(timeout: 3))
+        app.buttons["发送到 Mac"].tap()
+        XCTAssertTrue(app.staticTexts["已发送到 Mac"].waitForExistence(timeout: 3), "the line was not sent")
+    }
+
     func testHoldingStopWhileRecordingKeepsRecording() {
         app.launchArguments += ["--ui-recording", "--ui-send-to-mac"]
         app.launch()

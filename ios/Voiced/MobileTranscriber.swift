@@ -715,6 +715,17 @@ final class MobileTranscriber: ObservableObject {
         ai.update(current.lines)
     }
 
+    /// Sends a line to the Mac from its card's menu, in the mode chosen in Settings, and keeps the
+    /// outcome with the record: the line turns blue, or says it was not sent. Returns whether it went out.
+    @discardableResult
+    func sendLineToMac(_ line: TranscriptLine) -> Bool {
+        guard sendToMacEnabled, current.lines.contains(where: { $0.id == line.id }) else { return false }
+        let delivered = macLink.send(line.text, mode: sendToMacMode)
+        current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: delivered]) { $1 }
+        save()
+        return delivered
+    }
+
     func deleteLine(_ line: TranscriptLine) {
         if playingLineID != nil { stopPlayback() }
         if var session {
