@@ -49,6 +49,8 @@ final class MobileTranscriber: ObservableObject {
     /// What the Mac does with what is sent: type it at the cursor, type it and press Return, or
     /// have Claude Code carry it out. Sent with every sentence, so the Mac needs no setting.
     @Published var sendToMacMode: PhoneInput.Mode { didSet { settings.phoneInputMode = sendToMacMode } }
+    /// The Mac sent to, by name; nil for the first one found.
+    @Published var sendToMacTarget: String? { didSet { settings.phoneInputMac = sendToMacTarget; macLink.preferredName = sendToMacTarget } }
     /// The Mac folder Claude Code runs in for Run; `~` is the home folder. Sent with every sentence.
     @Published var claudeFolder: String { didSet { settings.claudeFolder = claudeFolder } }
     /// Whether the microphone is being held, so speech now goes to the Mac.
@@ -201,6 +203,7 @@ final class MobileTranscriber: ObservableObject {
         summaryModel = settings.summaryModel
         sendToMacEnabled = settings.phoneInput
         sendToMacMode = settings.phoneInputMode
+        sendToMacTarget = settings.phoneInputMac
         claudeFolder = settings.claudeFolder
         allowLandscape = settings.allowLandscape
         engineID = settings.recognitionEngine.rawValue
@@ -1237,6 +1240,7 @@ extension MobileTranscriber {
         summaryModel = settings.summaryModel
         sendToMacEnabled = settings.phoneInput
         sendToMacMode = settings.phoneInputMode
+        sendToMacTarget = settings.phoneInputMac
         claudeFolder = settings.claudeFolder
         allowLandscape = settings.allowLandscape
         configureAI()
@@ -1246,6 +1250,7 @@ extension MobileTranscriber {
     /// Connects to the Mac while the switch is on. Turning it off also ends sending for a recording
     /// that is running.
     func configureMacLink() {
+        macLink.preferredName = sendToMacTarget
         if sendToMacEnabled {
             macLink.start()
         } else {

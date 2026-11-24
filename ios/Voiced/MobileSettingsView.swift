@@ -108,6 +108,23 @@ struct MobileSettingsView: View {
         Binding { model.sendToMacMode == .typeAndReturn } set: { model.sendToMacMode = $0 ? .typeAndReturn : .type }
     }
 
+    /// "Send to Mac" → Mac: automatic (nil), then the Macs found, then the chosen Mac if it is away.
+    private var macChoices: [String?] {
+        var names = model.macLink.availableNames
+        if let target = model.sendToMacTarget, !names.contains(target) { names.append(target) }
+        return [nil] + names
+    }
+
+    /// A Mac choice, with what is connected: the Mac automatic found, or whether a chosen one is away.
+    private func macChoiceLabel(_ name: String?) -> Text {
+        let separator = Text(verbatim: " · ")
+        guard let name else {
+            guard model.sendToMacTarget == nil else { return Text("自动") }
+            return Text("自动") + separator + (model.macLink.connectedName.map { Text(verbatim: $0) } ?? Text("正在查找…"))
+        }
+        return model.macLink.availableNames.contains(name) ? Text(verbatim: name) : Text(verbatim: name) + separator + Text("未找到")
+    }
+
     private static let apiKeyLines = 4
     /// The key's font: monospaced at the caption size the reader has chosen, small enough that
     /// a whole key fits in the box's four lines on a phone.
@@ -225,12 +242,11 @@ struct MobileSettingsView: View {
             Section {
                 Toggle("发送到 Mac", isOn: $model.sendToMacEnabled)
                 if model.sendToMacEnabled {
-                    HStack {
-                        Text("Mac")
-                        Spacer()
-                        if let name = model.macLink.connectedName { Text(name).foregroundStyle(.secondary) }
-                        else { Text("正在查找…").foregroundStyle(.secondary) }
-                    }
+                    // Automatic (the first Mac found) or one Mac by name; a chosen Mac that is away
+                    // stays listed, marked not found, and nothing is sent until it is back.
+                    ChoicePicker("Mac", selection: $model.sendToMacTarget, options: macChoices) { name in
+                        macChoiceLabel(name)
+                    }.accessibilityIdentifier("send-to-mac-target")
                     // Two choices, Type and Run; Return is a switch under Type rather than a third mode.
                     ChoicePicker("方式", selection: sendsToClaude, options: [false, true]) { run in
                         run ? Text("执行") : Text("输入")

@@ -33,6 +33,7 @@ public struct AppSettings {
         case summaryModel
         case phoneInput
         case phoneInputMode
+        case phoneInputMac
         case claudeFolder
         case allowLandscape
         case compiledModels
@@ -219,6 +220,16 @@ public struct AppSettings {
     public var phoneInputMode: PhoneInput.Mode {
         get { rawValue(.phoneInputMode) ?? .type }
         nonmutating set { set(newValue.rawValue, for: .phoneInputMode) }
+    }
+
+    /// The Mac what is sent goes to, by the name it advertises on the network; nil, the default,
+    /// for the first Mac found.
+    public var phoneInputMac: String? {
+        get { string(.phoneInputMac) }
+        nonmutating set {
+            let trimmed = newValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            set(trimmed.isEmpty ? nil : trimmed, for: .phoneInputMac)
+        }
     }
 
     /// The Mac folder Claude Code runs in when what is sent is run ("Send to Mac" → Run). Sent

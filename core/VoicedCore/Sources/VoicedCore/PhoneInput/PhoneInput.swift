@@ -88,18 +88,35 @@ public enum PhoneInput {
 }
 
 /// The phone's side: finds a Mac running Voiced on the local network, keeps a connection to it
-/// and sends it sentences. Connects to the first Mac found, by name, and looks again whenever the
-/// connection ends. A sentence sent while no Mac is connected is dropped rather than typed late.
+/// and sends it sentences. Connects to the Mac chosen by name, or with none chosen to the first
+/// found, by name, and looks again whenever the connection ends. A sentence sent while no Mac is
+/// connected is dropped rather than typed late.
 @MainActor
 public final class PhoneInputSender: ObservableObject {
     /// The name of the Mac sentences go to; nil while none is connected.
     @Published public private(set) var connectedName: String?
+    /// The names of the Macs found on the network, sorted.
+    @Published public private(set) var availableNames: [String] = []
     /// Whether the sender is looking for, or connected to, a Mac.
     @Published public private(set) var isActive = false
+    /// The Mac to connect to, by its Bonjour name; nil for the first found. While the chosen Mac
+    /// is not on the network nothing is connected, rather than sending to another Mac.
+    public var preferredName: String? {
+        didSet {
+            guard preferredName != oldValue else { return }
+            if let connection, let preferredName, connectionName != preferredName {
+                connection.cancel()
+                dropConnection()
+            }
+            connectIfIdle()
+        }
+    }
 
     private let queue = DispatchQueue(label: "Voiced.PhoneInputSender")
     private var browser: NWBrowser?
     private var connection: NWConnection?
+    /// The name of the Mac `connection` goes to, from before it is ready.
+    private var connectionName: String?
     private var results: [NWBrowser.Result] = []
     private var retry: Task<Void, Never>?
 
@@ -127,9 +144,9 @@ public final class PhoneInputSender: ObservableObject {
         browser?.cancel()
         browser = nil
         results = []
+        availableNames = []
         connection?.cancel()
-        connection = nil
-        connectedName = nil
+        dropConnection()
     }
 
     /// Sends one sentence, for the Mac to handle as `mode` says; `folder` is where Claude Code
@@ -146,6 +163,8 @@ public final class PhoneInputSender: ObservableObject {
     private func browsed(_ results: Set<NWBrowser.Result>, by browser: NWBrowser) {
         guard self.browser === browser else { return }
         self.results = results.sorted { Self.name(of: $0.endpoint) < Self.name(of: $1.endpoint) }
+        let names = self.results.map { Self.name(of: $0.endpoint) }
+        if names != availableNames { availableNames = names }
         connectIfIdle()
     }
 
@@ -157,13 +176,16 @@ public final class PhoneInputSender: ObservableObject {
     }
 
     private func connectIfIdle() {
-        guard connection == nil, let result = results.first else { return }
+        guard isActive, connection == nil else { return }
+        let result = preferredName.map { name in results.first { Self.name(of: $0.endpoint) == name } } ?? results.first
+        guard let result else { return }
         let connection = NWConnection(to: result.endpoint, using: .tcp)
         let name = Self.name(of: result.endpoint)
         connection.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in self?.update(connection, name: name, state: state) }
         }
         self.connection = connection
+        connectionName = name
         connection.start(queue: queue)
         watchForClose(connection)
     }
@@ -186,12 +208,17 @@ public final class PhoneInputSender: ObservableObject {
             connectedName = name
         case .failed, .cancelled, .waiting:
             connection.cancel()
-            self.connection = nil
-            connectedName = nil
+            dropConnection()
             scheduleRetry { $0.connectIfIdle() }
         default:
             break
         }
+    }
+
+    private func dropConnection() {
+        connection = nil
+        connectionName = nil
+        connectedName = nil
     }
 
     private func scheduleRetry(_ action: @escaping @MainActor (PhoneInputSender) -> Void) {
