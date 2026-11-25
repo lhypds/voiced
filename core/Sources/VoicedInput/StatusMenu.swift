@@ -129,7 +129,6 @@ private struct StatusCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 row("Advertised as", Host.current().localizedName ?? "This Mac")
                 row("iPhones connected", "\(status.connections)")
-                row("Sentences typed", sentencesText)
                 row("Running since", status.startedAt.formatted(date: .omitted, time: .shortened))
                 HStack {
                     Text("Accessibility").foregroundStyle(.secondary)
@@ -143,13 +142,6 @@ private struct StatusCard: View {
                 }
             }
             .font(.callout)
-
-            Divider()
-
-            Text("The iPhone chooses what happens to each sentence: typed at the cursor, typed and followed by Return, or run by Claude Code, which opens in Terminal in the folder set on the iPhone.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             if let error = status.deliveryError {
                 Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
@@ -185,11 +177,6 @@ private struct StatusCard: View {
         case .listening: .green
         case .failed: .red
         }
-    }
-
-    private var sentencesText: String {
-        guard let last = status.lastSentenceAt else { return "\(status.sentencesTyped)" }
-        return "\(status.sentencesTyped) · last \(last.formatted(date: .omitted, time: .shortened))"
     }
 
     private func openAccessibilitySettings() {
