@@ -227,9 +227,17 @@ struct ClaudeRunSheet: View {
                 // Centred, not baseline-aligned: a ProgressView has no text baseline, so it would sit
                 // with its bottom edge on the name's baseline, higher than the name.
                 HStack(alignment: .center, spacing: 6) {
-                    if item.done != true { ProgressView().controlSize(.mini) }
-                    else if item.isError == true { Image(systemName: "xmark").foregroundStyle(.red) }
-                    else { Image(systemName: "checkmark").foregroundStyle(.green) }
+                    // One fixed square for all three states, so the mark that replaces the spinner is
+                    // the spinner's size rather than the larger size of a symbol set in body text.
+                    Group {
+                        if item.done != true { ProgressView().controlSize(.mini) }
+                        else {
+                            Image(systemName: item.isError == true ? "xmark" : "checkmark")
+                                .resizable().scaledToFit().fontWeight(.bold).frame(width: 10, height: 10)
+                                .foregroundStyle(item.isError == true ? .red : .green)
+                        }
+                    }
+                    .frame(width: 14, height: 14)
                     Text(verbatim: item.name ?? "tool").font(.subheadline.bold())
                 }
                 if let summary = item.summary, !summary.isEmpty {

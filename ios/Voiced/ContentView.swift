@@ -251,8 +251,9 @@ struct ContentView: View {
             // An overlay rather than safeAreaInset, which would lift the controls above the keyboard.
             .background(MobileTheme.background.ignoresSafeArea())
             .overlay {
+                // Not while a command is being typed: the TYPE card is already there.
                 if !model.recording && !model.previewActive && !model.stopping && !model.busy && !model.modelLoading
-                    && query.isEmpty && model.current.lines.isEmpty && model.liveText.isEmpty && model.hints.isEmpty
+                    && !typingCommand && query.isEmpty && model.current.lines.isEmpty && model.liveText.isEmpty && model.hints.isEmpty
                     && model.hintError == nil && model.translationError == nil {
                     emptyState.padding(.horizontal, 20).allowsHitTesting(false)
                 }
@@ -491,7 +492,8 @@ struct ContentView: View {
         .background(cardFill(line: nil, mac: true), in: RoundedRectangle(cornerRadius: 18))
         .contentShape(RoundedRectangle(cornerRadius: 18))
         .onTapGesture { commandFocused = true }
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        // Fades in where it stands, rather than dropping down from above.
+        .transition(.opacity)
     }
 
     private func startTypingCommand() {
@@ -792,15 +794,15 @@ struct ContentView: View {
                         // recording. A command waits: the Mac, as a tap sends it there (a hold
                         // records it again).
                         let send = !micHolding && sendsCommand
-                        // The laptop's screen is a second layer the system draws faded, grey under
-                        // ink; painted white instead, unless the pressed ring is filled with ink.
-                        // The colours repeat RingButtonStyle's, which this has to set over.
+                        // Monochrome, so the laptop's screen stays an outline with the ring showing
+                        // through, rather than a second, filled layer. The colours repeat
+                        // RingButtonStyle's, which this has to set over.
                         let filled = micTouching && !micOutside && !micLoadOnly
                         Image(systemName: send ? "laptopcomputer"
                               : !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
                             .font(.system(size: send ? 30 : 33, weight: .regular))
-                            .symbolRenderingMode(send && !filled ? .palette : nil)
-                            .foregroundStyle(filled ? Color.white : MobileTheme.accent, Color.white)
+                            .symbolRenderingMode(.monochrome)
+                            .foregroundStyle(filled ? Color.white : MobileTheme.accent)
                             .contentTransition(.symbolEffect(.replace))
                     }
                 }
