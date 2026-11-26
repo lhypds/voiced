@@ -54,6 +54,30 @@ final class RecognitionEngineTests: XCTestCase {
         XCTAssertEqual(Set(RecognitionLanguage.choices.map(\.id)).count, RecognitionLanguage.choices.count)
     }
 
+    func testAppleSpeechNeedsAFixedLanguageAndHasNoRussian() {
+        let choices = RecognitionLanguage.choices(for: .apple)
+        XCTAssertFalse(choices.contains(.automatic))
+        XCTAssertFalse(choices.contains { $0.code == "ru" })
+        XCTAssertEqual(choices.map(\.id), ["zh", "zh-Hant", "en", "ja", "ko", "es", "fr", "de", "pt"])
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .apple, preferredLanguages: ["ja-JP", "zh-Hans-CN"]).id, "ja")
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .apple, preferredLanguages: ["zh-Hant-TW"]).id, "zh-Hant")
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .apple, preferredLanguages: ["zh-HK"]).id, "zh-Hant")
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .apple, preferredLanguages: ["ru-RU", "en-GB"]).id, "en", "Russian is skipped")
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .apple, preferredLanguages: ["ru-RU"]).id, "zh", "nothing supported: the first choice")
+        XCTAssertEqual(RecognitionLanguage.defaultChoice(for: .belleTurbo, preferredLanguages: ["en-US"]).id, "zh")
+        XCTAssertFalse(RecognitionEngine.apple.isWhisper)
+        XCTAssertNil(WhisperModelStore.cachedModelFolder(for: .apple), "nothing to download from Hugging Face")
+    }
+
+    @available(macOS 26, *)
+    func testAppleSpeechTextLosesTheSpaceBeforePunctuation() {
+        XCTAssertEqual(AppleSpeechDecoder.tidiedText("今天天气很好 ，我们去公园散步吧 ，然后一起吃午饭。"), "今天天气很好，我们去公园散步吧，然后一起吃午饭。")
+        XCTAssertEqual(AppleSpeechDecoder.tidiedText(" Hello , world . "), "Hello, world.")
+        XCTAssertEqual(AppleSpeechDecoder.tidiedWord(" ，"), "，")
+        XCTAssertEqual(AppleSpeechDecoder.tidiedWord(" world"), " world", "a word keeps the space that separates it")
+        XCTAssertEqual(AppleSpeechDecoder.tidiedWord(" "), "")
+    }
+
     func testDisplayNamesAreDistinct() {
         XCTAssertEqual(Set(RecognitionEngine.allCases.map(\.displayName)).count, RecognitionEngine.allCases.count)
     }

@@ -276,7 +276,7 @@ struct MobileSettingsView: View {
     private var recognition: some View {
         Form {
             Section {
-                ChoicePicker("识别模型", selection: $model.engineID, options: RecognitionEngine.allCases.map(\.rawValue)) { id in
+                ChoicePicker("识别模型", selection: $model.engineID, options: RecognitionEngine.available.map(\.rawValue)) { id in
                     Text(RecognitionEngine(rawValue: id)?.displayName ?? id)
                 }.disabled(model.locked)
                 let languages = RecognitionLanguage.choices(for: model.engine)
@@ -287,9 +287,16 @@ struct MobileSettingsView: View {
                 if model.languageID == "auto" {
                     NavigationLink("自动检测语言范围") { detectionLanguages }.disabled(model.locked)
                 }
-                NavigationLink("识别提示词") { promptEditor }
+                NavigationLink { promptEditor } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("识别提示词")
+                        if model.engine == .apple {
+                            Text("Apple Speech 不支持").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             } header: { Text("本地语音识别") } footer: {
-                Text("建议优先使用 Turbo。首次选择模型时需联网下载，首次加载可能需要几分钟；完成后可离线识别。")
+                Text("建议优先使用 Apple Speech，无需加载，但识别时仅支持单一语言，不适合用于多语言交流和翻译。Whisper 模型首次选择时需联网下载，首次加载可能需要几分钟；完成后可离线识别。")
             }.listRowBackground(Color.white)
             Section {
                 Button {
@@ -336,7 +343,11 @@ struct MobileSettingsView: View {
                 // A fixed height keeps the row from resizing with the text; the editor scrolls instead.
                 TextEditor(text: $model.promptText).font(.footnote.monospaced()).frame(height: 320)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
-            } footer: { Text("每行一个人名、产品名或术语；# 开头的行被忽略。下一次识别或预览生效，最多使用前 223 个 token。") }
+            } footer: {
+                Text(model.engine == .apple
+                     ? "Apple Speech 不支持识别提示词，切换到 Whisper 模型后生效。每行一个人名、产品名或术语；# 开头的行被忽略。"
+                     : "每行一个人名、产品名或术语；# 开头的行被忽略。下一次识别或预览生效，最多使用前 223 个 token。")
+            }
                 .listRowBackground(Color.white)
         }.settingsSurface(title: "识别提示词").onDisappear { model.savePrompt() }
     }

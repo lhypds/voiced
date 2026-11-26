@@ -23,7 +23,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
     nonisolated init() {}
 
     func start(
-        whisperKit: WhisperKit,
+        decoder: any SpeechDecoding,
         options: DecodingOptions,
         inputDeviceID: DeviceID,
         silenceThreshold: Float,
@@ -41,7 +41,7 @@ final class RecognitionPreview: ObservableObject, LiveTranscriberDelegate {
         lastFinishedDecode = 0
 
         let transcriber = LiveTranscriber(
-            whisperKit: whisperKit,
+            decoder: decoder,
             options: options,
             inputDeviceID: inputDeviceID,
             silenceThreshold: silenceThreshold,

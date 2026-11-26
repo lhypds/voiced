@@ -22,7 +22,7 @@ final class AppSettingsTests: XCTestCase {
 
         XCTAssertEqual(settings.appLanguage, AppLanguage.systemDefault)
         XCTAssertEqual(settings.recognitionLanguage, .automatic)
-        XCTAssertEqual(settings.recognitionEngine, .turbo)
+        XCTAssertEqual(settings.recognitionEngine, .platformDefault)
         XCTAssertEqual(settings.timestampMode, .current)
         XCTAssertTrue(settings.showTimestampDate)
         XCTAssertFalse(settings.noiseReduction)
@@ -123,7 +123,7 @@ final class AppSettingsTests: XCTestCase {
 
         let reread = AppSettings(fileURL: fileURL)
         XCTAssertTrue(reread.keepWindowOnTop)
-        XCTAssertEqual(reread.recognitionEngine, .turbo)
+        XCTAssertEqual(reread.recognitionEngine, .platformDefault)
         XCTAssertFalse(reread.aiHints)
         XCTAssertFalse(reread.aiHintWebSearch)
         XCTAssertNil(reread.aiHintLanguage)
@@ -225,7 +225,7 @@ final class AppSettingsTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data("not json".utf8).write(to: fileURL)
 
-        XCTAssertEqual(AppSettings(fileURL: fileURL).recognitionEngine, .turbo)
+        XCTAssertEqual(AppSettings(fileURL: fileURL).recognitionEngine, .platformDefault)
     }
 
     func testLegacyDefaultsAreImportedOnce() {

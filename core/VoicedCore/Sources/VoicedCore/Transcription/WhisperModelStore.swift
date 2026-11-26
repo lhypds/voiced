@@ -31,7 +31,7 @@ public enum WhisperModelStore {
     /// The local folder of a fully downloaded model, or nil if it still has to be downloaded.
     public static func cachedModelFolder(for engine: RecognitionEngine) -> URL? {
         let fileManager = FileManager.default
-        guard let cacheDirectory else { return nil }
+        guard engine.isWhisper, let cacheDirectory else { return nil }
         let folder = cacheDirectory
             .appending(path: engine.repo)
             .appending(path: engine.modelFolderName)

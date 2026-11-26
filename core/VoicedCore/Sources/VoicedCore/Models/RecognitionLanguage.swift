@@ -52,20 +52,39 @@ public struct RecognitionLanguage: Identifiable, Hashable, Sendable {
     }
 
     /// The choices the picker offers with a model: only the fine-tuned language for a
-    /// specialized one, which recognizes nothing else well; otherwise every language, plus
-    /// automatic detection when the model can do it.
+    /// specialized one, which recognizes nothing else well; otherwise every language the model
+    /// supports, plus automatic detection when the model can do it.
     public static func choices(for engine: RecognitionEngine) -> [RecognitionLanguage] {
         if let code = engine.specializedLanguage {
             return choices.filter { $0.code == code }
         }
-        return choices.filter { engine.supportsAutomaticDetection || !$0.isAutomatic }
+        return choices.filter { language in
+            (engine.supportsAutomaticDetection || !language.isAutomatic)
+                && (engine.supportedLanguageIDs?.contains(language.id) ?? true)
+        }
     }
 
     /// The language a model starts with: automatic detection when it offers that, otherwise the
-    /// first language it supports.
-    public static func defaultChoice(for engine: RecognitionEngine) -> RecognitionLanguage {
+    /// first of the user's preferred languages it supports, otherwise the first it supports.
+    public static func defaultChoice(for engine: RecognitionEngine, preferredLanguages: [String] = Locale.preferredLanguages) -> RecognitionLanguage {
         let supported = choices(for: engine)
-        return supported.first { $0.isAutomatic } ?? supported.first ?? .automatic
+        if let automatic = supported.first(where: \.isAutomatic) { return automatic }
+        for identifier in preferredLanguages {
+            if let id = choiceID(forLocale: identifier), let match = supported.first(where: { $0.id == id }) {
+                return match
+            }
+        }
+        return supported.first ?? .automatic
+    }
+
+    /// The choice id a locale identifier such as "zh-Hant-TW" or "en-GB" falls under, if any.
+    static func choiceID(forLocale identifier: String) -> String? {
+        let language = Locale(identifier: identifier).language
+        guard let code = language.languageCode?.identifier else { return nil }
+        guard code == "zh" else { return code }
+        if let script = language.script?.identifier { return script == "Hant" ? "zh-Hant" : "zh" }
+        let region = language.region?.identifier
+        return region == "TW" || region == "HK" || region == "MO" ? "zh-Hant" : "zh"
     }
 
     /// Looks up a persisted choice by id, falling back to automatic detection.

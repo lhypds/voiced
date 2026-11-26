@@ -142,14 +142,7 @@ let started = Date()
 @Sendable func stamp() -> String { String(format: "%6.2fs", Date().timeIntervalSince(started)) }
 
 let engineIndex = CommandLine.arguments.firstIndex(of: "--engine")
-let engine = engineIndex.flatMap { RecognitionEngine(rawValue: CommandLine.arguments[$0 + 1]) } ?? .turbo
-print("loading \(engine.rawValue) model...")
-guard let folder = WhisperModelStore.cachedModelFolder(for: engine) else { fatalError("\(engine.rawValue) model not cached") }
-let loadStarted = Date()
-let whisperKit = try await WhisperModelStore.load(modelFolder: folder) { component in
-    print(String(format: "loading component %d: %@", component.rawValue + 1, String(describing: component)))
-}
-print(String(format: "model loaded in %.1fs", Date().timeIntervalSince(loadStarted)))
+let engine = engineIndex.flatMap { RecognitionEngine(rawValue: CommandLine.arguments[$0 + 1]) } ?? .platformDefault
 let noiseIndex = CommandLine.arguments.firstIndex(of: "--noise")
 let noise = noiseIndex.flatMap { Float(CommandLine.arguments[$0 + 1]) } ?? 0
 let audio = try FileAudioSource(file: file, noise: noise, denoise: CommandLine.arguments.contains("--denoise"))
@@ -159,17 +152,38 @@ let langIndex = CommandLine.arguments.firstIndex(of: "--lang")
 // "--lang auto" detects the language, among "--languages zh,en" when given.
 let langArgument = langIndex.map { CommandLine.arguments[$0 + 1] } ?? "en"
 let language: String? = langArgument == "auto" ? nil : langArgument
+let recognitionLanguage = RecognitionLanguage.choices.first { $0.id == langArgument }
+    ?? RecognitionLanguage(code: language, nativeName: langArgument)
+print("loading \(engine.rawValue) model...")
+let loadStarted = Date()
+let decoder: any SpeechDecoding
+if engine.isWhisper {
+    guard let folder = WhisperModelStore.cachedModelFolder(for: engine) else { fatalError("\(engine.rawValue) model not cached") }
+    decoder = try await WhisperModelStore.load(modelFolder: folder) { component in
+        print(String(format: "loading component %d: %@", component.rawValue + 1, String(describing: component)))
+    }
+} else if #available(macOS 26, *) {
+    decoder = try await AppleSpeechDecoder.prepare(for: recognitionLanguage) { fraction in
+        print(String(format: "installing language assets: %.0f%%", fraction * 100))
+    }
+} else {
+    fatalError("Apple speech recognition needs macOS 26")
+}
+print(String(format: "model loaded in %.1fs", Date().timeIntervalSince(loadStarted)))
 let languagesIndex = CommandLine.arguments.firstIndex(of: "--languages")
-(whisperKit.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages =
+((decoder as? WhisperKit)?.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages =
     languagesIndex.map { Set(CommandLine.arguments[$0 + 1].split(separator: ",").map(String.init)) }
 let floorIndex = CommandLine.arguments.firstIndex(of: "--floor")
 let speechEnergyFloor = floorIndex.flatMap { Float(CommandLine.arguments[$0 + 1]) } ?? LiveTranscriber.defaultSpeechEnergyFloor
 let promptIndex = CommandLine.arguments.firstIndex(of: "--prompt-file")
 let promptText = promptIndex.flatMap { RecognitionPrompt.load(from: URL(fileURLWithPath: CommandLine.arguments[$0 + 1])) }
-let promptTokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: promptText, tokenizer: $0) }
+let promptTokens = decoder.tokenizer.flatMap { RecognitionPrompt.tokens(for: promptText, tokenizer: $0) }
 if let promptText { print("prompt (\(promptTokens?.count ?? 0) tokens): \(promptText)") }
-let options = TranscriptionLogic.decodingOptions(for: RecognitionLanguage(code: language, nativeName: langArgument), promptTokens: promptTokens)
-let assembler = SentenceAssembler(languageCode: language)
+if #available(macOS 26, *), let apple = decoder as? AppleSpeechDecoder, let promptIndex {
+    apple.contextualStrings = RecognitionPrompt.terms(from: URL(fileURLWithPath: CommandLine.arguments[promptIndex + 1]))
+}
+let options = TranscriptionLogic.decodingOptions(for: recognitionLanguage, promptTokens: promptTokens)
+let assembler = SentenceAssembler(language: recognitionLanguage)
 var session = RecordingSession(startedAt: started, baseLines: [])
 var liveText = ""
 var transcriptHistory: [[String]] = []
@@ -233,7 +247,7 @@ let captured = CapturedAudio()
 let driver = Driver()
 let voiceDetector = try await makeVoiceDetector()
 if voiceDetector != nil { print("voice detector on") }
-let transcriber = LiveTranscriber(whisperKit: whisperKit, options: options, inputDeviceID: 0, silenceThreshold: LiveTranscriber.defaultSilenceThreshold, silenceDelay: LiveTranscriber.defaultSilenceDelay, speechEnergyFloor: speechEnergyFloor, voiceDetector: voiceDetector, delegate: driver, audioProcessor: audio, audioSink: { captured.append($0) }, log: { message in
+let transcriber = LiveTranscriber(decoder: decoder, options: options, inputDeviceID: 0, silenceThreshold: LiveTranscriber.defaultSilenceThreshold, silenceDelay: LiveTranscriber.defaultSilenceDelay, speechEnergyFloor: speechEnergyFloor, voiceDetector: voiceDetector, delegate: driver, audioProcessor: audio, audioSink: { captured.append($0) }, log: { message in
     print("\(stamp()) LT fed=\(String(format: "%.1f", audio.fedSeconds))s \(message)")
 })
 

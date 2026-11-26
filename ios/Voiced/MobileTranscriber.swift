@@ -120,7 +120,7 @@ final class MobileTranscriber: ObservableObject {
     /// recording that started it is stopped, so the banner shows its progress until it is ready.
     @Published var modelLoading = false
     /// The load in progress, which a recording started meanwhile waits for instead of starting another.
-    private var modelLoad: (engine: RecognitionEngine, task: Task<WhisperKit, Error>)?
+    private var modelLoad: (key: String, task: Task<any SpeechDecoding, Error>)?
     @Published var loadingStartedAt: Date?
     /// How long this load should take, from the last one of the same model; nil when unknown,
     /// such as when the model has to be compiled first. The banner then counts down instead of up.
@@ -160,8 +160,9 @@ final class MobileTranscriber: ObservableObject {
     private var runSave: Task<Void, Never>?
     private var calibrationTask: Task<Void, Never>?
     private let historyStore: TranscriptHistoryStore
-    private var whisper: WhisperKit?
-    private var loadedEngine: RecognitionEngine?
+    /// The loaded WhisperKit model or Apple recognizer, and the `modelKey` it was loaded for.
+    private var decoder: (any SpeechDecoding)?
+    private var loadedModel: String?
     private var transcriber: LiveTranscriber?
     private var session: RecordingSession?
     private var sessionLanguage = RecognitionLanguage.automatic
@@ -172,7 +173,7 @@ final class MobileTranscriber: ObservableObject {
     private var task: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
 
-    var engine: RecognitionEngine { RecognitionEngine(rawValue: engineID) ?? .platformDefault }
+    var engine: RecognitionEngine { RecognitionEngine(rawValue: engineID).flatMap { $0.isAvailable ? $0 : nil } ?? .platformDefault }
     var locked: Bool { busy || recording || stopping || previewActive || calibrating || downloadingVoiceFilter }
     var translationAvailable: Bool { translator != nil }
     var canSummarize: Bool { summaryEnabled && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -463,9 +464,9 @@ final class MobileTranscriber: ObservableObject {
 
     /// The clip's text as Whisper hears it, with nothing filtered out.
     private func recognize(_ clip: [Float]) async -> String {
-        guard !clip.isEmpty, let whisper, let decodingOptions else { return "" }
+        guard !clip.isEmpty, let decoder, let decodingOptions else { return "" }
         do {
-            let results = try await whisper.transcribe(audioArray: clip, decodeOptions: decodingOptions)
+            let results = try await decoder.decode(clip, options: decodingOptions, callback: nil)
             let text = results.flatMap(\.segments).map(\.text).joined()
             return LiveTranscriber.droppingPartialCharacters(text).trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
@@ -558,10 +559,9 @@ final class MobileTranscriber: ObservableObject {
                     throw NSError(domain: "Voiced", code: 3, userInfo: [NSLocalizedDescriptionKey: "请在系统设置 → Voiced 中允许麦克风访问。"])
                 }
                 let selected = engine
-                let chosen = RecognitionLanguage.choice(id: languageID)
-                let language = RecognitionLanguage.choices(for: selected).contains(chosen) ? chosen : RecognitionLanguage.defaultChoice(for: selected)
+                let language = recognitionLanguage(for: selected)
                 // Stopping only stops waiting here: the model goes on loading, ready for next time.
-                let whisper = try await loadModel(selected)
+                let decoder = try await loadModel(selected)
                 try checkPreparation(preparationID)
                 let detector: SileroVoiceDetector?
                 if voiceFilter {
@@ -595,8 +595,11 @@ final class MobileTranscriber: ObservableObject {
                 sessionInfo = preview ? nil : TranscriptRecord.Session(startedAt: startedAt, inputDevice: "iOS microphone", language: language.code,
                                                        engine: selected.rawValue, audioFile: recorder?.fileName, audioOffset: recorder?.startOffset)
                 let prompt = RecognitionPrompt.load(from: dataRoot.appendingPathComponent("prompt.txt"))
-                let tokens = whisper.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
-                (whisper.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages = language.isAutomatic && !detectionLanguages.isEmpty ? Set(detectionLanguages) : nil
+                let tokens = decoder.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
+                if #available(iOS 26, *), let apple = decoder as? AppleSpeechDecoder {
+                    apple.contextualStrings = RecognitionPrompt.terms(from: dataRoot.appendingPathComponent("prompt.txt"))
+                }
+                ((decoder as? WhisperKit)?.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages = language.isAutomatic && !detectionLanguages.isEmpty ? Set(detectionLanguages) : nil
                 #if DEBUG
                 let capture = UITestFixtures.makeCapture()
                 #else
@@ -609,7 +612,7 @@ final class MobileTranscriber: ObservableObject {
                 decodingOptions = options
                 let tap = HoldAudioTap()
                 holdTap = tap
-                let transcriber = LiveTranscriber(whisperKit: whisper, options: options,
+                let transcriber = LiveTranscriber(decoder: decoder, options: options,
                     inputDeviceID: selectedInputID, silenceThreshold: LiveTranscriber.defaultSilenceThreshold, silenceDelay: LiveTranscriber.defaultSilenceDelay, speechEnergyFloor: settings.speechEnergyFloor,
                     voiceDetector: detector, delegate: self, audioProcessor: source,
                     levelHandler: { [weak self] value in Task { @MainActor in self?.level = value } },
@@ -641,7 +644,20 @@ final class MobileTranscriber: ObservableObject {
     }
 
     /// Whether the selected engine's model is loaded, so a press on the microphone can start at once.
-    var modelReady: Bool { whisper != nil && loadedEngine == engine }
+    var modelReady: Bool { decoder != nil && loadedModel == modelKey(for: engine) }
+
+    /// The language a recording with `engine` runs in: the chosen one when the engine has it,
+    /// otherwise the engine's default.
+    private func recognitionLanguage(for engine: RecognitionEngine) -> RecognitionLanguage {
+        let chosen = RecognitionLanguage.choice(id: languageID)
+        return RecognitionLanguage.choices(for: engine).contains(chosen) ? chosen : RecognitionLanguage.defaultChoice(for: engine)
+    }
+
+    /// What a loaded decoder is good for: a Whisper model for any language, Apple's recognizer
+    /// for the one language it was readied for.
+    private func modelKey(for engine: RecognitionEngine) -> String {
+        engine.isWhisper ? engine.rawValue : "\(engine.rawValue):\(recognitionLanguage(for: engine).id)"
+    }
 
     /// Loads the selected engine's model without starting anything: a press on the microphone
     /// before it is loaded only does this, and once loaded the microphone is back to idle, waiting
@@ -660,8 +676,8 @@ final class MobileTranscriber: ObservableObject {
     /// The loaded model for `engine`, downloading and loading it first if needed. The work runs in
     /// a task of its own: cancelling the recording that waits for it does not cancel it, and a
     /// recording started while it runs waits for the same load.
-    private func loadModel(_ engine: RecognitionEngine) async throws -> WhisperKit {
-        if let whisper, loadedEngine == engine { return whisper }
+    private func loadModel(_ engine: RecognitionEngine) async throws -> any SpeechDecoding {
+        if let decoder, loadedModel == modelKey(for: engine) { return decoder }
         return try await startModelLoad(engine).value
     }
 
@@ -669,12 +685,14 @@ final class MobileTranscriber: ObservableObject {
     /// waiting for it. Called the moment the microphone is pressed, so even a stop straight away,
     /// while the microphone permission is still being asked for, leaves the model loading.
     @discardableResult
-    private func startModelLoad(_ engine: RecognitionEngine) -> Task<WhisperKit, Error> {
-        if let whisper, loadedEngine == engine { return Task { whisper } }
-        if let modelLoad, modelLoad.engine == engine { return modelLoad.task }
+    private func startModelLoad(_ engine: RecognitionEngine) -> Task<any SpeechDecoding, Error> {
+        let key = modelKey(for: engine)
+        let language = recognitionLanguage(for: engine)
+        if let decoder, loadedModel == key { return Task { decoder } }
+        if let modelLoad, modelLoad.key == key { return modelLoad.task }
         // Set now, not when the task first runs, so a stop in between already sees the load.
         modelLoading = true
-        let task = Task { @MainActor [weak self] () throws -> WhisperKit in
+        let task = Task { @MainActor [weak self] () throws -> any SpeechDecoding in
             guard let self else { throw CancellationError() }
             self.modelLoading = true
             defer {
@@ -686,8 +704,25 @@ final class MobileTranscriber: ObservableObject {
                 // Loaded with nothing waiting for it: the banner goes, and the status with it.
                 if !self.busy && !self.recording && !self.stopping { self.status = self.strings.ready }
             }
-            self.whisper = nil
-            self.loadedEngine = nil
+            self.decoder = nil
+            self.loadedModel = nil
+            if !engine.isWhisper {
+                // Apple's recognizer: the system installs the language's assets when missing,
+                // and there is nothing to compile.
+                guard #available(iOS 26, *) else { throw AppleSpeechUnavailable() }
+                self.loadingStartedAt = Date()
+                self.status = self.strings.loadingModel
+                let loaded = try await AppleSpeechDecoder.prepare(for: language) { [weak self] fraction in
+                    Task { @MainActor in
+                        guard let self, self.modelLoading else { return }
+                        self.downloadProgress = fraction
+                        self.status = self.strings.downloadingModel(fraction)
+                    }
+                }
+                self.decoder = loaded
+                self.loadedModel = key
+                return loaded
+            }
             let folder: URL
             if let cached = WhisperModelStore.cachedModelFolder(for: engine) { folder = cached }
             else {
@@ -717,11 +752,11 @@ final class MobileTranscriber: ObservableObject {
             }
             self.settings.recordModelLoad(engine, seconds: Date().timeIntervalSince(loadStart), compiled: compiling)
             self.settings.markCompiled(engine)
-            self.whisper = loaded
-            self.loadedEngine = engine
+            self.decoder = loaded
+            self.loadedModel = key
             return loaded
         }
-        modelLoad = (engine, task)
+        modelLoad = (key, task)
         return task
     }
 
@@ -1482,4 +1517,8 @@ final class HoldAudioTap: @unchecked Sendable {
         samples.removeFirst(drop)
         samplesStart += drop
     }
+}
+
+private struct AppleSpeechUnavailable: LocalizedError {
+    var errorDescription: String? { "Apple speech recognition needs iOS 26 or later." }
 }

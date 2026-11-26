@@ -73,7 +73,12 @@ public struct AppSettings {
     }
 
     public var recognitionEngine: RecognitionEngine {
-        get { rawValue(.recognitionEngine) ?? .platformDefault }
+        get {
+            // An engine this system cannot run, such as Apple's recognizer saved before a
+            // downgrade, falls back to the default.
+            let stored: RecognitionEngine? = rawValue(.recognitionEngine)
+            return stored.flatMap { $0.isAvailable ? $0 : nil } ?? .platformDefault
+        }
         nonmutating set { set(newValue.rawValue, for: .recognitionEngine) }
     }
 

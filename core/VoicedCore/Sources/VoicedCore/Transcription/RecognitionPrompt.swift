@@ -39,12 +39,23 @@ public enum RecognitionPrompt {
 
     /// Parses the file's contents. Visible for tests.
     public static func text(from contents: String) -> String? {
-        let terms = contents
+        let terms = terms(in: contents)
+        guard !terms.isEmpty else { return nil }
+        return terms.joined(separator: ", ")
+    }
+
+    /// The file's terms, one per non-comment line; empty when the file is missing or has none.
+    /// Apple's recognizer takes them as a list rather than as a prompt.
+    public static func terms(from url: URL) -> [String] {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return terms(in: contents)
+    }
+
+    static func terms(in contents: String) -> [String] {
+        contents
             .split(omittingEmptySubsequences: true, whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        guard !terms.isEmpty else { return nil }
-        return terms.joined(separator: ", ")
     }
 
     /// Creates the file with the template when it does not exist yet. Returns the file's URL.

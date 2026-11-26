@@ -5,7 +5,7 @@ import CoreAudio
 import Foundation
 @preconcurrency import WhisperKit
 
-/// Owns the WhisperKit model, the live audio stream and the transcript shown in the UI.
+/// Owns the recognition model, the live audio stream and the transcript shown in the UI.
 @MainActor
 final class TranscriptionController: ObservableObject {
     enum Failure: Equatable {
@@ -48,6 +48,10 @@ final class TranscriptionController: ObservableObject {
     @Published var selectedLanguage: RecognitionLanguage {
         didSet {
             settings.recognitionLanguage = selectedLanguage
+            // Apple's recognizer is readied for one language; the next start readies it anew.
+            if !selectedEngine.isWhisper, selectedLanguage != oldValue {
+                decoder = nil
+            }
             // The translator takes the pinned language as the source.
             configureTranslator()
         }
@@ -230,7 +234,8 @@ final class TranscriptionController: ObservableObject {
     private var warmupTask: Task<Void, Never>?
     private let noiseProfileURL: URL
     private let promptFileURL: URL
-    private var whisperKit: WhisperKit?
+    /// The loaded WhisperKit model or Apple recognizer; nil until recognition is first started.
+    private var decoder: (any SpeechDecoding)?
     /// Identifies the model load under way. A cancelled or superseded load cannot be stopped,
     /// so it checks this when it finishes and leaves the state alone if it is no longer current.
     private var preparationID = UUID()
@@ -414,6 +419,7 @@ final class TranscriptionController: ObservableObject {
         let id = UUID()
         preparationID = id
         let engine = selectedEngine
+        guard engine.isWhisper else { return await prepareAppleSpeech(id: id) }
 
         do {
             let modelFolder: URL
@@ -448,12 +454,12 @@ final class TranscriptionController: ObservableObject {
             guard preparationID == id else {
                 // The load could not be stopped, so its result is kept when it is still the
                 // right model and none has been loaded since: the next click then starts at once.
-                if whisperKit == nil, engine == selectedEngine {
-                    whisperKit = loaded
+                if decoder == nil, engine == selectedEngine {
+                    decoder = loaded
                 }
                 return false
             }
-            whisperKit = loaded
+            decoder = loaded
             phase = .ready
             loadingComponent = nil
             loadingStartedAt = nil
@@ -466,6 +472,44 @@ final class TranscriptionController: ObservableObject {
             loadingStartedAt = nil
             return false
         }
+    }
+
+    /// Readies Apple's recognizer for the selected language, letting the system install its
+    /// assets for that language first when they are missing (shown as a download). There is no
+    /// compile, so once installed this takes well under a second.
+    private func prepareAppleSpeech(id: UUID) async -> Bool {
+        guard #available(macOS 26, *) else {
+            phase = .failed(.model(AppleSpeechUnavailable().localizedDescription))
+            return false
+        }
+        let language = selectedLanguage
+        phase = .loading
+        loadingComponent = nil
+        expectedLoadSeconds = nil
+        loadingStartedAt = Date()
+        defer { if preparationID == id { loadingStartedAt = nil } }
+        do {
+            let loaded = try await AppleSpeechDecoder.prepare(for: language) { [weak self] fraction in
+                Task { @MainActor [weak self] in
+                    guard let self, self.preparationID == id, self.isPreparing else { return }
+                    self.phase = .downloading(fraction)
+                }
+            }
+            guard preparationID == id else { return false }
+            phase = .ready
+            // A language picked meanwhile needs a decoder of its own; the caller's action is dropped.
+            guard language == selectedLanguage, selectedEngine == .apple else { return false }
+            decoder = loaded
+            return true
+        } catch {
+            guard preparationID == id else { return false }
+            phase = .failed(.model(error.localizedDescription))
+            return false
+        }
+    }
+
+    private struct AppleSpeechUnavailable: LocalizedError {
+        var errorDescription: String? { "Apple speech recognition needs macOS 26 or later." }
     }
 
     /// Drops the load under way and goes back to rest. The load itself runs on; see `prepare`.
@@ -518,7 +562,7 @@ final class TranscriptionController: ObservableObject {
         guard engine != selectedEngine, !isRecording, !isPreparing else { return }
         selectedEngine = engine
         selectedLanguage = RecognitionLanguage.defaultChoice(for: engine)
-        whisperKit = nil
+        decoder = nil
         if case .failed(.model) = phase {
             phase = .ready
         }
@@ -636,7 +680,7 @@ final class TranscriptionController: ObservableObject {
     /// Starts recognition, loading the model first when it is not in memory yet.
     func startRecording() {
         guard !isRecording, !isPreparing else { return }
-        guard let whisperKit else {
+        guard let decoder else {
             Task {
                 if await prepare() {
                     startRecording()
@@ -683,8 +727,8 @@ final class TranscriptionController: ObservableObject {
             )
         )
         let transcriber = LiveTranscriber(
-            whisperKit: whisperKit,
-            options: currentDecodingOptions(whisperKit: whisperKit),
+            decoder: decoder,
+            options: currentDecodingOptions(decoder: decoder),
             inputDeviceID: selectedDeviceID,
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
@@ -728,7 +772,7 @@ final class TranscriptionController: ObservableObject {
     /// transcript, loading the model first when it is not in memory yet.
     func startPreview() {
         guard canPreview, let selectedDeviceID else { return }
-        guard let whisperKit else {
+        guard let decoder else {
             Task {
                 if await prepare() {
                     startPreview()
@@ -737,8 +781,8 @@ final class TranscriptionController: ObservableObject {
             return
         }
         preview.start(
-            whisperKit: whisperKit,
-            options: currentDecodingOptions(whisperKit: whisperKit),
+            decoder: decoder,
+            options: currentDecodingOptions(decoder: decoder),
             inputDeviceID: selectedDeviceID,
             silenceThreshold: Self.voiceActivityThreshold,
             silenceDelay: Self.silenceCommitDelay,
@@ -1291,14 +1335,18 @@ final class TranscriptionController: ObservableObject {
         history.insert(record, at: 0)
     }
 
-    // MARK: - WhisperKit adapters
+    // MARK: - Decoder adapters
 
     /// Decoding options for a run starting now: the selected language plus whatever is in
-    /// `~/.voiced/prompt.txt` at this moment.
-    private func currentDecodingOptions(whisperKit: WhisperKit) -> DecodingOptions {
+    /// `~/.voiced/prompt.txt` at this moment. Apple's recognizer takes the prompt's terms as
+    /// contextual strings instead of tokens.
+    private func currentDecodingOptions(decoder: any SpeechDecoding) -> DecodingOptions {
+        if #available(macOS 26, *), let apple = decoder as? AppleSpeechDecoder {
+            apple.contextualStrings = RecognitionPrompt.terms(from: promptFileURL)
+        }
         let prompt = RecognitionPrompt.load(from: promptFileURL)
-        let tokens = whisperKit.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
-        (whisperKit.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages = selectedLanguage.isAutomatic && !detectionLanguages.isEmpty ? Set(detectionLanguages) : nil
+        let tokens = decoder.tokenizer.flatMap { RecognitionPrompt.tokens(for: prompt, tokenizer: $0) }
+        ((decoder as? WhisperKit)?.textDecoder as? LanguageLimitedDecoder)?.allowedLanguages = selectedLanguage.isAutomatic && !detectionLanguages.isEmpty ? Set(detectionLanguages) : nil
         return TranscriptionLogic.decodingOptions(for: selectedLanguage, promptTokens: tokens)
     }
 

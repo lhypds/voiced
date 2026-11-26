@@ -14,7 +14,8 @@ public protocol LiveTranscriberDelegate: AnyObject, Sendable {
     func transcriber(_ transcriber: LiveTranscriber, didFailWith error: Error) async
 }
 
-/// Captures audio from one input device and decodes it with WhisperKit in a loop.
+/// Captures audio from one input device and decodes it in a loop, with a WhisperKit model or any
+/// other `SpeechDecoding`.
 ///
 /// Audio before the committed point reported by the delegate is removed from the buffer, so no later
 /// decode can revise or merge committed speech. Decoding, committing and discarding are strictly
@@ -80,7 +81,7 @@ public actor LiveTranscriber {
     /// and the real speech behind it suffers, so the lead-in is not sent to it either.
     private static let decodeLeadSeconds: Float = 0.5
 
-    private let whisperKit: WhisperKit
+    private let decoder: any SpeechDecoding
     private let audioProcessor: any AudioProcessing
     private let options: DecodingOptions
     private let inputDeviceID: DeviceID?
@@ -128,12 +129,13 @@ public actor LiveTranscriber {
     private var pausedKeepFrom: Int?
 
     /// - Parameters:
-    ///   - audioProcessor: capture source; defaults to the model's own processor.
+    ///   - decoder: the model, or Apple's recognizer, each buffer is decoded with.
+    ///   - audioProcessor: capture source; defaults to the WhisperKit model's own processor.
     ///     Injectable so the pipeline can be driven from a file in tests.
     ///   - voiceDetector: filters the energy gate's verdicts; see `voiceDetector`.
     ///   - audioSink: receives the raw captured audio, for saving the session to disk.
     public init(
-        whisperKit: WhisperKit,
+        decoder: any SpeechDecoding,
         options: DecodingOptions,
         inputDeviceID: DeviceID?,
         silenceThreshold: Float,
@@ -146,8 +148,8 @@ public actor LiveTranscriber {
         audioSink: (@Sendable ([Float]) -> Void)? = nil,
         log: (@Sendable (String) -> Void)? = nil
     ) {
-        self.whisperKit = whisperKit
-        self.audioProcessor = audioProcessor ?? whisperKit.audioProcessor
+        self.decoder = decoder
+        self.audioProcessor = audioProcessor ?? (decoder as? WhisperKit)?.audioProcessor ?? AudioProcessor()
         self.options = options
         self.inputDeviceID = inputDeviceID
         self.silenceThreshold = silenceThreshold
@@ -309,7 +311,7 @@ public actor LiveTranscriber {
         let options = options
         let log = log
         let delegate = delegate
-        let liveText = LiveTextAccumulator(tokenizer: whisperKit.tokenizer)
+        let liveText = LiveTextAccumulator(tokenizer: decoder.tokenizer)
         let floor = speechEnergyFloor
         let voice = voiceActivity
         let (samples, lead) = Self.decodeInput(buffer, floor: floor, voice: voice, captureOffset: discardedSampleCount)
@@ -321,7 +323,7 @@ public actor LiveTranscriber {
         /// Capture index of the input's first sample, for looking up the detector's verdicts.
         let inputCaptureStart = discardedSampleCount + Int((lead * Self.sampleRate).rounded())
         let speechInInput = Self.speechSeconds(samples, from: 0, to: samples.count, floor: floor, voice: voice, captureOffset: inputCaptureStart)
-        let results = try await whisperKit.transcribe(audioArray: samples, decodeOptions: options) { [weak self] progress in
+        let results = try await decoder.decode(samples, options: options) { [weak self] progress in
             let text = liveText.text(adding: progress)
             if let self, let delegate {
                 Task { await delegate.transcriber(self, didUpdateLiveText: text, decode: decodeID) }

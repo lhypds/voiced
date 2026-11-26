@@ -365,7 +365,7 @@ struct SettingsView: View {
                     // A pop-up button sizes itself to its widest item, which left a blank
                     // stretch beside the shorter model names; a menu sizes to the chosen one.
                     Menu {
-                        ForEach(RecognitionEngine.allCases) { engine in
+                        ForEach(RecognitionEngine.available) { engine in
                             Button {
                                 controller.selectEngine(engine)
                             } label: {
@@ -412,7 +412,7 @@ struct SettingsView: View {
 
             Divider()
 
-            SettingsRow(title: strings.recognitionPrompt, hint: strings.recognitionPromptHint) {
+            SettingsRow(title: strings.recognitionPrompt, hint: controller.selectedEngine == .apple ? strings.recognitionPromptUnsupported : strings.recognitionPromptHint) {
                 Button {
                     controller.openPromptFile()
                 } label: {
@@ -1545,7 +1545,12 @@ private struct EngineHelpPopover: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(strings.engineHelp)
                 .font(.headline)
-            ForEach(RecognitionEngine.allCases) { engine in
+            if RecognitionEngine.apple.isAvailable {
+                Text(strings.engineRecommendation)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(RecognitionEngine.available) { engine in
                 engineDescription(engine.displayName, strings.engineDescription(engine))
             }
             Text(strings.engineDownloadHint)
