@@ -646,6 +646,11 @@ final class MobileTranscriber: ObservableObject {
     /// Whether the selected engine's model is loaded, so a press on the microphone can start at once.
     var modelReady: Bool { decoder != nil && loadedModel == modelKey(for: engine) }
 
+    /// Whether a press on the microphone only loads the model, leaving the next press to start.
+    /// Whisper models take a while to load; Apple's recognizer is ready almost at once, so a press
+    /// with it starts recording straight away and the start readies it on the way.
+    var pressOnlyLoadsModel: Bool { engine.isWhisper && !modelReady }
+
     /// The language a recording with `engine` runs in: the chosen one when the engine has it,
     /// otherwise the engine's default.
     private func recognitionLanguage(for engine: RecognitionEngine) -> RecognitionLanguage {

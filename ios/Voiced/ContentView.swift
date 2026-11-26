@@ -90,6 +90,11 @@ struct ContentView: View {
     private static let rowGap: CGFloat = 10
     /// Cards fade out over this strip at the top once they scroll under the header.
     private static let topFadeHeight: CGFloat = 72
+    /// How far the list reaches up behind the header, so a long-pressed card's shadow is not cut
+    /// off at the list's top edge. Needs the scroll offset (iOS 18) to hide it once scrolled.
+    private static var topBleed: CGFloat {
+        if #available(iOS 18, *) { 32 } else { 0 }
+    }
     /// The microphone button's diameter, and the space the recording controls keep above and below it.
     private static let micSize: CGFloat = 84
     private static let controlsTopPadding: CGFloat = 24
@@ -118,7 +123,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                header.simultaneousGesture(dismissHeaderKeyboard)
+                header.simultaneousGesture(dismissHeaderKeyboard).zIndex(1)
                 if searching {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
@@ -148,6 +153,7 @@ struct ContentView: View {
                     .padding(.horizontal, 20)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .onAppear { searchFocused = true }
+                    .zIndex(1)
                 }
                 ScrollViewReader { proxy in
                 ScrollView {
@@ -187,7 +193,7 @@ struct ContentView: View {
                     // Under the search field the first card keeps the gap the cards keep between
                     // themselves; under the header, the wider one.
                     // The last card comes to rest just above the floating controls.
-                    .padding(.horizontal, 20).padding(.top, searching ? Self.rowGap : 16)
+                    .padding(.horizontal, 20).padding(.top, (searching ? Self.rowGap : 16) + Self.topBleed)
                     .padding(.bottom, Self.bottomFadeHeight)
                     .frame(maxWidth: 820).frame(maxWidth: .infinity)
                     // The whole content, padding included, so scrolling to it shows the very top.
@@ -225,7 +231,7 @@ struct ContentView: View {
                 // As on macOS: cards fade out under the header once scrolled.
                 .mask(
                     VStack(spacing: 0) {
-                        TopFade(fade: scrollFade)
+                        TopFade(fade: scrollFade, bleed: Self.topBleed)
                         Color.black
                         // The same soft edge at the bottom, where cards scroll on under the
                         // microphone. Scrolled to the end, the last card rests just above it.
@@ -246,6 +252,8 @@ struct ContentView: View {
                 // Blank space included, so a tap anywhere but the search field puts the keyboard away.
                 .contentShape(Rectangle())
                 .simultaneousGesture(dismissSearchKeyboard)
+                // Up behind the header (and search field), which stay on top and keep their taps.
+                .padding(.top, -Self.topBleed)
             }
             // Apply this inside NavigationStack too: its content receives its own keyboard safe area.
             // An overlay rather than safeAreaInset, which would lift the controls above the keyboard.
@@ -702,9 +710,9 @@ struct ContentView: View {
         micTouching = true
         micHolding = false
         micHoldTimer?.cancel()
-        // The model is not loaded yet: the press, tap or hold, only loads it, and nothing starts
-        // until the next press once it is ready.
-        micLoadOnly = !(model.recording || model.busy || model.previewActive) && !model.modelReady
+        // A Whisper model is not loaded yet: the press, tap or hold, only loads it, and nothing
+        // starts until the next press once it is ready. Apple Speech starts at once.
+        micLoadOnly = !(model.recording || model.busy || model.previewActive) && model.pressOnlyLoadsModel
         if micLoadOnly {
             model.prepareModel()
             return
@@ -749,8 +757,8 @@ struct ContentView: View {
             show(model.sendPendingCommand() ? .sentToMac : .notSentToMac, for: .seconds(2))
         } else if model.recording || model.busy || model.previewActive {
             model.stop()
-        } else if !model.modelReady {
-            // Not loaded yet: only load it; the next tap, once it is ready, starts recording.
+        } else if model.pressOnlyLoadsModel {
+            // A Whisper model not loaded yet: only load it; the next tap, once it is ready, starts recording.
             model.prepareModel()
         } else {
             clearSearch()
@@ -970,10 +978,17 @@ private final class ScrollFadeState {
 /// growing with the scroll offset so the newest cards are not dimmed at rest.
 private struct TopFade: View {
     let fade: ScrollFadeState
+    /// The strip the list reaches up behind the header. Shown only at rest, when all it holds is
+    /// the space above the first card, so a long press's shadow there is not cut off; hidden as
+    /// soon as the list scrolls, so cards never show behind the header.
+    var bleed: CGFloat = 0
 
     var body: some View {
-        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-            .frame(height: fade.offset)
+        VStack(spacing: 0) {
+            Color.black.opacity(fade.offset > 0 ? 0 : 1).frame(height: bleed)
+            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                .frame(height: fade.offset)
+        }
     }
 }
 
