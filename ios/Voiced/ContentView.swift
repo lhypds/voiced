@@ -712,19 +712,18 @@ struct ContentView: View {
                 // only draws the ring.
                 Button {} label: {
                     if model.stopping { ProgressView() }
-                    else if !micHolding && sendsCommand {
-                        // A command waits: a tap sends it, a hold records it again.
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 30, weight: .regular))
-                    } else {
-                        // Held: speaking into it, so it shows the microphone even over a running recording.
-                        Image(systemName: !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
-                            .font(.system(size: 33, weight: .regular))
+                    else {
+                        // Held: speaking into it, so it shows the microphone even over a running
+                        // recording. A command waits: the Mac, as a tap sends it there (a hold
+                        // records it again).
+                        let send = !micHolding && sendsCommand
+                        Image(systemName: send ? "laptopcomputer"
+                              : !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
+                            .font(.system(size: send ? 30 : 33, weight: .regular))
+                            .contentTransition(.symbolEffect(.replace))
                     }
                 }
-                // As a send button the ring, symbol and pressed fill are all the Mac's blue.
-                .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly,
-                                             color: !micHolding && sendsCommand ? VoicedPalette.macAccent : VoicedPalette.accent))
+                .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly))
                 .disabled(model.stopping)
                 .allowsHitTesting(false)
                 .overlay {
