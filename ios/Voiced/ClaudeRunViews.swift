@@ -48,7 +48,7 @@ struct ClaudeRunCard: View {
     }
 
     private var label: some View {
-        HStack(spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(verbatim: "Claude").font(.system(.caption, design: .monospaced, weight: .bold))
             Image(systemName: "terminal").font(.caption.weight(.bold))
         }
@@ -97,8 +97,13 @@ private struct ClaudeRunStatus: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            HStack(spacing: 6) {
-                if run.state == .running && run.pending == nil { ProgressView().controlSize(.small) }
+            // On the text's baseline, so the card can line this up with "Claude": centred, the
+            // spinner gave the row its own baseline at its bottom edge, below the text's.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if run.state == .running && run.pending == nil {
+                    ProgressView().controlSize(.small)
+                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+                }
                 Group {
                     switch run.state {
                     case .queued: Text("排队中")

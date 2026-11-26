@@ -165,7 +165,8 @@ struct ContentView: View {
                         ForEach(lines) { line in
                             transcriptCard(label: line.timestamp(mode: TimestampMode(rawValue: model.timestampID) ?? .current,
                                                                 showDate: model.showDate), text: model.displayTexts(line).primary, secondary: model.displayTexts(line).secondary, line: line,
-                                           mac: model.macDelivery(of: line))
+                                           // A command from a hold not sent yet is blue too, with no note.
+                                           mac: model.macDelivery(of: line) ?? (model.isUnsentMacCommand(line) ? true : nil))
                             // The Mac's Claude Code run of a line sent with Run, under it.
                             if let run = model.macLink.latestRun(forLine: line.id) {
                                 ClaudeRunCard(run: run, labelWidth: timestampColumnWidth, stacked: dynamicTypeSize.isAccessibilitySize,
@@ -363,6 +364,9 @@ struct ContentView: View {
         .background(cardFill(line: line, mac: mac != nil), in: RoundedRectangle(cornerRadius: 18))
         // Nil for the other cards, so starting to edit this one reports its frame even though it has not moved.
         .onGeometryChange(for: CGRect?.self) { editing ? $0.frame(in: .global) : nil } action: { if let frame = $0 { editingCardFrame = frame } }
+        // The long-press lift and highlight take the card's own shape; by default iOS draws them
+        // with a corner radius of its own, leaving a thin gap at the corners.
+        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
         .textSelection(.enabled)
         // While editing, a tap places the cursor instead of copying or playing the line.
         // A tap on another card while editing only ends the editing, which saves it.
@@ -660,11 +664,13 @@ struct ContentView: View {
         }
     }
 
-    /// A tap starts or stops recording; it never sends anything to the Mac.
+    /// A tap sends the command a hold left waiting; otherwise it starts or stops recording.
     private func micTapped() {
         guard !model.stopping else { return }
         scrollToTopRequest += 1
-        if model.recording || model.busy || model.previewActive {
+        if sendsCommand {
+            show(model.sendPendingCommand() ? .sentToMac : .notSentToMac, for: .seconds(2))
+        } else if model.recording || model.busy || model.previewActive {
             model.stop()
         } else if !model.modelReady {
             // Not loaded yet: only load it; the next tap, once it is ready, starts recording.
@@ -682,6 +688,11 @@ struct ContentView: View {
         searchFocused = false
     }
 
+    /// Whether the microphone is a send button: a hold's command waits and nothing else is under way.
+    private var sendsCommand: Bool {
+        model.pendingCommand != nil && !model.holding && !model.recognizingHold && !model.stopping
+    }
+
     private var recordingControls: some View {
         VStack(spacing: 12) {
             // Also once a stop has left the model loading in the background.
@@ -693,19 +704,27 @@ struct ContentView: View {
                 // Equal side columns keep the microphone centered, as on macOS.
                 Color.clear.frame(width: 44, height: 44).frame(maxWidth: .infinity)
                 // One touch tracker decides between a tap and a hold, so a hold can never end as a
-                // tap. A touch released before half a second is a tap: it only starts or stops
-                // recording and never sends anything. Held longer, with "Send to Mac" on, it sends
-                // what is said until the release, whether or not a recording is running; held from
-                // idle, it records just for the hold. The button underneath only draws the ring.
+                // tap. A touch released before half a second is a tap: it starts or stops
+                // recording, or, while a hold's command waits, sends it. Held longer, with "Send to
+                // Mac" on, what is said until the release becomes a command for the Mac, left
+                // waiting (and replacing one already waiting), whether or not a recording is
+                // running; held from idle, it records just for the hold. The button underneath
+                // only draws the ring.
                 Button {} label: {
                     if model.stopping { ProgressView() }
-                    else {
+                    else if !micHolding && sendsCommand {
+                        // A command waits: a tap sends it, a hold records it again.
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 30, weight: .regular))
+                    } else {
                         // Held: speaking into it, so it shows the microphone even over a running recording.
                         Image(systemName: !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
                             .font(.system(size: 33, weight: .regular))
                     }
                 }
-                .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly))
+                // As a send button the ring, symbol and pressed fill are all the Mac's blue.
+                .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly,
+                                             color: !micHolding && sendsCommand ? VoicedPalette.macAccent : VoicedPalette.accent))
                 .disabled(model.stopping)
                 .allowsHitTesting(false)
                 .overlay {
@@ -714,11 +733,12 @@ struct ContentView: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(Text(LocalizedStringKey(model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")))
+                .accessibilityLabel(Text(LocalizedStringKey(sendsCommand ? "发送到 Mac" : model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")))
                 .accessibilityValue(Text(LocalizedStringKey(model.status)))
                 .accessibilityAction { micTapped() }
                 // VoiceOver's double-tap and hold passes the touch through, so holding works there too.
-                .accessibilityHint(model.sendToMacEnabled ? Text("按住说话，说的话会发送到 Mac") : Text("按住说话，松开后整段识别"))
+                .accessibilityHint(sendsCommand ? Text("按住重新录制")
+                                   : model.sendToMacEnabled ? Text("按住说话，识别为发给 Mac 的命令") : Text("按住说话，松开后整段识别"))
                 HStack {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--ui-testing") {

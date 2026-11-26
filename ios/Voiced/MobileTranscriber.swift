@@ -44,7 +44,8 @@ final class MobileTranscriber: ObservableObject {
     @Published var summaryEnabled: Bool { didSet { settings.aiSummary = summaryEnabled } }
     @Published var summaryModel: String { didSet { settings.summaryModel = summaryModel } }
     /// The "Send to Mac" switch. While it is on the phone stays connected to a Mac running the voiced
-    /// service, and holding the microphone sends what is said meanwhile to it.
+    /// service, and holding the microphone turns what is said meanwhile into a command for it,
+    /// left blue in the transcript until sent from its card's menu.
     @Published var sendToMacEnabled: Bool { didSet { settings.phoneInput = sendToMacEnabled; configureMacLink() } }
     /// What the Mac does with what is sent: type it at the cursor, type it and press Return, or
     /// have Claude Code carry it out. Sent with every sentence, so the Mac needs no setting.
@@ -65,6 +66,10 @@ final class MobileTranscriber: ObservableObject {
     /// Whether the live text is speech for the Mac: from the start of a hold until what was said
     /// during it is committed, while "Send to Mac" is on. The live card is blue then.
     @Published private(set) var liveForMac = false
+    /// The line the latest hold recognised as a command for the Mac; see `pendingCommand`.
+    @Published private var pendingCommandID: String?
+    /// The waiting command a hold in progress records again, replaced once the hold's text arrives.
+    private var holdReplaces: String?
     /// The hold in progress: pressed at `start` seconds into the session, at capture sample
     /// `sample`. Live decoding is paused for it; what was said is recorded as one clip and
     /// transcribed whole once let go, and the result is shown whatever it is, unfiltered.
@@ -291,6 +296,8 @@ final class MobileTranscriber: ObservableObject {
         holdCount += 1
         holding = true
         liveForMac = sendToMacEnabled
+        // A hold over a command waiting to be sent records it again: the new one takes its place.
+        holdReplaces = pendingCommand?.id
         waveform.reset()
         guard var session, recording else {
             // Idle or still preparing: the clip starts with the capture; see `begin`.
@@ -350,11 +357,13 @@ final class MobileTranscriber: ObservableObject {
         trace("endHold \(pressed.start)-\(end) samples=\(pressed.sample)-\(endSample)")
         let previous = holdTask
         let forMac = sendToMacEnabled
+        let replaces = holdReplaces
+        holdReplaces = nil
         pendingHolds += 1
         recognizingHold = true
         holdTask = Task { [weak self] in
             await previous?.value
-            await self?.finishHold(start: pressed.start, end: end, samples: pressed.sample..<endSample, forMac: forMac)
+            await self?.finishHold(start: pressed.start, end: end, samples: pressed.sample..<endSample, forMac: forMac, replacing: replaces)
         }
     }
 
@@ -366,6 +375,8 @@ final class MobileTranscriber: ObservableObject {
         guard let session, hold != nil else { endHold(); return }
         holding = false
         hold = nil
+        // Dropped: a command it was to record again stays as it was.
+        holdReplaces = nil
         let endSample = captureSample(at: Date())
         if let transcriber { Task { await transcriber.keepAudio(fromSample: endSample) } }
         trace("cancelHold at \(sessionTime(of: Date(), in: session))")
@@ -377,10 +388,10 @@ final class MobileTranscriber: ObservableObject {
         }
     }
 
-    /// Transcribes a hold's clip and commits whatever it says as one line, sent to the Mac when
-    /// `forMac`. After the last pending hold, live decoding resumes (or the recording the hold
-    /// started stops).
-    private func finishHold(start: Float, end: Float, samples: Range<Int>, forMac: Bool) async {
+    /// Transcribes a hold's clip and commits whatever it says as one line, marked as an unsent
+    /// command for the Mac when `forMac`, in place of the unsent command `replacing`, if any.
+    /// After the last pending hold, live decoding resumes (or the recording the hold started stops).
+    private func finishHold(start: Float, end: Float, samples: Range<Int>, forMac: Bool, replacing: String?) async {
         // The tap hears the capture a moment late: wait until it has the clip's end, or the capture stopped.
         let deadline = ContinuousClock.now + .seconds(2)
         while let tap = holdTap, tap.count < samples.upperBound, transcriber != nil, ContinuousClock.now < deadline {
@@ -394,12 +405,24 @@ final class MobileTranscriber: ObservableObject {
         if var session, !text.isEmpty {
             let from = max(start, session.committedEnd)
             let segment = TranscriptionSegment(start: from, end: max(end, from + 0.1), text: text)
+            var command: TranscriptLine?
             if let line = session.commitMerged(segments: [segment], assembler: assembler), forMac {
                 trace("committed hold line [\(line.start)-\(line.end)] \(line.text)")
-                // Kept with the record, so the line stays blue in the transcript and in history.
-                current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id)]) { $1 }
+                // A command, not sent yet: it waits, blue, until sent with the microphone (now a
+                // send button) or its card's menu. Kept with the record, so it stays blue in the
+                // transcript and in history.
+                current.macCommands = (current.macCommands ?? []).union([line.id])
+                command = line
             }
             publish(session)
+            if let command {
+                pendingCommandID = command.id
+                // Recorded again: the command it replaces goes, if it is still unsent.
+                if let replacing, replacing != command.id,
+                   let old = current.lines.first(where: { $0.id == replacing }), isUnsentMacCommand(old) {
+                    deleteLine(old)
+                }
+            }
         }
         await settleHold()
     }
@@ -439,6 +462,29 @@ final class MobileTranscriber: ObservableObject {
     /// For a line sent to the Mac, whether it went out; nil for every other line.
     func macDelivery(of line: TranscriptLine) -> Bool? {
         current.macDeliveries?[line.id]
+    }
+
+    /// Whether the line is a command recognised from a hold that has not been sent yet.
+    func isUnsentMacCommand(_ line: TranscriptLine) -> Bool {
+        current.macCommands?.contains(line.id) == true
+    }
+
+    /// The command the latest hold recognised, while it waits to be sent: the microphone is then
+    /// a send button. Nil once it is sent or deleted, or another record is shown.
+    var pendingCommand: TranscriptLine? {
+        guard sendToMacEnabled, let pendingCommandID,
+              let line = current.lines.first(where: { $0.id == pendingCommandID }), isUnsentMacCommand(line)
+        else { return nil }
+        return line
+    }
+
+    /// Sends the waiting command to the Mac. Returns whether it went out; if not, it keeps waiting.
+    @discardableResult
+    func sendPendingCommand() -> Bool {
+        guard let line = pendingCommand else { return false }
+        let delivered = sendLineToMac(line)
+        if delivered { pendingCommandID = nil }
+        return delivered
     }
 
     func startPreview() { begin(preview: true) }
@@ -749,6 +795,7 @@ final class MobileTranscriber: ObservableObject {
         guard sendToMacEnabled, current.lines.contains(where: { $0.id == line.id }) else { return false }
         let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id)
         current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: delivered]) { $1 }
+        if delivered { current.macCommands?.remove(line.id) }
         save()
         return delivered
     }
@@ -761,6 +808,7 @@ final class MobileTranscriber: ObservableObject {
         }
         current.lines.removeAll { $0.id == line.id }
         current.macDeliveries?[line.id] = nil
+        current.macCommands?.remove(line.id)
         unspokenIDs.remove(line.id)
         if current.lines.isEmpty, !recording, !current.sessions.contains(where: { $0.audioFile != nil }) {
             // Nothing left worth keeping: the record goes, as an empty one is never saved and the

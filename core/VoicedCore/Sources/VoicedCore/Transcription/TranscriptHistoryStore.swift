@@ -43,7 +43,8 @@ public struct TranscriptHistoryStore {
                     updatedAt: stored.updatedAt,
                     lines: stored.lines,
                     sessions: stored.sessions,
-                    macDeliveries: stored.macDeliveries
+                    macDeliveries: stored.macDeliveries,
+                    macCommands: stored.macCommands
                 )
             }
             .sorted { $0.updatedAt > $1.updatedAt }
@@ -121,7 +122,8 @@ public struct TranscriptHistoryStore {
                 updatedAt: legacy.updatedAt,
                 lines: legacy.lines,
                 sessions: legacy.sessions,
-                macDeliveries: legacy.macDeliveries
+                macDeliveries: legacy.macDeliveries,
+                macCommands: legacy.macCommands
             )
             guard (try? save(record)) != nil else { continue }
             try? FileManager.default.removeItem(at: file)

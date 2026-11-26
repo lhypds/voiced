@@ -42,6 +42,9 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
     /// the sentence went out, false when no Mac was connected. Nil for records with none, and for
     /// files written before this existed.
     public var macDeliveries: [String: Bool]?
+    /// The lines recognised as commands for the Mac while the iPhone's microphone was held, by
+    /// line id, that have not been sent yet: they wait, blue, until sent from their card's menu.
+    public var macCommands: Set<String>?
 
     public init(
         id: String? = nil,
@@ -49,7 +52,8 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         updatedAt: Date? = nil,
         lines: [TranscriptLine],
         sessions: [Session] = [],
-        macDeliveries: [String: Bool]? = nil
+        macDeliveries: [String: Bool]? = nil,
+        macCommands: Set<String>? = nil
     ) {
         self.id = id ?? Self.directoryName(for: createdAt)
         self.createdAt = createdAt
@@ -57,6 +61,7 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         self.lines = lines
         self.sessions = sessions
         self.macDeliveries = macDeliveries
+        self.macCommands = macCommands
     }
 
     /// Unix time of `date` in whole seconds, the way record directories are named.
@@ -103,5 +108,6 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         lines = try container.decode([TranscriptLine].self, forKey: .lines).withUniqueIDs()
         sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
         macDeliveries = try container.decodeIfPresent([String: Bool].self, forKey: .macDeliveries)
+        macCommands = try container.decodeIfPresent(Set<String>.self, forKey: .macCommands)
     }
 }

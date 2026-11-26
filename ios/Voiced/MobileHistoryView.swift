@@ -102,6 +102,8 @@ struct MobileHistoryView: View {
                         .accessibilityIdentifier("history-record.\(record.id)")
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
+                        // The long-press highlight takes the card's own corners.
+                        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: Self.cardRadius, style: .continuous))
                         .contextMenu {
                             if model.canSummarize {
                                 Button(LocalizedStringKey(model.hasSummary(record) ? "重新生成摘要" : "生成摘要"), systemImage: "sparkles") { model.summarize(record) }
