@@ -66,6 +66,54 @@ public struct ClaudeRun: Codable, Equatable, Identifiable, Sendable {
         guard state == .running, let last = items?.last, last.kind == .tool, last.done != true else { return nil }
         return last
     }
+
+    /// What the run came to, without how it got there: what Claude wrote last, or why it failed
+    /// or that it was stopped. Nil while it is still going.
+    public var conclusion: String? {
+        let items = items ?? []
+        switch state {
+        case .queued, .running:
+            return nil
+        case .failed:
+            let failure = items.last { $0.kind == .error || ($0.kind == .result && $0.isError == true) }
+            return "(failed\(failure?.text.map { ": \($0)" } ?? ""))"
+        case .stopped:
+            let text = lastText
+            return text.map { "(stopped before it finished) \($0)" } ?? "(stopped before it finished)"
+        case .done:
+            return lastText ?? "(done, with no answer)"
+        }
+    }
+
+    private var lastText: String? {
+        (items ?? []).last { $0.kind == .text && !($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?
+            .text?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The run as kept with the record after it was heard of last: one the Mac no longer
+    /// reports and that had not ended, as a service restart leaves it, counts as stopped.
+    public var asStored: ClaudeRun {
+        guard state.isGoing else { return self }
+        var run = self
+        run.state = .stopped
+        run.pending = nil
+        // How long it ran is not known.
+        run.startedAt = nil
+        run.endedAt = nil
+        return run
+    }
+}
+
+/// An earlier request sent with Run and what Claude concluded, sent along with a new one so Claude
+/// knows the conversation: only the conclusions, not how Claude got to them.
+public struct ClaudeExchange: Codable, Equatable, Sendable {
+    public var prompt: String
+    public var answer: String
+
+    public init(prompt: String, answer: String) {
+        self.prompt = prompt
+        self.answer = answer
+    }
 }
 
 /// One entry of a run's transcript.

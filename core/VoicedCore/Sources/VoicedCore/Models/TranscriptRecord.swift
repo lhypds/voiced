@@ -45,6 +45,10 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
     /// The lines recognised as commands for the Mac while the iPhone's microphone was held, by
     /// line id, that have not been sent yet: they wait, blue, until sent from their card's menu.
     public var macCommands: Set<String>?
+    /// The Mac's Claude Code run of each line sent with Run, by line id: its latest run, as last
+    /// heard, with what Claude did and said. Kept here so it outlives the Mac's service and the
+    /// app; nil for records with none.
+    public var claudeRuns: [String: ClaudeRun]?
 
     public init(
         id: String? = nil,
@@ -53,7 +57,8 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         lines: [TranscriptLine],
         sessions: [Session] = [],
         macDeliveries: [String: Bool]? = nil,
-        macCommands: Set<String>? = nil
+        macCommands: Set<String>? = nil,
+        claudeRuns: [String: ClaudeRun]? = nil
     ) {
         self.id = id ?? Self.directoryName(for: createdAt)
         self.createdAt = createdAt
@@ -62,6 +67,7 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         self.sessions = sessions
         self.macDeliveries = macDeliveries
         self.macCommands = macCommands
+        self.claudeRuns = claudeRuns
     }
 
     /// Unix time of `date` in whole seconds, the way record directories are named.
@@ -109,5 +115,7 @@ public struct TranscriptRecord: Identifiable, Equatable, Codable, Sendable {
         sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
         macDeliveries = try container.decodeIfPresent([String: Bool].self, forKey: .macDeliveries)
         macCommands = try container.decodeIfPresent(Set<String>.self, forKey: .macCommands)
+        // A run that no longer decodes, written by a later version, is not worth the record.
+        claudeRuns = try? container.decodeIfPresent([String: ClaudeRun].self, forKey: .claudeRuns)
     }
 }

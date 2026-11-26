@@ -39,6 +39,12 @@ public struct RecordingSession {
         if let index = committedLines.firstIndex(where: { $0.id == id }) { committedLines[index] = committedLines[index].replacingText(text) }
     }
 
+    /// Adds a line that was typed rather than spoken, after the committed ones. It covers no
+    /// audio, so where the session has committed to stays where it is.
+    public mutating func appendTyped(_ line: TranscriptLine) {
+        committedLines.append(uniquelyIdentified(line))
+    }
+
     /// Everything that should currently be displayed.
     public var transcript: [TranscriptLine] {
         baseLines + committedLines

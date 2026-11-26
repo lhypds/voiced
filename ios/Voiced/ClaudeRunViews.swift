@@ -161,7 +161,7 @@ struct ClaudeRunSheet: View {
     /// Tool results opened, by item index.
     @State private var expanded: Set<Int> = []
 
-    private var run: ClaudeRun? { model.macLink.runs[runID] }
+    private var run: ClaudeRun? { model.claudeRun(id: runID) }
     private var connected: Bool { model.macLink.connectedName != nil }
 
     var body: some View {
@@ -224,7 +224,9 @@ struct ClaudeRunSheet: View {
             }
         case .tool:
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                // Centred, not baseline-aligned: a ProgressView has no text baseline, so it would sit
+                // with its bottom edge on the name's baseline, higher than the name.
+                HStack(alignment: .center, spacing: 6) {
                     if item.done != true { ProgressView().controlSize(.mini) }
                     else if item.isError == true { Image(systemName: "xmark").foregroundStyle(.red) }
                     else { Image(systemName: "checkmark").foregroundStyle(.green) }

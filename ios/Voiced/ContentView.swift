@@ -52,6 +52,12 @@ struct ContentView: View {
     @State private var openRun: RunSheetID?
     @State private var editText = ""
     @FocusState private var editFocused: Bool
+    /// The blue card a hold that heard nothing opens, for typing the command instead, and what is
+    /// typed into it.
+    @State private var typingCommand = false
+    @State private var commandText = ""
+    @FocusState private var commandFocused: Bool
+    @State private var commandFieldFrame: CGRect = .zero
     /// Where the field being edited is on screen, so a tap anywhere else ends the editing.
     @State private var editorFrame: CGRect = .zero
     /// The card being edited and the keyboard's top edge on screen. The keyboard covers the list
@@ -162,13 +168,14 @@ struct ContentView: View {
                         }
                         if let message = model.hintError { Text(message).font(.caption).foregroundStyle(.red) }
                         if let message = model.translationError { Text(message).font(.caption).foregroundStyle(.red) }
+                        if typingCommand { commandDraftCard }
                         ForEach(lines) { line in
                             transcriptCard(label: line.timestamp(mode: TimestampMode(rawValue: model.timestampID) ?? .current,
                                                                 showDate: model.showDate), text: model.displayTexts(line).primary, secondary: model.displayTexts(line).secondary, line: line,
                                            // A command from a hold not sent yet is blue too, with no note.
                                            mac: model.macDelivery(of: line) ?? (model.isUnsentMacCommand(line) ? true : nil))
                             // The Mac's Claude Code run of a line sent with Run, under it.
-                            if let run = model.macLink.latestRun(forLine: line.id) {
+                            if let run = model.claudeRun(forLine: line.id) {
                                 ClaudeRunCard(run: run, labelWidth: timestampColumnWidth, stacked: dynamicTypeSize.isAccessibilitySize,
                                               connected: model.macLink.connectedName != nil,
                                               open: { openRun = RunSheetID(id: run.id) }) { action in
@@ -188,6 +195,7 @@ struct ContentView: View {
                     .offset(y: -editLift)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .scrollIndicators(.hidden)
                 // While a line is edited the list stays put; a drag anywhere but in the field ends
                 // the editing instead, which saves it and lets the card drop back.
                 .scrollDisabled(editingLineID != nil)
@@ -201,6 +209,8 @@ struct ContentView: View {
                 .onChange(of: scrollToTopRequest) {
                     withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.listTopID, anchor: .top) }
                 }
+                // A hold for the Mac that heard nothing: the command is typed instead.
+                .onChange(of: model.typeCommandRequests) { startTypingCommand() }
                 .onChange(of: keyboardTop) { liftEditedCard() }
                 .onChange(of: editingCardFrame.height) { liftEditedCard() }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
@@ -299,12 +309,13 @@ struct ContentView: View {
         SpatialTapGesture(coordinateSpace: .global).onEnded { tap in
             searchFocused = false
             if editingLineID != nil, !editorFrame.contains(tap.location) { editFocused = false }
+            if typingCommand, !commandFieldFrame.contains(tap.location) { commandFocused = false }
         }
     }
 
     /// The header holds no field being edited: any tap there ends the editing.
     private var dismissHeaderKeyboard: some Gesture {
-        TapGesture().onEnded { searchFocused = false; editFocused = false }
+        TapGesture().onEnded { searchFocused = false; editFocused = false; commandFocused = false }
     }
 
     private var header: some View {
@@ -444,6 +455,70 @@ struct ContentView: View {
         // A line sent to the Mac stays blue while it plays, a deeper blue.
         if mac { return VoicedPalette.macAccent.opacity(playing ? 0.32 : 0.14) }
         return playing ? MobileTheme.cardActive : MobileTheme.card
+    }
+
+    /// The blue card a hold opens when it heard nothing, with the keyboard up: what is typed
+    /// becomes the command, a blue line waiting to be sent as a spoken one would. Return, or the
+    /// keyboard going away, adds it; left empty, the card just goes.
+    private var commandDraftCard: some View {
+        let field = TextField("", text: $commandText, prompt: Text("输入要发送到 Mac 的内容"), axis: .vertical)
+            .font(.body.bold())
+            .focused($commandFocused)
+            .submitLabel(.done)
+            .accessibilityIdentifier("command-editor")
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { commandFieldFrame = $0 }
+            // A vertical field takes Return as a line break; a command has none, so it is added instead.
+            .onChange(of: commandText) { _, value in
+                guard value.contains("\n") else { return }
+                commandText = value.replacingOccurrences(of: "\n", with: "")
+                finishTypingCommand()
+            }
+            .onChange(of: commandFocused) { _, focused in
+                if !focused { finishTypingCommand() }
+            }
+        return Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 8) { timestampLabel("TYPE", mac: true); field }
+            } else {
+                HStack(alignment: .center, spacing: 16) {
+                    timestampLabel("TYPE", mac: true).frame(width: timestampColumnWidth, alignment: .leading)
+                    field.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .foregroundStyle(MobileTheme.ink)
+        .padding(16).frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+        .background(cardFill(line: nil, mac: true), in: RoundedRectangle(cornerRadius: 18))
+        .contentShape(RoundedRectangle(cornerRadius: 18))
+        .onTapGesture { commandFocused = true }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private func startTypingCommand() {
+        guard model.sendToMacEnabled else { return }
+        // Already open: what has been typed stays.
+        if typingCommand { commandFocused = true; return }
+        editFocused = false
+        searchFocused = false
+        commandText = ""
+        withAnimation(.easeOut(duration: 0.2)) { typingCommand = true }
+        scrollToTopRequest += 1
+        // Once the field is there to take focus.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            if typingCommand { commandFocused = true }
+        }
+    }
+
+    private func finishTypingCommand() {
+        guard typingCommand else { return }
+        let text = commandText
+        commandText = ""
+        commandFocused = false
+        withAnimation(.easeOut(duration: 0.2)) {
+            typingCommand = false
+            model.addTypedCommand(text)
+        }
     }
 
     /// Edits a line in its own card: the original text, not a translation shown in its place.
@@ -717,9 +792,15 @@ struct ContentView: View {
                         // recording. A command waits: the Mac, as a tap sends it there (a hold
                         // records it again).
                         let send = !micHolding && sendsCommand
+                        // The laptop's screen is a second layer the system draws faded, grey under
+                        // ink; painted white instead, unless the pressed ring is filled with ink.
+                        // The colours repeat RingButtonStyle's, which this has to set over.
+                        let filled = micTouching && !micOutside && !micLoadOnly
                         Image(systemName: send ? "laptopcomputer"
                               : !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
                             .font(.system(size: send ? 30 : 33, weight: .regular))
+                            .symbolRenderingMode(send && !filled ? .palette : nil)
+                            .foregroundStyle(filled ? Color.white : MobileTheme.accent, Color.white)
                             .contentTransition(.symbolEffect(.replace))
                     }
                 }

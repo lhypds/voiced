@@ -10,6 +10,19 @@ final class RecordingSessionTests: XCTestCase {
         XCTAssertEqual(session.committedEnd, 0)
     }
 
+    func testATypedLineIsAddedWithoutMovingTheCommittedEnd() {
+        var session = RecordingSession(startedAt: Date(), baseLines: [])
+        let spoken = line("a", 0, 2, "One.")
+        XCTAssertTrue(session.update(latest: [spoken], completed: [spoken]))
+
+        session.appendTyped(line("t", 2, 2, "typed"))
+        XCTAssertEqual(session.transcript.map(\.text), ["One.", "typed"])
+        XCTAssertEqual(session.committedEnd, 2)
+        let next = line("b", 2, 4, "Two.")
+        XCTAssertTrue(session.update(latest: [next], completed: [next]), "speech after it is still committed")
+        XCTAssertEqual(session.transcript.map(\.text), ["One.", "typed", "Two."])
+    }
+
     func testUpdateCommitsOnlyNewCompletedLines() {
         var session = RecordingSession(startedAt: Date(), baseLines: [])
         let first = line("a", 0, 2, "One.")

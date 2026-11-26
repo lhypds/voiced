@@ -68,6 +68,9 @@ final class MobileTranscriber: ObservableObject {
     @Published private(set) var liveForMac = false
     /// The line the latest hold recognised as a command for the Mac; see `pendingCommand`.
     @Published private var pendingCommandID: String?
+    /// Bumped when a hold for the Mac heard nothing: the view then opens a blue card to type the
+    /// command into instead.
+    @Published private(set) var typeCommandRequests = 0
     /// The waiting command a hold in progress records again, replaced once the hold's text arrives.
     private var holdReplaces: String?
     /// The hold in progress: pressed at `start` seconds into the session, at capture sample
@@ -151,6 +154,10 @@ final class MobileTranscriber: ObservableObject {
     private var aiForwarding: AnyCancellable?
     let macLink = PhoneInputSender()
     private var macLinkForwarding: AnyCancellable?
+    private var macRunsKeeping: AnyCancellable?
+    /// Records whose Claude Code runs changed since they were last saved, saved shortly after.
+    private var recordsWithNewRuns: Set<String> = []
+    private var runSave: Task<Void, Never>?
     private var calibrationTask: Task<Void, Never>?
     private let historyStore: TranscriptHistoryStore
     private var whisper: WhisperKit?
@@ -230,6 +237,8 @@ final class MobileTranscriber: ObservableObject {
         meterForwarding = inputLevelMonitor.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         aiForwarding = ai.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         macLinkForwarding = macLink.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        // After the change, not while `runs` is about to change.
+        macRunsKeeping = macLink.$runs.receive(on: RunLoop.main).sink { [weak self] runs in self?.keep(runs) }
         configureMacLink()
         OrientationLock.apply(allowLandscape: allowLandscape)
         speaker.onPlayingChange = { [inputMute] playing in inputMute.isMuted = playing }
@@ -242,6 +251,7 @@ final class MobileTranscriber: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     if note.name == UIApplication.didBecomeActiveNotification { self.startInputMeter(); return }
+                    if note.name == UIApplication.didEnterBackgroundNotification { self.saveClaudeRuns() }
                     if note.name == AVAudioSession.interruptionNotification,
                        let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
                        raw == AVAudioSession.InterruptionType.ended.rawValue { self.startInputMeter(); return }
@@ -340,9 +350,11 @@ final class MobileTranscriber: ObservableObject {
         guard holding else { return }
         holding = false
         guard let session, let pressed = hold else {
-            // Let go before the recording was ready: nothing was said into it.
+            // Let go before the recording was ready: nothing was said into it, so for the Mac the
+            // command is typed instead.
             hold = nil
             if holdTask == nil { holdBoundary = nil; liveForMac = false }
+            if sendToMacEnabled { typeCommandRequests += 1 }
             if holdStartedRecording {
                 holdStartedRecording = false
                 stop()
@@ -423,6 +435,9 @@ final class MobileTranscriber: ObservableObject {
                     deleteLine(old)
                 }
             }
+        } else if text.isEmpty, forMac {
+            // Held for the Mac, but nothing was heard: the command is typed instead.
+            typeCommandRequests += 1
         }
         await settleHold()
     }
@@ -475,6 +490,35 @@ final class MobileTranscriber: ObservableObject {
         guard sendToMacEnabled, let pendingCommandID,
               let line = current.lines.first(where: { $0.id == pendingCommandID }), isUnsentMacCommand(line)
         else { return nil }
+        return line
+    }
+
+    /// Adds a command typed into the card a silent hold opened, as a hold's would be: a blue line
+    /// waiting to be sent, with the microphone as its send button. Returns the line, or nil when
+    /// nothing was typed.
+    @discardableResult
+    func addTypedCommand(_ text: String) -> TranscriptLine? {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, sendToMacEnabled else { return nil }
+        var line: TranscriptLine
+        if var session, !previewActive {
+            // Into the running recording, which would otherwise drop it with its next commit.
+            let at = session.committedEnd
+            session.appendTyped(TranscriptLine(id: "typed-\(UUID().uuidString)", start: at, end: at, recordedAt: Date(), text: text))
+            line = session.transcript.last!
+            publish(session)
+        } else {
+            line = TranscriptLine(id: "typed-\(UUID().uuidString)", start: 0, end: 0, recordedAt: Date(), text: text)
+            current.lines.append(line)
+            conversationLineIDs.insert(line.id)
+            translateVisibleLines()
+            ai.update(current.lines)
+        }
+        current.macCommands = (current.macCommands ?? []).union([line.id])
+        // A command still waiting goes, as a new hold's would replace it.
+        if let old = pendingCommand, old.id != line.id { deleteLine(old) }
+        pendingCommandID = line.id
+        save()
         return line
     }
 
@@ -793,7 +837,8 @@ final class MobileTranscriber: ObservableObject {
     @discardableResult
     func sendLineToMac(_ line: TranscriptLine) -> Bool {
         guard sendToMacEnabled, current.lines.contains(where: { $0.id == line.id }) else { return false }
-        let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id)
+        let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id,
+                                     history: sendToMacMode == .claude ? claudeHistory(before: line) : nil)
         current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: delivered]) { $1 }
         if delivered { current.macCommands?.remove(line.id) }
         save()
@@ -809,6 +854,7 @@ final class MobileTranscriber: ObservableObject {
         current.lines.removeAll { $0.id == line.id }
         current.macDeliveries?[line.id] = nil
         current.macCommands?.remove(line.id)
+        current.claudeRuns?[line.id] = nil
         unspokenIDs.remove(line.id)
         if current.lines.isEmpty, !recording, !current.sessions.contains(where: { $0.audioFile != nil }) {
             // Nothing left worth keeping: the record goes, as an empty one is never saved and the
@@ -819,6 +865,76 @@ final class MobileTranscriber: ObservableObject {
             save()
         }
         ai.update(current.lines)
+    }
+
+    // MARK: Claude Code runs
+
+    /// The Claude Code run shown under a line of the current record: the Mac's, while it still
+    /// keeps it, or else the one kept with the record.
+    func claudeRun(forLine id: String) -> ClaudeRun? {
+        macLink.latestRun(forLine: id) ?? current.claudeRuns?[id]?.asStored
+    }
+
+    /// A run by its id, from the Mac or kept with the current record.
+    func claudeRun(id: String) -> ClaudeRun? {
+        macLink.runs[id] ?? current.claudeRuns?.values.first { $0.id == id }?.asStored
+    }
+
+    /// What the earlier lines of the current record sent with Run came to, oldest first: sent
+    /// along with `line` so Claude knows the conversation. Runs still going have no conclusion yet.
+    private func claudeHistory(before line: TranscriptLine) -> [ClaudeExchange] {
+        guard let index = current.lines.firstIndex(where: { $0.id == line.id }) else { return [] }
+        return current.lines[..<index].compactMap { earlier in
+            guard let run = claudeRun(forLine: earlier.id), let answer = run.conclusion else { return nil }
+            return ClaudeExchange(prompt: run.text, answer: answer)
+        }
+    }
+
+    /// Keeps each line's latest run with the record the line is in, as the Mac reports it, so the
+    /// runs are still there once the Mac's service or the app has restarted.
+    private func keep(_ runs: [String: ClaudeRun]) {
+        let latest = Dictionary(grouping: runs.values.filter { $0.line != nil }, by: { $0.line! })
+            .compactMapValues { $0.max { ($0.startedAt ?? .infinity) < ($1.startedAt ?? .infinity) } }
+        for (line, run) in latest {
+            if current.lines.contains(where: { $0.id == line }) {
+                guard Self.replaces(run, current.claudeRuns?[line]) else { continue }
+                current.claudeRuns = (current.claudeRuns ?? [:]).merging([line: run]) { $1 }
+                recordsWithNewRuns.insert(current.id)
+            } else if let index = records.firstIndex(where: { $0.lines.contains { $0.id == line } }) {
+                guard Self.replaces(run, records[index].claudeRuns?[line]) else { continue }
+                records[index].claudeRuns = (records[index].claudeRuns ?? [:]).merging([line: run]) { $1 }
+                recordsWithNewRuns.insert(records[index].id)
+            }
+        }
+        guard !recordsWithNewRuns.isEmpty, runSave == nil else { return }
+        // Text streams in a piece at a time: saved once it has settled a little.
+        runSave = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            self?.saveClaudeRuns()
+        }
+    }
+
+    /// Whether `run` should take the place of the run kept for its line: a change to the same
+    /// run, or a later run of the line.
+    private static func replaces(_ run: ClaudeRun, _ kept: ClaudeRun?) -> Bool {
+        guard let kept else { return true }
+        if kept.id == run.id { return kept != run }
+        return (run.startedAt ?? .infinity) >= (kept.startedAt ?? .infinity)
+    }
+
+    private func saveClaudeRuns() {
+        runSave?.cancel()
+        runSave = nil
+        let ids = recordsWithNewRuns
+        recordsWithNewRuns = []
+        guard !ids.isEmpty else { return }
+        do {
+            for record in records where ids.contains(record.id) && record.id != current.id {
+                try historyStore.save(record)
+            }
+        } catch { self.error = "保存历史记录失败：\(error.localizedDescription)" }
+        // The current record also reloads the others.
+        if ids.contains(current.id) { save() } else { records = historyStore.load() }
     }
 
     func save() {

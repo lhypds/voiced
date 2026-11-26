@@ -32,10 +32,14 @@ final class ClaudeRunner {
         var tools: [String: Int] = [:]
         var stopRequested = false
         var stderr = ""
+        /// The earlier requests of the phone's record and what Claude concluded, given to Claude
+        /// with this one.
+        let history: [ClaudeExchange]
 
-        init(info: ClaudeRun, logURL: URL) {
+        init(info: ClaudeRun, logURL: URL, history: [ClaudeExchange]) {
             self.info = info
             self.logURL = logURL
+            self.history = history
         }
 
         var items: [ClaudeRunItem] {
@@ -62,11 +66,12 @@ final class ClaudeRunner {
     /// Every run kept, with its transcript, for a phone that has just connected.
     var snapshot: ClaudeRunEvent { ClaudeRunEvent(type: .snapshot, runs: runs.map(\.info)) }
 
-    /// Queues a run of `text` in `folder`, for the phone's transcript line `line`.
-    func start(_ text: String, in folder: String, line: String?) {
+    /// Queues a run of `text` in `folder`, for the phone's transcript line `line`, with the
+    /// conversation so far on the phone, `history`, for Claude to refer to.
+    func start(_ text: String, in folder: String, line: String?, history: [ClaudeExchange] = []) {
         let id = Self.newID()
         let run = Run(info: ClaudeRun(id: id, line: line, text: text, folder: folder, state: .queued),
-                      logURL: Self.logFolder.appending(path: "\(id).jsonl"))
+                      logURL: Self.logFolder.appending(path: "\(id).jsonl"), history: history)
         runs.append(run)
         emitState(run)
         startNext()
@@ -159,10 +164,38 @@ final class ClaudeRunner {
         }
         run.process = process
         run.input = stdin.fileHandleForWriting
-        send(run, ["type": "user", "message": ["role": "user", "content": run.info.text],
+        send(run, ["type": "user", "message": ["role": "user", "content": Self.prompt(run.info.text, history: run.history)],
                    "parent_tool_use_id": NSNull(), "session_id": "default"])
         AgentTerminal.follow(run.logURL.path, sentence: run.info.text, in: run.info.folder)
-        log("\(continuing ? "Continued" : "Started") Claude Code in \(run.info.folder) (run \(run.info.id), \(AgentTerminal.permissionMode))")
+        log("\(continuing ? "Continued" : "Started") Claude Code in \(run.info.folder) (run \(run.info.id), \(AgentTerminal.permissionMode), \(run.history.count) earlier exchanges)")
+    }
+
+    /// How many earlier exchanges Claude is given, the latest, and how much of each answer.
+    private static let historyLimit = 20
+    private static let answerLimit = 2000
+
+    /// What Claude is sent for `text`: the sentence itself, after the earlier requests from the
+    /// same record on the phone and what came of them, so a follow-up such as "now do the same for
+    /// the other one" makes sense even in a conversation that did not continue (after a restart, or
+    /// in another folder). Only conclusions: how Claude got to them is left out.
+    static func prompt(_ text: String, history: [ClaudeExchange]) -> String {
+        let exchanges = history.suffix(historyLimit)
+        guard !exchanges.isEmpty else { return text }
+        let earlier = exchanges.enumerated().map { index, exchange in
+            let answer = exchange.answer.count > answerLimit ? String(exchange.answer.prefix(answerLimit)) + "…" : exchange.answer
+            return "[\(index + 1)] User: \(exchange.prompt)\nYou concluded: \(answer)"
+        }
+        return """
+        <earlier_conversation>
+        For reference: the user's earlier requests in this conversation (sent by voice from their \
+        iPhone) and what you concluded each time, oldest first. Only the conclusions are given, not \
+        the work behind them. If you already remember these, there is nothing new here.
+
+        \(earlier.joined(separator: "\n\n"))
+        </earlier_conversation>
+
+        \(text)
+        """
     }
 
     /// Hands each line the pipe produces to `handler` on the main queue, in order.
@@ -295,6 +328,24 @@ final class ClaudeRunner {
     }
 
     // MARK: Ending
+
+    /// The service is stopping, for a restart say: ends every run's claude now, so none is left
+    /// running with no one reading it, and tells each run's Terminal window, which then ends too.
+    func stopAll() {
+        for run in runs where run.info.state.isGoing {
+            run.stopRequested = true
+            if let process = run.process, process.isRunning {
+                process.terminate()
+                let deadline = Date().addingTimeInterval(1)
+                while process.isRunning && Date() < deadline { usleep(20_000) }
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+            writeLog(run, ["type": "voiced_end", "state": "restarted"])
+            try? run.log?.close()
+            run.log = nil
+            log("Stopped run \(run.info.id): the service is stopping")
+        }
+    }
 
     private func stop(_ run: Run) {
         guard run.info.state.isGoing else { return }

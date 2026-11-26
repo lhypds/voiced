@@ -119,6 +119,28 @@ enum AgentTerminal {
         }
     }
 
+    /// The service is stopping and no one will be left to close the window: once ClaudeRunner has
+    /// ended the run, its follow command ends without counting down, and the window is closed.
+    static func closeForShutdown() {
+        worker?.cancel()
+        worker = nil
+        queue = []
+        guard let current = session else { return }
+        session = nil
+        if let currentLog {
+            // Skips the follow command's countdown; it removes the log as it ends.
+            FileManager.default.createFile(atPath: ClaudeTranscript.nextRunMarker(for: currentLog), contents: nil)
+            let deadline = Date().addingTimeInterval(2)
+            while FileManager.default.fileExists(atPath: currentLog) && Date() < deadline { usleep(50_000) }
+            usleep(200_000)
+            try? FileManager.default.removeItem(atPath: ClaudeTranscript.nextRunMarker(for: currentLog))
+        }
+        // A window still running something would ask before closing; it is left open then.
+        guard windowExists(current.windowID), !isBusy(current.windowID) else { return }
+        _ = run("tell application \"Terminal\" to close window id \(current.windowID)")
+        log("Closed Terminal window \(current.windowID): the service is stopping")
+    }
+
     /// Whether the window is still open. A closed window can linger in Terminal's scripting for a
     /// while, invisible and without tabs: that counts as closed.
     private static func windowExists(_ windowID: Int) -> Bool {

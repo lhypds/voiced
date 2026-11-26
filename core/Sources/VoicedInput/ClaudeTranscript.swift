@@ -117,6 +117,7 @@ enum ClaudeTranscript {
                 printer.gap()
                 switch message["state"] as? String {
                 case "stopped": printer.line(yellow("Run stopped from the iPhone."))
+                case "restarted": printer.line(yellow("Run stopped: voiced was restarted."))
                 case "done": printer.line(green("Run done."))
                 default: printer.line(started ? red("Run failed.") : red("Claude Code did not start."))
                 }

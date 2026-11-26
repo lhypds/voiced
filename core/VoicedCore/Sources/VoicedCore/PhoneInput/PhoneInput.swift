@@ -34,12 +34,16 @@ public enum PhoneInput {
         public var folder: String?
         /// The transcript line the sentence is, so the Mac's run for it shows under that line.
         public var line: String?
+        /// For `claude`: the earlier requests of the same record and what Claude concluded, oldest
+        /// first, which the Mac gives Claude along with this one.
+        public var history: [ClaudeExchange]?
 
-        public init(text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil) {
+        public init(text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil, history: [ClaudeExchange]? = nil) {
             self.text = text
             self.mode = mode
             self.folder = folder
             self.line = line
+            self.history = history
         }
 
         public init(from decoder: any Swift.Decoder) throws {
@@ -48,13 +52,15 @@ public enum PhoneInput {
             mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
             folder = try? container.decodeIfPresent(String.self, forKey: .folder)
             line = try? container.decodeIfPresent(String.self, forKey: .line)
+            history = try? container.decodeIfPresent([ClaudeExchange].self, forKey: .history)
         }
     }
 
     /// The bytes sent for one sentence: its message as JSON, ended by a line feed. JSON escapes
     /// any line break inside the text, so a line feed only ever ends a message.
-    public static func encode(_ text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil) -> Data {
-        var data = (try? JSONEncoder().encode(Message(text: text, mode: mode, folder: folder, line: line))) ?? Data()
+    public static func encode(_ text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil,
+                              history: [ClaudeExchange]? = nil) -> Data {
+        var data = (try? JSONEncoder().encode(Message(text: text, mode: mode, folder: folder, line: line, history: history))) ?? Data()
         data.append(0x0A)
         return data
     }
@@ -182,14 +188,17 @@ public final class PhoneInputSender: ObservableObject {
     }
 
     /// Sends one sentence, for the Mac to handle as `mode` says; `folder` is where Claude Code
-    /// runs it in `claude` mode. Returns false when no Mac is connected, so nothing went out.
+    /// runs it in `claude` mode, with `history`, the conversation so far, for Claude to refer to.
+    /// Returns false when no Mac is connected, so nothing went out.
     @discardableResult
-    public func send(_ text: String, mode: PhoneInput.Mode = .type, folder: String? = nil, line: String? = nil) -> Bool {
+    public func send(_ text: String, mode: PhoneInput.Mode = .type, folder: String? = nil, line: String? = nil,
+                     history: [ClaudeExchange]? = nil) -> Bool {
         guard let connection, connectedName != nil else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         connection.send(content: PhoneInput.encode(trimmed, mode: mode, folder: mode == .claude ? folder : nil,
-                                                   line: mode == .claude ? line : nil),
+                                                   line: mode == .claude ? line : nil,
+                                                   history: mode == .claude && history?.isEmpty == false ? history : nil),
                         completion: .contentProcessed { _ in })
         return true
     }

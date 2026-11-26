@@ -27,12 +27,16 @@ enum PhoneInputMessages {
         var folder: String?
         /// The phone's id for the transcript line the sentence is, so a run shows under it there.
         var line: String?
+        /// For `claude`: the earlier requests of the same record and what Claude concluded, oldest
+        /// first, which Claude is given along with this one.
+        var history: [ClaudeExchange]?
 
-        init(text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil) {
+        init(text: String, mode: Mode = .type, folder: String? = nil, line: String? = nil, history: [ClaudeExchange]? = nil) {
             self.text = text
             self.mode = mode
             self.folder = folder
             self.line = line
+            self.history = history
         }
 
         init(from decoder: any Swift.Decoder) throws {
@@ -41,6 +45,7 @@ enum PhoneInputMessages {
             mode = (try? container.decodeIfPresent(Mode.self, forKey: .mode)) ?? .type
             folder = try? container.decodeIfPresent(String.self, forKey: .folder)
             line = try? container.decodeIfPresent(String.self, forKey: .line)
+            history = try? container.decodeIfPresent([ClaudeExchange].self, forKey: .history)
         }
 
         /// `folder` as a path on this Mac: `~` expanded, the home folder when none was sent.

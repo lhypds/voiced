@@ -48,6 +48,29 @@ final class PhoneInputTests: XCTestCase {
                                             PhoneInput.Message(text: "old phone", mode: .claude)])
     }
 
+    func testTheEarlierConversationTravelsWithARunSentence() {
+        var decoder = PhoneInput.Decoder()
+        let history = [ClaudeExchange(prompt: "what fails?", answer: "Two tests in PhoneInputTests.")]
+        let data = PhoneInput.encode("fix them", mode: .claude, line: "l2", history: history)
+
+        XCTAssertEqual(decoder.feed(data), [PhoneInput.Message(text: "fix them", mode: .claude, line: "l2", history: history)])
+    }
+
+    func testARunsConclusionIsWhatClaudeWroteLastOrHowItEnded() {
+        var run = ClaudeRun(id: "r", line: "l", text: "go", folder: "/", state: .running, startedAt: 1,
+                            items: [ClaudeRunItem(kind: .text, text: "Looking."), ClaudeRunItem(kind: .tool, name: "Bash", done: true),
+                                    ClaudeRunItem(kind: .text, text: " Done: all green. ")])
+        XCTAssertNil(run.conclusion, "nothing is concluded while it runs")
+        XCTAssertEqual(run.asStored.state, .stopped, "a run no longer reported counts as stopped")
+        XCTAssertNil(run.asStored.startedAt)
+        run.state = .done
+        XCTAssertEqual(run.conclusion, "Done: all green.")
+        XCTAssertEqual(run.asStored, run)
+        run.state = .failed
+        run.items?.append(ClaudeRunItem(kind: .error, text: "claude not found"))
+        XCTAssertEqual(run.conclusion, "(failed: claude not found)")
+    }
+
     func testAMessageWithoutAModeOrWithAnUnknownOneIsTyped() {
         var decoder = PhoneInput.Decoder()
         let data = Data("{\"text\":\"old phone\"}\n{\"text\":\"newer phone\",\"mode\":\"later\"}\n".utf8)

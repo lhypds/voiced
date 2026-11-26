@@ -31,7 +31,7 @@ for argument in CommandLine.arguments.dropFirst() {
 // Top-level code runs on the main thread; the typer, the listener and the menu live on the main
 // actor. They are kept here for the life of the process.
 let app = NSApplication.shared
-let (listener, statusMenu) = MainActor.assumeIsolated {
+let (listener, statusMenu, runner) = MainActor.assumeIsolated {
     // A menu bar item only: no Dock icon, no main menu.
     app.setActivationPolicy(.accessory)
     let status = ServiceStatus()
@@ -66,7 +66,7 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
                 status.deliveryError = "Dropped a sentence: \(folder) is not a folder"
                 return
             }
-            runner.start(message.text, in: folder, line: message.line)
+            runner.start(message.text, in: folder, line: message.line, history: message.history ?? [])
             status.deliveryError = nil
         }
         status.sentencesTyped += 1
@@ -86,7 +86,20 @@ let (listener, statusMenu) = MainActor.assumeIsolated {
         log("Cannot listen: \(error.localizedDescription)")
         exit(1)
     }
-    return (listener, StatusMenu(status: status))
+    return (listener, StatusMenu(status: status), runner)
 }
+
+// launchd stops the service with SIGTERM (voiced stop, voiced restart). Its runs' claude would be
+// left running with no one reading it, and their Terminal window open: both end first.
+signal(SIGTERM, SIG_IGN)
+let terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+terminationSource.setEventHandler {
+    MainActor.assumeIsolated {
+        runner.stopAll()
+        AgentTerminal.closeForShutdown()
+    }
+    exit(0)
+}
+terminationSource.resume()
 
 app.run()

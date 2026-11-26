@@ -69,6 +69,18 @@ struct ClaudeRun: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// An earlier request sent with Run and what Claude concluded, sent along with a new one so Claude
+/// knows the conversation: only the conclusions, not how Claude got to them.
+struct ClaudeExchange: Codable, Equatable, Sendable {
+    var prompt: String
+    var answer: String
+
+    init(prompt: String, answer: String) {
+        self.prompt = prompt
+        self.answer = answer
+    }
+}
+
 /// One entry of a run's transcript.
 struct ClaudeRunItem: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable {
