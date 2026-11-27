@@ -73,8 +73,8 @@ Or name what to do, then the part; leave out the part to pick it with the arrow 
                                all: the service and both apps (they build core themselves);
                                device: build iOS for an iPhone rather than the simulator
   voiced restart [all|service|ios|macos] [device]
-                               always pulls (fast-forward only) and builds first; all: the service and the Mac app, then the
-                               app on the paired iPhone
+                               always pulls (fast-forward only) and builds first; all: the
+                               service and the Mac app, then the app on the paired iPhone
   voiced start [all|service|macos|ios]
                                all: the service and the Mac app, then the app on the paired iPhone
   voiced stop [all|service|macos|ios]
@@ -512,7 +512,7 @@ perform() {
         # emulate.sh and deploy.sh always build first, and end the running app.
         ios:start|ios:restart)
             [[ -z "${1:-}" || "$1" == device ]] || usage
-            [[ "$action" == restart ]] && pull
+            if [[ "$action" == restart ]]; then pull; fi
             start_ios "$@"
             ;;
         ios:stop) (( $# == 0 )) || usage; stop_ios ;;
