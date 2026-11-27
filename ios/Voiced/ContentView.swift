@@ -902,17 +902,35 @@ struct ContentView: View {
                 // VoiceOver's double-tap and hold passes the touch through, so holding works there too.
                 .accessibilityHint(sendsCommand ? Text("按住重新录制")
                                    : model.sendToMacEnabled ? Text("按住说话，识别为发给电脑的命令") : Text("按住说话，松开后整段识别"))
-                HStack {
-                    #if DEBUG
-                    if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
-                        // Lets UI tests see that a hold took effect, which a press cannot observe.
-                        Text(verbatim: "\(model.holdCount)").font(.system(size: 1)).opacity(0.02)
-                            .accessibilityIdentifier("ui-hold-count")
+                ZStack {
+                    HStack {
+                        #if DEBUG
+                        if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                            // Lets UI tests see that a hold took effect, which a press cannot observe.
+                            Text(verbatim: "\(model.holdCount)").font(.system(size: 1)).opacity(0.02)
+                                .accessibilityIdentifier("ui-hold-count")
+                        }
+                        #endif
+                        Circle().fill(statusColor)
+                            .frame(width: 7, height: 7)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    // While a command waits, a button to give it up, placed as the machine button
+                    // on the left is, mirrored: the microphone is the microphone again.
+                    if sendsCommand {
+                        Button { withAnimation(.easeOut(duration: 0.2)) { model.discardPendingCommand() } } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 18, weight: .regular))
+                                .foregroundStyle(MobileTheme.accent)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .offset(x: -12)
+                        .accessibilityLabel(Text("取消发送"))
+                        .accessibilityIdentifier("discard-command")
+                        .transition(.opacity)
                     }
-                    #endif
-                    Circle().fill(statusColor)
-                        .frame(width: 7, height: 7)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxWidth: .infinity)
             }
         }
         .padding(.top, Self.controlsTopPadding).padding(.bottom, Self.controlsBottomPadding)

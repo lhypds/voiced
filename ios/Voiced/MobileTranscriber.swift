@@ -550,6 +550,14 @@ final class MobileTranscriber: ObservableObject {
         return delivered
     }
 
+    /// Gives up the waiting command, which is deleted, as a new hold's would replace it: the
+    /// microphone is the microphone again.
+    func discardPendingCommand() {
+        guard let line = pendingCommand else { return }
+        pendingCommandID = nil
+        deleteLine(line)
+    }
+
     func startPreview() { begin(preview: true) }
 
     private func begin(preview: Bool) {

@@ -714,17 +714,7 @@ struct SendToMachineSheet: View {
                 } header: { Text("方式") }
                     .listRowBackground(Color.white)
                 Section {
-                    Button { model.macLink.refresh() } label: {
-                        Label("刷新列表", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .foregroundStyle(MobileTheme.accent)
-                }
-                .listRowBackground(Color.white)
-                .listSectionSpacing(18)
-                Section {
-                    // Choosing one leaves the sheet open, for the settings below.
+                    // Choosing one leaves the sheet open, for the settings above.
                     ForEach(model.machineChoices, id: \.self) { name in
                         Button { model.sendToMacTarget = name } label: {
                             HStack {
@@ -747,6 +737,17 @@ struct SendToMachineSheet: View {
                     }
                 } header: { Text("电脑") }
                     .listRowBackground(Color.white)
+                    // Close to the list it refreshes, below it.
+                    .listSectionSpacing(18)
+                Section {
+                    Button { model.macLink.refresh() } label: {
+                        Label("刷新列表", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(MobileTheme.accent)
+                }
+                .listRowBackground(Color.white)
             }
             .settingsSurface(title: "发送到电脑")
             .toolbar {
@@ -755,5 +756,7 @@ struct SendToMachineSheet: View {
                 }
             }
         }
+        // Half the screen to start with; drawn up for the whole list.
+        .presentationDetents([.medium, .large])
     }
 }
