@@ -13,6 +13,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use crate::{Status, ListenerState};
 
 struct Items {
+    #[cfg(target_os = "macos")]
     menu: Menu,
     state: MenuItem,
     name: MenuItem,
@@ -71,6 +72,7 @@ fn build() -> Result<(TrayIcon, Items), String> {
     let row = |text: &str| MenuItem::new(text, false, None);
     let menu = Menu::new();
     let items = Items {
+        #[cfg(target_os = "macos")]
         menu: menu.clone(),
         state: row("voiced · Starting…"),
         name: row(""),
