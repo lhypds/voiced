@@ -36,7 +36,7 @@ there is; the Mac and iOS apps and core need macOS.
                                build: build it without touching the running service
                                start: start it, and at every login
                                stop: stop it; it no longer starts at login
-                               restart: build it, then restart it
+                               restart: pull (fast-forward only), build it, then restart it
   voiced build|start|stop|restart [service]
                                the same, named the other way round
   voiced status                show whether the service runs
@@ -171,7 +171,20 @@ function Stop-VoicedService {
     Write-Host 'Stopped voiced.'
 }
 
+# Brings the checkout up to date before a restart builds it: fast-forward only, so it never
+# merges. When that cannot be done (offline, no upstream, local changes in the way, no git) the
+# restart goes on with the code as it is.
+function Update-Checkout {
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return }
+    git -C $Root rev-parse --is-inside-work-tree 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { return }
+    Write-Host 'Pulling...'
+    git -C $Root pull --ff-only
+    if ($LASTEXITCODE -ne 0) { Write-Host 'Could not pull; restarting with the code as it is.' }
+}
+
 function Restart-VoicedService {
+    Update-Checkout
     Build-Service
     Stop-VoicedService
     Copy-Build

@@ -9,7 +9,7 @@
 #   voiced status                显示服务和 Mac 版的状态
 #
 # 例：voiced service restart、voiced restart ios、voiced build core、voiced ios deploy。
-# restart 总是先构建。服务（service/，Rust）由 launchd 运行；core/VoicedCore 是两个应用共用的 Swift 库。
+# restart 总是先 git pull（只快进）再构建。服务（service/，Rust）由 launchd 运行；core/VoicedCore 是两个应用共用的 Swift 库。
 # 每句话如何处理（输入、输入后回车、用 Claude Code 执行）由 iPhone 上的“发送到 Mac”方式决定，
 # Claude Code 的文件夹也在 iPhone 上设置。
 
@@ -73,7 +73,7 @@ Or name what to do, then the part; leave out the part to pick it with the arrow 
                                all: the service and both apps (they build core themselves);
                                device: build iOS for an iPhone rather than the simulator
   voiced restart [all|service|ios|macos] [device]
-                               always builds first; all: the service and the Mac app, then the
+                               always pulls (fast-forward only) and builds first; all: the service and the Mac app, then the
                                app on the paired iPhone
   voiced start [all|service|macos|ios]
                                all: the service and the Mac app, then the app on the paired iPhone
@@ -437,6 +437,7 @@ stop_all() {
 # The service and the Mac app are built and restarted, then the app on the paired iPhone is
 # rebuilt, reinstalled and reopened. A disconnected iPhone is reported and skipped.
 restart_all() {
+    pull
     print "==> voiced service"
     build_service
     stop_service
@@ -447,6 +448,17 @@ restart_all() {
     start_ui
     print "==> iPhone"
     "$ROOT/ios/deploy.sh" || print -u2 "The iPhone was not updated: connect and unlock it, then run voiced restart ios device."
+}
+
+# MARK: Pull
+
+# Brings the checkout up to date before a restart builds it: fast-forward only, so it never
+# merges. When that cannot be done (offline, no upstream, local changes in the way) the restart
+# goes on with the code as it is.
+pull() {
+    git -C "$ROOT" rev-parse --is-inside-work-tree &>/dev/null || return 0
+    print "Pulling..."
+    git -C "$ROOT" pull --ff-only || print -u2 "Could not pull; restarting with the code as it is."
 }
 
 # MARK: Status
@@ -484,12 +496,12 @@ perform() {
         service:build) build_service ;;
         service:start) start_service ;;
         service:stop) stop_service ;;
-        service:restart) build_service; stop_service; start_service ;;
+        service:restart) pull; build_service; stop_service; start_service ;;
         service:status) show_status ;;
         macos:build) build_macos ;;
         macos:start) start_ui ;;
         macos:stop) stop_ui ;;
-        macos:restart) build_macos; stop_ui; start_ui ;;
+        macos:restart) pull; build_macos; stop_ui; start_ui ;;
         ios:build)
             case "${1:-simulator}" in
                 sim|simulator) "$ROOT/ios/build.sh" simulator ;;
@@ -500,6 +512,7 @@ perform() {
         # emulate.sh and deploy.sh always build first, and end the running app.
         ios:start|ios:restart)
             [[ -z "${1:-}" || "$1" == device ]] || usage
+            [[ "$action" == restart ]] && pull
             start_ios "$@"
             ;;
         ios:stop) (( $# == 0 )) || usage; stop_ios ;;
