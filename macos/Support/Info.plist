@@ -26,6 +26,12 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Voiced 需要读取所选音频输入设备，用于本地语音识别。</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Voiced 需要在局域网中查找运行 voiced 服务的电脑，把说的话发送过去。</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_voiced-input._tcp</string>
+    </array>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

@@ -327,6 +327,63 @@ public struct AppStrings: Sendable {
         value("识别失败：\(detail)", "認識に失敗：\(detail)", "Recognition failed: \(detail)", "Échec de la reconnaissance : \(detail)", "Error de reconocimiento: \(detail)", "Erkennung fehlgeschlagen: \(detail)")
     }
 
+    // MARK: Holds and sending to a machine (macOS)
+
+    /// Under the hold's waveform once let go, while its clip is transcribed.
+    public var recognizingClip: String { value("识别中…", "認識中…", "Recognizing…", "Reconnaissance…", "Reconociendo…", "Wird erkannt…") }
+    /// The record button's tooltip line about the space bar.
+    public var spaceBarHint: String {
+        value("空格：开始或停止；按住空格说话，松开后整段识别",
+              "スペース：開始・停止。押したまま話すと、離したあとまとめて認識",
+              "Space: start or stop. Hold Space to speak, recognized whole when released",
+              "Espace : démarrer ou arrêter. Maintenez Espace pour parler, reconnu d’un bloc au relâchement",
+              "Espacio: iniciar o detener. Mantén Espacio para hablar; se reconoce entero al soltar",
+              "Leertaste: Start oder Stopp. Gedrückt halten zum Sprechen, beim Loslassen als Ganzes erkannt")
+    }
+    public var sendToMachine: String { value("发送到电脑", "コンピュータに送信", "Send to Machine", "Envoyer à l’ordinateur", "Enviar al ordenador", "An Computer senden") }
+    public var sendToMachineFooter: String {
+        value("按住录音键或空格说话，松开后识别为发给电脑的命令，再点一下录音键发送。电脑上需要运行 voiced 服务。",
+              "録音ボタンかスペースを押したまま話すと、離したあとコンピュータへのコマンドとして認識されます。もう一度録音ボタンを押すと送信します。コンピュータで voiced サービスが動いている必要があります。",
+              "Hold the record button or Space and speak: when released, it becomes a command for the machine. Click the record button again to send it. The machine must be running the voiced service.",
+              "Maintenez le bouton d’enregistrement ou Espace et parlez : au relâchement, cela devient une commande pour l’ordinateur. Cliquez à nouveau sur le bouton pour l’envoyer. Le service voiced doit tourner sur l’ordinateur.",
+              "Mantén el botón de grabar o Espacio y habla: al soltar se convierte en un comando para el ordenador. Haz clic de nuevo en el botón para enviarlo. El ordenador debe ejecutar el servicio voiced.",
+              "Aufnahmetaste oder Leertaste gedrückt halten und sprechen: Beim Loslassen wird daraus ein Befehl für den Computer. Erneut auf die Aufnahmetaste klicken, um ihn zu senden. Auf dem Computer muss der Dienst voiced laufen.")
+    }
+    public var sendMethod: String { value("方式", "方法", "Method", "Méthode", "Método", "Methode") }
+    public var sendTypes: String { value("输入", "入力", "Type", "Saisir", "Escribir", "Eingeben") }
+    public var sendRuns: String { value("执行", "実行", "Run", "Exécuter", "Ejecutar", "Ausführen") }
+    public var workingFolder: String { value("工作目录", "作業フォルダ", "Working folder", "Dossier de travail", "Carpeta de trabajo", "Arbeitsordner") }
+    public var pressReturnAfterTyping: String { value("输入后按回车", "入力後に Return を押す", "Press Return after typing", "Appuyer sur Retour après la saisie", "Pulsar Intro después de escribir", "Nach dem Eingeben Return drücken") }
+    public var machines: String { value("电脑", "コンピュータ", "Machine", "Ordinateur", "Ordenador", "Computer") }
+    public var refreshList: String { value("刷新列表", "リストを更新", "Refresh list", "Actualiser la liste", "Actualizar lista", "Liste aktualisieren") }
+    public var automatic: String { value("自动", "自動", "Automatic", "Automatique", "Automático", "Automatisch") }
+    public var searchingMachines: String { value("正在查找…", "検索中…", "Searching…", "Recherche…", "Buscando…", "Suche…") }
+    public var machineNotFound: String { value("未找到", "見つかりません", "Not found", "Introuvable", "No encontrado", "Nicht gefunden") }
+    public var discardCommand: String { value("取消发送", "送信をやめる", "Discard", "Abandonner l’envoi", "Descartar", "Verwerfen") }
+    public var sendCommand: String { value("发送到电脑", "コンピュータに送信", "Send to machine", "Envoyer à l’ordinateur", "Enviar al ordenador", "An Computer senden") }
+    public var sentToMachine: String { value("已发送到电脑", "コンピュータに送信しました", "Sent to machine", "Envoyé à l’ordinateur", "Enviado al ordenador", "An Computer gesendet") }
+    public var notSentToMachine: String { value("未连接电脑，未发送", "コンピュータに未接続のため未送信", "No machine connected, not sent", "Aucun ordinateur connecté, non envoyé", "Ningún ordenador conectado; no enviado", "Kein Computer verbunden, nicht gesendet") }
+    public var done: String { value("完成", "完了", "Done", "OK", "Listo", "Fertig") }
+
+    // MARK: Claude Code runs (macOS)
+
+    public var runQueued: String { value("排队中", "待機中", "Queued", "En attente", "En cola", "In Warteschlange") }
+    public var runWaitingApproval: String { value("等待批准", "承認待ち", "Waiting for approval", "En attente d’autorisation", "Esperando aprobación", "Wartet auf Freigabe") }
+    public func runUsingTool(_ name: String) -> String {
+        value("正在使用 \(name)", "\(name) を使用中", "Using \(name)", "Utilise \(name)", "Usando \(name)", "Verwendet \(name)")
+    }
+    public var runThinking: String { value("正在思考", "考え中", "Thinking", "Réflexion", "Pensando", "Denkt nach") }
+    public var runDone: String { value("已完成", "完了", "Done", "Terminé", "Terminado", "Fertig") }
+    public var runFailed: String { value("执行失败", "実行に失敗", "Failed", "Échec", "Falló", "Fehlgeschlagen") }
+    public var runStopped: String { value("已停止", "停止しました", "Stopped", "Arrêté", "Detenido", "Gestoppt") }
+    public var runStop: String { value("停止", "停止", "Stop", "Arrêter", "Detener", "Stoppen") }
+    public var runDeny: String { value("拒绝", "拒否", "Deny", "Refuser", "Denegar", "Ablehnen") }
+    public var runAllow: String { value("允许", "許可", "Allow", "Autoriser", "Permitir", "Erlauben") }
+    public var runTitle: String { value("执行过程", "実行の経過", "Run", "Exécution", "Ejecución", "Ausführung") }
+    public func runTurns(_ count: Int) -> String {
+        value("\(count) 轮", "\(count) ターン", "\(count) turns", "\(count) tours", "\(count) turnos", "\(count) Runden")
+    }
+
     private func value(
         _ chinese: String, _ japanese: String, _ english: String,
         _ french: String, _ spanish: String, _ german: String

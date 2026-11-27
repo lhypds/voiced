@@ -16,7 +16,17 @@ struct ContentView: View {
     /// rather than plain state: only the top fade reads it, so scrolling redraws the fade alone
     /// and never rebuilds the rows.
     @State private var scrollFade = ScrollFadeState()
-    @State private var showsCopiedToast = false
+    /// The confirmation pill under the header: after a copy, or a command sent or not.
+    @State private var toast: ToastContent?
+    /// Whether the machine popover, from the button left of the record button, is open.
+    @State private var isMachinesPresented = false
+    /// The record button or Space is down; see `pressBegan`.
+    @State private var pressing = false
+    /// The press has lasted long enough to be a hold.
+    @State private var pressHolding = false
+    @State private var holdTimer: Task<Void, Never>?
+    /// Whether the TYPE row is open, after a hold for the machine heard nothing.
+    @State private var isTypingCommand = false
     /// Measured height of the model banner above the record button, 0 while there is none.
     @State private var preparationBannerHeight: CGFloat = 0
     @State private var copiedToastResetTask: Task<Void, Never>?
@@ -46,8 +56,8 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .top) {
-            if showsCopiedToast {
-                copiedToast
+            if let toast {
+                toastView(toast)
             }
         }
         .animation(.easeOut(duration: 0.15), value: isSearchPresented)
@@ -57,8 +67,19 @@ struct ContentView: View {
         }
         .background(Theme.background)
         .background(WindowLevelSetter(isFloating: controller.keepWindowOnTop))
+        // A hold for the machine that heard nothing: the command is typed instead.
+        .onChange(of: controller.typeCommandRequests) {
+            guard controller.sendToMacEnabled, !isTypingCommand else { return }
+            closeSearch()
+            withAnimation(.easeOut(duration: 0.2)) { isTypingCommand = true }
+        }
+        // Space, while this window has the focus and no text is being edited: a tap starts or
+        // stops recording, a hold records one clip, as the record button does.
+        .background(SpaceKeyMonitor(onDown: pressBegan, onUp: { pressEnded(inside: true) }))
         .modifier(TranslationHost(translator: controller.translator))
         .preferredColorScheme(.light)
+        // No scroll bars anywhere in the window, even where the system would show them.
+        .scrollIndicators(.never)
         // Not a sheet: a sheet hangs from the title bar and blocks the window. This is a separate
         // window centered on this one; both stay focusable.
         .background(
@@ -69,6 +90,7 @@ struct ContentView: View {
                 size: SettingsView.windowSize
             ) {
                 SettingsView(controller: controller, isPresented: $isSettingsPresented)
+                    .scrollIndicators(.never)
             }
         )
     }
@@ -106,6 +128,7 @@ struct ContentView: View {
                     searchQuery = query
                     isSearchPresented = true
                 }
+                .scrollIndicators(.never)
             }
             ToolbarIconButton(systemName: "gearshape", help: strings.settings) {
                 isSettingsPresented = true
@@ -178,11 +201,16 @@ struct ContentView: View {
                texts.secondary?.localizedCaseInsensitiveContains(query) != true {
                 return nil
             }
+            // A command waiting to be sent says so where its time would be.
+            let delivery = controller.macDelivery(of: line)
+            let waiting = controller.isUnsentMacCommand(line) && delivery == nil
             return TranscriptRowModel(
                 line: line,
-                timestamp: controller.timestamp(for: line),
+                timestamp: waiting ? "PROMPT" : controller.timestamp(for: line),
                 primaryText: texts.primary,
-                secondaryText: texts.secondary
+                secondaryText: texts.secondary,
+                mac: delivery ?? (waiting ? true : nil),
+                notSentNote: delivery == false ? strings.notSentToMachine : nil
             )
         }
     }
@@ -192,6 +220,7 @@ struct ContentView: View {
     /// The hint is shown only while idle with nothing on screen; recording shows the LIVE row at once.
     private var isTranscriptEmpty: Bool {
         controller.lines.isEmpty && controller.liveText.isEmpty && !controller.isRecording
+            && !isTypingCommand && !controller.holding && !controller.recognizingHold
     }
 
     @ViewBuilder
@@ -220,8 +249,20 @@ struct ContentView: View {
                                     controller.dismiss(hint)
                                 }
                             }
-                            if controller.isRecording || !controller.liveText.isEmpty {
+                            if controller.holding || controller.recognizingHold {
+                                // A hold shows its speech as a waveform, then its text once let go.
+                                SpeechRow(controller: controller, waveform: controller.waveform, timestampWidth: timestampWidth)
+                            } else if controller.isRecording || !controller.liveText.isEmpty {
                                 LiveRow(text: controller.liveText, timestampWidth: timestampWidth)
+                            }
+                            if isTypingCommand {
+                                CommandDraftRow(timestampWidth: timestampWidth) { text in
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        isTypingCommand = false
+                                        if let text { controller.addTypedCommand(text) }
+                                    }
+                                }
+                                .transition(.opacity)
                             }
                         }
                         ForEach(rows) { row in
@@ -237,6 +278,10 @@ struct ContentView: View {
                             // keeps its body when the list is rebuilt for a new LIVE text or line.
                             .equatable()
                             .contextMenu { lineMenu(row.line) }
+                            // The machine's Claude Code run of a line sent with Run, under it.
+                            if let run = controller.claudeRun(forLine: row.id) {
+                                ClaudeRunRow(controller: controller, run: run, timestampWidth: timestampWidth)
+                            }
                         }
                     }
                     .animation(.easeOut(duration: 0.25), value: controller.hints)
@@ -248,7 +293,7 @@ struct ContentView: View {
                     // gap above the button as between the header and the first row.
                     .padding(.bottom, Self.listBottomInset + bottomExtraInset)
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.never)
                 .modifier(ScrollOffsetReader(fade: scrollFade, limit: Self.topFadeHeight))
                 .mask(
                     VStack(spacing: 0) {
@@ -299,7 +344,7 @@ struct ContentView: View {
     private func lineMenu(_ line: TranscriptLine) -> some View {
         Button(strings.copy, systemImage: "doc.on.doc") {
             controller.copy(line)
-            showCopiedToast()
+            showToast(.copied(strings))
         }
         Button(strings.playFromRow, systemImage: "play") {
             if controller.playingLineID != nil { controller.stopPlayback() }
@@ -307,6 +352,12 @@ struct ContentView: View {
         }
         .disabled(!controller.canPlay(from: line))
         Button(strings.edit, systemImage: "pencil") { editingLineID = line.id }
+        // Only for a command (a blue line, waiting or already sent, to send again).
+        if controller.sendToMacEnabled, controller.isUnsentMacCommand(line) || controller.macDelivery(of: line) != nil {
+            Button(strings.sendCommand, systemImage: "laptopcomputer") {
+                showToast(controller.sendLineToMac(line) ? .sent(strings) : .notSent(strings))
+            }
+        }
         Divider()
         Button(role: .destructive) {
             withAnimation(.easeOut(duration: 0.2)) { controller.deleteLine(line) }
@@ -336,7 +387,7 @@ struct ContentView: View {
             controller.togglePlayback(of: line, onlyLine: controller.lineClickAction == .play)
         } else {
             controller.copy(line)
-            showCopiedToast()
+            showToast(.copied(strings))
         }
     }
 
@@ -352,8 +403,8 @@ struct ContentView: View {
     // MARK: - Copied toast
 
     /// A small pill that fades in just under the header after a copy and fades out on its own.
-    private var copiedToast: some View {
-        Label(strings.copied, systemImage: "checkmark")
+    private func toastView(_ toast: ToastContent) -> some View {
+        Label(toast.text, systemImage: toast.symbol)
             .font(.callout.weight(.medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
@@ -377,13 +428,13 @@ struct ContentView: View {
     /// Distance from the window's top edge to the toast: just below the header row.
     private static let toastTopInset: CGFloat = headerTopInset + 36 + 12
 
-    private func showCopiedToast() {
-        withAnimation(.easeOut(duration: 0.2)) { showsCopiedToast = true }
+    private func showToast(_ content: ToastContent) {
+        withAnimation(.easeOut(duration: 0.2)) { toast = content }
         copiedToastResetTask?.cancel()
         copiedToastResetTask = Task {
-            try? await Task.sleep(for: .seconds(1.2))
+            try? await Task.sleep(for: content.duration)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.3)) { showsCopiedToast = false }
+            withAnimation(.easeOut(duration: 0.3)) { toast = nil }
         }
     }
 
@@ -402,11 +453,44 @@ struct ContentView: View {
             if controller.isPreparing {
                 preparationBanner
             }
-            recordButton
-                .overlay(alignment: .trailing) {
-                    statusDot
-                        .offset(x: 20)
+            // The side buttons sit a fixed distance from the record button, whatever the
+            // window's width: the gaps are those of the default window. With "Send to Machine"
+            // on, the left one is the button for where and how to send, without a ring and a
+            // little smaller than the header buttons.
+            HStack(spacing: Self.sideButtonGap) {
+                Group {
+                    if controller.sendToMacEnabled {
+                        machineButton
+                    } else {
+                        Color.clear.frame(width: 44, height: 44)
+                    }
                 }
+                recordButton
+                    .overlay(alignment: .trailing) {
+                        statusDot
+                            .offset(x: 20)
+                    }
+                // While a command waits, a button to give it up, placed as the machine button
+                // on the left is, mirrored: the record button records again.
+                Group {
+                    if controller.sendsCommand {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.2)) { controller.discardPendingCommand() }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 18, weight: .regular))
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(strings.discardCommand)
+                        .transition(.opacity)
+                    } else {
+                        Color.clear.frame(width: 44, height: 44)
+                    }
+                }
+            }
         }
         .padding(.horizontal, Theme.contentPadding)
         .padding(.vertical, Self.edgeInset)
@@ -415,6 +499,8 @@ struct ContentView: View {
     }
 
     private static let preparationBannerGap: CGFloat = 12
+    /// Between the record button's ring and the 44 pt buttons beside it.
+    private static let sideButtonGap: CGFloat = 32
     /// Space between the banner's edge and its content, and between the rows inside it.
     private static let preparationBannerPadding: CGFloat = 12
     private static let progressBarHeight: CGFloat = 6
@@ -481,20 +567,125 @@ struct ContentView: View {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    private var recordButton: some View {
-        Button(action: controller.toggleRecording) {
-            // A stop sign while the model loads too: a click then cancels the load.
-            Image(systemName: controller.isRecording || controller.isPreparing ? "stop.fill" : "mic.fill")
+    /// Where and how to send: the machine, Type or Run, and their settings, in a popover.
+    private var machineButton: some View {
+        Button { isMachinesPresented = true } label: {
+            Image(systemName: "laptopcomputer")
+                .font(.system(size: 20, weight: .regular))
+                // An outline, as in the record button, rather than a grey screen.
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Theme.accent)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        // A thin ring, filled black only while pressed, as on iOS.
-        .buttonStyle(RingButtonStyle(size: Self.recordButtonSize, symbolSize: 28, lineWidth: 2))
-        .help(recordButtonHelp)
+        .buttonStyle(.plain)
+        .help(controller.machineChoiceLabel(controller.sendToMacTarget))
+        .popover(isPresented: $isMachinesPresented, arrowEdge: .top) {
+            SendToMachinePanel(controller: controller)
+        }
     }
 
-    private var recordButtonHelp: String {
+    /// The press tracker over the button decides between a click and a hold, as Space does, so a
+    /// hold never ends as a click. The button underneath only draws the ring.
+    private var recordButton: some View {
+        Button {} label: {
+            // Held: speaking into it, so it shows the microphone even over a running recording.
+            // A command waits: the machine, as a click sends it there (a hold records it again).
+            let send = !pressHolding && controller.sendsCommand
+            let filled = pressing
+            Image(systemName: send ? "laptopcomputer"
+                  : !pressHolding && (controller.isRecording || controller.isPreparing) ? "stop.fill" : "mic.fill")
+                .font(.system(size: send ? 26 : 28, weight: .regular))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(filled ? Color.white : Theme.accent)
+                .contentTransition(.symbolEffect(.replace))
+                // A play mark inside the laptop's screen: a click runs the waiting command.
+                .overlay {
+                    if send {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 9, weight: .regular))
+                            .foregroundStyle(filled ? Color.white : Theme.accent)
+                            .offset(x: 0.5, y: -0.5)
+                            .transition(.opacity)
+                    }
+                }
+        }
+        // A thin ring, filled black only while pressed, as on iOS.
+        .buttonStyle(RingButtonStyle(size: Self.recordButtonSize, symbolSize: 28, lineWidth: 2, held: pressing))
+        .allowsHitTesting(false)
+        .overlay {
+            Circle()
+                .fill(Color.clear)
+                .contentShape(Circle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in if !pressing { pressBegan() } }
+                        .onEnded { drag in
+                            let radius = Self.recordButtonSize / 2
+                            let dx = drag.location.x - radius, dy = drag.location.y - radius
+                            pressEnded(inside: dx * dx + dy * dy <= radius * radius * 1.4)
+                        }
+                )
+        }
+        .help(recordButtonHelp)
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(recordButtonLabel)
+        .accessibilityAction { tapped() }
+    }
+
+    private var recordButtonLabel: String {
+        if controller.sendsCommand { return strings.sendCommand }
         if controller.isRecording { return strings.stopRecognition }
         if controller.isPreparing { return strings.cancel }
         return strings.startRecognition
+    }
+
+    private var recordButtonHelp: String {
+        recordButtonLabel + "\n" + strings.spaceBarHint
+    }
+
+    /// The record button or Space went down. Held for half a second, it is a hold: what is said
+    /// until it is let go is one clip, recognised whole. With the model not in memory yet, a
+    /// press only does what a click does, which loads it.
+    private func pressBegan() {
+        guard !pressing else { return }
+        pressing = true
+        pressHolding = false
+        holdTimer?.cancel()
+        guard controller.modelReady || controller.isRecording, !controller.isPreparing else { return }
+        holdTimer = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, pressing, !controller.preview.isActive else { return }
+            pressHolding = true
+            closeSearch()
+            controller.beginHold()
+        }
+    }
+
+    /// The record button or Space was let go: a hold ends, anything shorter is a click.
+    private func pressEnded(inside: Bool) {
+        guard pressing else { return }
+        pressing = false
+        holdTimer?.cancel()
+        holdTimer = nil
+        if pressHolding {
+            pressHolding = false
+            controller.endHold()
+        } else if inside {
+            tapped()
+        }
+    }
+
+    /// A click sends the command a hold left waiting; otherwise it starts or stops recording, or
+    /// cancels a model load.
+    private func tapped() {
+        if controller.sendsCommand {
+            showToast(controller.sendPendingCommand() ? .sent(strings) : .notSent(strings))
+        } else {
+            if !controller.isRecording { closeSearch() }
+            controller.toggleRecording()
+        }
     }
 
     /// A small dot to the right of the record button; the phase text lives in its tooltip.
@@ -506,7 +697,9 @@ struct ContentView: View {
     }
 
     private var statusColor: Color {
-        switch controller.phase {
+        // Held: blue while speaking into a hold, as on the iPhone.
+        if controller.holding { return VoicedPalette.macAccent.opacity(0.6) }
+        return switch controller.phase {
         case .recording: Theme.accent
         case .ready: .green
         case .failed: .red
@@ -599,6 +792,11 @@ private struct TranscriptRowModel: Identifiable, Equatable {
     let primaryText: String
     /// The sentence in the other language, shown small and grey under the main text.
     let secondaryText: String?
+    /// For a line sent to a machine or waiting to be: whether it went out (blue either way);
+    /// nil for every other line.
+    var mac: Bool? = nil
+    /// Under a line that could not be sent.
+    var notSentNote: String? = nil
 
     var id: String { line.id }
 }
@@ -625,6 +823,13 @@ private struct TranscriptRow: View, Equatable {
             && lhs.isEditing == rhs.isEditing
     }
 
+    /// Grey, or blue for a line sent to a machine, deeper while hovered or playing.
+    private var rowFill: Color {
+        let active = isHovering || isPlaying
+        if model.mac != nil { return VoicedPalette.macAccent.opacity(active ? 0.22 : 0.14) }
+        return Theme.accent.opacity(active ? Theme.rowFillHoverOpacity : Theme.rowFillOpacity)
+    }
+
     private var timestampPieces: [String] {
         model.timestamp.split(separator: " ").map(String.init)
     }
@@ -639,8 +844,8 @@ private struct TranscriptRow: View, Equatable {
                     Text(piece)
                 }
             }
-            .font(.system(.caption, design: .monospaced).weight(.medium))
-            .foregroundStyle(Theme.timestamp)
+            .font(.system(.caption, design: .monospaced).weight(model.mac != nil ? .bold : .medium))
+            .foregroundStyle(model.mac != nil ? VoicedPalette.macAccent : Theme.timestamp)
             .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
             VStack(alignment: .leading, spacing: Theme.secondaryTextGap) {
                 if isEditing {
@@ -673,6 +878,11 @@ private struct TranscriptRow: View, Equatable {
                         .font(.system(size: Theme.secondaryFontSize))
                         .foregroundStyle(.secondary)
                 }
+                if let note = model.notSentNote {
+                    Text(note)
+                        .font(.system(size: Theme.secondaryFontSize))
+                        .foregroundStyle(VoicedPalette.macAccent)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -680,7 +890,7 @@ private struct TranscriptRow: View, Equatable {
         .padding(.horizontal, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Theme.accent.opacity(isHovering || isPlaying ? Theme.rowFillHoverOpacity : Theme.rowFillOpacity))
+                .fill(rowFill)
         )
         .padding(.horizontal, -8)
         .contentShape(Rectangle())
@@ -752,6 +962,182 @@ private struct HintRow: View {
             onDismiss()
         }
         .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+}
+
+/// What the toast says: the text and its symbol, and how long it stays.
+private struct ToastContent: Equatable {
+    let text: String
+    let symbol: String
+    var duration: Duration = .seconds(1.2)
+
+    static func copied(_ strings: AppStrings) -> ToastContent { .init(text: strings.copied, symbol: "checkmark") }
+    static func sent(_ strings: AppStrings) -> ToastContent { .init(text: strings.sentToMachine, symbol: "laptopcomputer", duration: .seconds(2)) }
+    static func notSent(_ strings: AppStrings) -> ToastContent { .init(text: strings.notSentToMachine, symbol: "laptopcomputer.slash", duration: .seconds(2)) }
+}
+
+/// The row a hold opens above the transcript, in place of LIVE: its speech as a waveform while
+/// held, then "Recognizing…" while the clip is transcribed. Blue when it records a command for
+/// a machine, otherwise grey like the other rows.
+private struct SpeechRow: View {
+    @ObservedObject var controller: TranscriptionController
+    let waveform: WaveformMeter
+    let timestampWidth: CGFloat
+
+    var body: some View {
+        let mac = controller.liveForMac
+        HStack(alignment: .center, spacing: Theme.rowSpacing) {
+            Text("SPEECH")
+                .font(.system(.caption, design: .monospaced).weight(.bold))
+                .foregroundStyle(mac ? VoicedPalette.macAccent : .red)
+                .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
+            Group {
+                if controller.holding {
+                    WaveformView(meter: waveform, color: mac ? VoicedPalette.macAccent : Theme.accent.opacity(0.5))
+                        .frame(height: 28)
+                } else {
+                    Text(controller.strings.recognizingClip)
+                        .font(.system(size: Theme.bodyFontSize, weight: .bold))
+                        .foregroundStyle(Theme.accent.opacity(0.5))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(mac ? VoicedPalette.macAccent.opacity(0.14) : Theme.accent.opacity(Theme.rowFillOpacity))
+        )
+        .padding(.horizontal, -8)
+    }
+}
+
+/// Space as the record button, while its window is the key window and no text is being edited
+/// (a field editor would have the focus then). Repeats are swallowed; losing the focus mid-press
+/// counts as letting go, since the key-up would go to another window.
+private struct SpaceKeyMonitor: NSViewRepresentable {
+    let onDown: () -> Void
+    let onUp: () -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.view = view
+        context.coordinator.install()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onDown = onDown
+        context.coordinator.onUp = onUp
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onDown: onDown, onUp: onUp) }
+
+    final class Coordinator {
+        var onDown: () -> Void
+        var onUp: () -> Void
+        weak var view: NSView?
+        private var monitor: Any?
+        private var resignObserver: NSObjectProtocol?
+        private var isDown = false
+
+        init(onDown: @escaping () -> Void, onUp: @escaping () -> Void) {
+            self.onDown = onDown
+            self.onUp = onUp
+        }
+
+        func install() {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+                guard let self else { return event }
+                return self.handle(event) ? nil : event
+            }
+            resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+                guard let self, self.isDown, note.object as? NSWindow === self.view?.window else { return }
+                self.isDown = false
+                self.onUp()
+            }
+        }
+
+        func uninstall() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+            monitor = nil
+            resignObserver = nil
+        }
+
+        /// Whether the event was Space for this window, and so handled here.
+        private func handle(_ event: NSEvent) -> Bool {
+            guard event.keyCode == 49, let window = view?.window, event.window === window else { return false }
+            if event.type == .keyUp {
+                guard isDown else { return false }
+                isDown = false
+                onUp()
+                return true
+            }
+            if event.isARepeat { return isDown }
+            let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+            guard modifiers.isEmpty, !(window.firstResponder is NSText) else { return false }
+            isDown = true
+            onDown()
+            return true
+        }
+    }
+}
+
+/// The blue row a hold for the machine opens when it heard nothing: what is typed becomes the
+/// command, a blue line waiting to be sent as a spoken one would. Return, or the field losing
+/// focus, adds it; Escape, or leaving it empty, just closes the row.
+private struct CommandDraftRow: View {
+    let timestampWidth: CGFloat
+    /// Called once, with the text, or nil when the row is closed without one.
+    let onFinish: (String?) -> Void
+
+    @State private var text = ""
+    @State private var finished = false
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Theme.rowSpacing) {
+            Text("TYPE")
+                .font(.system(.caption, design: .monospaced).weight(.bold))
+                .foregroundStyle(VoicedPalette.macAccent)
+                .frame(width: timestampWidth, height: Theme.timestampColumnHeight, alignment: .leading)
+            // No placeholder: the TYPE label and the cursor say what the row is for.
+            TextField("", text: $text, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: Theme.bodyFontSize))
+                .focused($isFocused)
+                .onSubmit { finish(text) }
+                .onExitCommand { finish(nil) }
+                .onChange(of: isFocused) { _, focused in
+                    if !focused { finish(text) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(VoicedPalette.macAccent.opacity(0.14))
+        )
+        .padding(.horizontal, -8)
+        .contentShape(Rectangle())
+        .onTapGesture { isFocused = true }
+        .onAppear {
+            // Once the field is there to take the focus.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { isFocused = true }
+        }
+    }
+
+    private func finish(_ value: String?) {
+        guard !finished else { return }
+        finished = true
+        onFinish(value)
     }
 }
 

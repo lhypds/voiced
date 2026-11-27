@@ -194,6 +194,14 @@ struct SettingsView: View {
 
             Divider()
 
+            SettingsRow(title: strings.sendToMachine, hint: strings.sendToMachineFooter) {
+                Toggle(strings.sendToMachine, isOn: $controller.sendToMacEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            Divider()
+
             SettingsRow(title: strings.lineClick, hint: strings.lineClickHint) {
                 Picker(strings.lineClick, selection: $controller.lineClickAction) {
                     ForEach(LineClickAction.allCases) { action in

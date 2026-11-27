@@ -6901,47 +6901,6 @@
         }
       }
     },
-    "输入要发送到电脑的内容" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eingeben, was an den Computer gesendet wird"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Type what to send to the machine"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Escribe lo que quieres enviar al ordenador"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saisissez ce qu’il faut envoyer à l’ordinateur"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "パソコンに送る内容を入力"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "输入要发送到电脑的内容"
-          }
-        }
-      }
-    },
     "取消发送" : {
       "extractionState" : "manual",
       "localizations" : {

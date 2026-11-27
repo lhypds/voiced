@@ -419,8 +419,9 @@ struct ContentView: View {
                 Button("从此处播放", systemImage: "play") { model.play(model.current, from: line) }
                     .disabled(model.locked || model.current.audioPosition(of: line) == nil)
                 Button("编辑", systemImage: "pencil") { beginEditing(line) }
-                // Only with "Send to machine" on in Settings; again for a line already sent.
-                if model.sendToMacEnabled {
+                // Only for a command (a blue line, waiting or already sent, to send again), and
+                // only with "Send to machine" on in Settings.
+                if model.sendToMacEnabled, model.isUnsentMacCommand(line) || model.macDelivery(of: line) != nil {
                     Button("发送到电脑", systemImage: "laptopcomputer") {
                         show(model.sendLineToMac(line) ? .sentToMac : .notSentToMac, for: .seconds(2))
                     }
@@ -485,7 +486,7 @@ struct ContentView: View {
     /// becomes the command, a blue line waiting to be sent as a spoken one would. Return, or the
     /// keyboard going away, adds it; left empty, the card just goes.
     private var commandDraftCard: some View {
-        let textField = TextField("", text: $commandText, prompt: Text("输入要发送到电脑的内容"), axis: .vertical)
+        let textField = TextField("", text: $commandText, axis: .vertical)
             .font(.body.bold())
             .focused($commandFocused)
             .submitLabel(.done)
@@ -503,7 +504,7 @@ struct ContentView: View {
         // The field is a few points taller than its text, all of it below the glyphs, which left
         // the prompt above the card's middle. As in lineEditor: laid from the top over the same
         // text, hidden, so the card is sized by the text and centres it.
-        let field = (commandText.isEmpty ? Text("输入要发送到电脑的内容") : Text(verbatim: commandText))
+        let field = Text(verbatim: commandText.isEmpty ? " " : commandText)
             .font(.body.bold())
             .hidden()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -960,37 +961,6 @@ extension View {
             .navigationBarTitleDisplayMode(large ? .large : .inline)
             .toolbarBackground(MobileTheme.background, for: .navigationBar)
             .tint(MobileTheme.accent)
-    }
-}
-
-/// The input's current waveform, shaking in place as lo's radio card does: mirrored around the
-/// centre line, a faint fill under a thin trace, about thirty frames a second.
-private struct WaveformView: View {
-    let meter: WaveformMeter
-    let color: Color
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
-            Canvas { context, size in
-                _ = timeline.date // Redrawn every frame.
-                let columns = meter.frame(columns: max(24, min(128, Int(size.width / 2))))
-                let mid = size.height / 2
-                let reach = size.height * 0.45
-                let step = size.width / CGFloat(columns.count - 1)
-                let points = columns.enumerated().map { CGPoint(x: CGFloat($0.offset) * step, y: max(0.02, $0.element) * reach) }
-                var fill = Path()
-                fill.move(to: CGPoint(x: 0, y: mid - points[0].y))
-                for point in points { fill.addLine(to: CGPoint(x: point.x, y: mid - point.y)) }
-                for point in points.reversed() { fill.addLine(to: CGPoint(x: point.x, y: mid + point.y)) }
-                fill.closeSubpath()
-                context.fill(fill, with: .color(color.opacity(0.22)))
-                var trace = Path()
-                trace.move(to: CGPoint(x: 0, y: mid - points[0].y))
-                for point in points { trace.addLine(to: CGPoint(x: point.x, y: mid - point.y)) }
-                context.stroke(trace, with: .color(color.opacity(0.72)),
-                               style: StrokeStyle(lineWidth: 0.9, lineCap: .round, lineJoin: .round))
-            }
-        }
     }
 }
 

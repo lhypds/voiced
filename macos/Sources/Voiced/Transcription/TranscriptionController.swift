@@ -241,8 +241,90 @@ final class TranscriptionController: ObservableObject {
     private var preparationID = UUID()
     private var transcriber: LiveTranscriber?
     private var startTask: Task<Void, Never>?
+    /// A start waiting for the model to be ready; cleared by a stop meanwhile.
+    private var startPending = false
     /// Present only while recording.
     private var session: RecordingSession?
+
+    // MARK: Holds
+    // Holding the record button or Space records one clip, transcribed whole once let go and
+    // shown as one line; with "Send to Machine" on, that line is a command waiting to be sent.
+    // The same as the iPhone's microphone.
+
+    /// While the record button or Space is held.
+    @Published private(set) var holding = false
+    /// While a let-go hold's clip is being transcribed.
+    @Published private(set) var recognizingHold = false
+    /// Whether the hold under way records a command for the machine.
+    @Published private(set) var liveForMac = false
+    /// The input's waveform, shown in the SPEECH row during a hold.
+    let waveform = WaveformMeter()
+    /// When the hold under way started, in session seconds and capture samples.
+    private var hold: (start: Float, sample: Int)?
+    /// Where the first hold not settled yet started: live decoding commits nothing after it.
+    private var holdBoundary: Float?
+    private var holdTask: Task<Void, Never>?
+    private var pendingHolds = 0
+    private var holdTap: HoldAudioTap?
+    /// When the capture began delivering samples; nil until it has.
+    private var captureStartedAt: Date?
+    /// Whether the hold started the recording, which then stops when the hold is done.
+    private var holdStartedRecording = false
+    /// The waiting command the hold under way records again, replacing it.
+    private var holdReplaces: String?
+    /// Speech goes on for a moment after the key or button is let go.
+    private static let holdTail: Float = 0.3
+    /// A hold is recognised half a second after the press: the clip reaches back past that.
+    private static let holdLeadIn: Float = 0.6
+    /// A hold is recognised this long after the press.
+    private static let holdDelay: TimeInterval = 0.5
+    /// A hold for the machine let go sooner than this after the press is not recognised: the
+    /// command is typed instead, as too little was said to be worth decoding.
+    private static let typeInsteadBelow: TimeInterval = 1.5
+    /// When the press that became the hold under way went down.
+    private var holdPressedAt: Date?
+
+    // MARK: Send to machine
+
+    /// Finds the machines running the voiced service and sends commands to one.
+    let macLink = PhoneInputSender()
+    private var macLinkForwarding: AnyCancellable?
+    private var machineSendingRecalling: AnyCancellable?
+    @Published var sendToMacEnabled: Bool {
+        didSet { settings.phoneInput = sendToMacEnabled; configureMacLink() }
+    }
+    @Published var sendToMacMode: PhoneInput.Mode {
+        didSet { settings.phoneInputMode = sendToMacMode; rememberSending() }
+    }
+    /// The machine chosen; nil connects to whichever is found, a Mac first.
+    @Published var sendToMacTarget: String? {
+        didSet {
+            settings.phoneInputMac = sendToMacTarget
+            macLink.preferredName = sendToMacTarget
+            recallSending(for: sendToMacTarget ?? macLink.connectedName)
+        }
+    }
+    @Published var claudeFolder: String {
+        didSet { settings.claudeFolder = claudeFolder; rememberSending() }
+    }
+    /// How each machine was last sent to, by name.
+    private var machineSending: [String: AppSettings.MachineSending] = [:]
+    private var recallingSending = false
+    /// The current record's commands not sent yet.
+    @Published private(set) var macCommands: Set<String> = []
+    /// The current record's lines sent to a machine, and whether each went out.
+    @Published private(set) var macDeliveries: [String: Bool] = [:]
+    /// The command the latest hold recognised; see `pendingCommand`.
+    @Published private var pendingCommandID: String?
+    /// Counts the holds for the machine that heard nothing: each opens the TYPE row, where the
+    /// command is typed instead.
+    @Published private(set) var typeCommandRequests = 0
+    /// The latest Claude Code run of each line of the current record, kept with the record so it
+    /// is still there once the service or the app has restarted.
+    @Published private(set) var claudeRuns: [String: ClaudeRun] = [:]
+    private var macRunsKeeping: AnyCancellable?
+    /// Saves the runs once streamed text has settled a little.
+    private var runSave: Task<Void, Never>?
     /// Present only while recording.
     private var activeRecording: ActiveRecording?
     /// Identity and start time reserved for the record the next committed line creates, when there is
@@ -382,6 +464,11 @@ final class TranscriptionController: ObservableObject {
             ?? [TranslationRule(source: nil, target: settings.translationLanguage ?? settings.appLanguage)]
         translationEmphasis = settings.translationEmphasis
         speakTranslation = settings.speakTranslation
+        sendToMacEnabled = settings.phoneInput
+        sendToMacMode = settings.phoneInputMode
+        sendToMacTarget = settings.phoneInputMac
+        claudeFolder = settings.claudeFolder
+        machineSending = settings.phoneInputMachines
         pinLanguageToEngine()
         configureTranslator()
         speaker.onPlayingChange = { [inputMute] playing in
@@ -398,6 +485,14 @@ final class TranscriptionController: ObservableObject {
         }
         configureAI()
         aiForwarding = ai.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        macLinkForwarding = macLink.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        // Automatic: the machine it connects to is sent to the way it was last time.
+        machineSendingRecalling = macLink.$connectedName.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] name in
+            guard let self, self.sendToMacTarget == nil, let name else { return }
+            self.recallSending(for: name)
+        }
+        macRunsKeeping = macLink.$runs.receive(on: RunLoop.main).sink { [weak self] runs in self?.keep(runs) }
+        configureMacLink()
         refreshAudioDevices()
     }
 
@@ -482,21 +577,19 @@ final class TranscriptionController: ObservableObject {
             phase = .failed(.model(AppleSpeechUnavailable().localizedDescription))
             return false
         }
+        // Readied in well under a second: no loading state, as on the iPhone. Only a download of
+        // the language's assets, when the system has to fetch them, shows its progress.
         let language = selectedLanguage
-        phase = .loading
-        loadingComponent = nil
-        expectedLoadSeconds = nil
-        loadingStartedAt = Date()
-        defer { if preparationID == id { loadingStartedAt = nil } }
         do {
             let loaded = try await AppleSpeechDecoder.prepare(for: language) { [weak self] fraction in
                 Task { @MainActor [weak self] in
-                    guard let self, self.preparationID == id, self.isPreparing else { return }
+                    guard let self, self.preparationID == id, self.decoder == nil, !self.isRecording else { return }
+                    if case .failed = self.phase { return }
                     self.phase = .downloading(fraction)
                 }
             }
             guard preparationID == id else { return false }
-            phase = .ready
+            if isPreparing { phase = .ready }
             // A language picked meanwhile needs a decoder of its own; the caller's action is dropped.
             guard language == selectedLanguage, selectedEngine == .apple else { return false }
             decoder = loaded
@@ -668,7 +761,10 @@ final class TranscriptionController: ObservableObject {
 
     /// The record button: stops a recording, cancels a model load, or otherwise starts.
     func toggleRecording() {
-        if isRecording {
+        if startPending {
+            // Apple Speech getting ready, which shows nothing: a second click takes the start back.
+            startPending = false
+        } else if isRecording {
             stopRecording()
         } else if isPreparing {
             cancelPreparation()
@@ -681,8 +777,14 @@ final class TranscriptionController: ObservableObject {
     func startRecording() {
         guard !isRecording, !isPreparing else { return }
         guard let decoder else {
+            guard !startPending else { return }
+            startPending = true
             Task {
-                if await prepare() {
+                let ready = await prepare()
+                // A stop meanwhile (a hold let go, or a second click) takes the start back.
+                let wanted = startPending
+                startPending = false
+                if ready && wanted {
                     startRecording()
                 }
             }
@@ -726,6 +828,12 @@ final class TranscriptionController: ObservableObject {
                 audioOffset: recorder?.startOffset
             )
         )
+        let source = makeAudioSource()
+        // Straight from the capture, so the waveform keeps moving while a decode runs.
+        source.onSamples = { [waveform] samples in waveform.push(samples) }
+        let tap = HoldAudioTap()
+        holdTap = tap
+        captureStartedAt = nil
         let transcriber = LiveTranscriber(
             decoder: decoder,
             options: currentDecodingOptions(decoder: decoder),
@@ -735,8 +843,11 @@ final class TranscriptionController: ObservableObject {
             speechEnergyFloor: speechEnergyFloor,
             voiceDetector: makeVoiceDetector(),
             delegate: self,
-            audioProcessor: makeAudioSource(),
-            audioSink: recorder.map { recorder in { @Sendable samples in recorder.append(samples) } }
+            audioProcessor: source,
+            audioSink: { @Sendable samples in
+                recorder?.append(samples)
+                tap.append(samples)
+            }
         )
         self.transcriber = transcriber
         phase = .recording
@@ -747,7 +858,14 @@ final class TranscriptionController: ObservableObject {
                     throw MicrophoneAccessDenied()
                 }
                 guard let self, self.transcriber === transcriber else { return }
+                // Held while starting: the clip starts with the capture, and nothing is decoded live.
+                if self.holding {
+                    tap.keep(from: 0)
+                    await transcriber.pauseDecoding()
+                }
                 try await transcriber.start()
+                guard self.transcriber === transcriber else { return }
+                self.captureStartedAt = Date()
             } catch {
                 self?.fail(with: error.localizedDescription)
             }
@@ -764,6 +882,399 @@ final class TranscriptionController: ObservableObject {
             return recorder
         }
         return SessionRecorder(directory: directory, startedAt: startedAt)
+    }
+
+    // MARK: - Holds
+
+    /// Whether a press can start recording at once: a Whisper model in memory, or Apple Speech,
+    /// which is ready in a moment. Otherwise a press, short or held, only starts the load, and
+    /// recording with it, as the record button does.
+    var modelReady: Bool { decoder != nil || !selectedEngine.isWhisper }
+
+    /// The record button or Space is held: what is said until it is let go is recorded as one
+    /// clip, transcribed whole and shown as one line, a command for the machine when "Send to
+    /// Machine" is on. Starts a recording when none is running. In a running one, what was said
+    /// before the hold is committed first, and live decoding pauses until the clip is done.
+    func beginHold() {
+        guard !holding, !preview.isActive, !isPreparing else { return }
+        holding = true
+        holdPressedAt = Date().addingTimeInterval(-Self.holdDelay)
+        liveForMac = sendToMacEnabled
+        // A hold over a command waiting to be sent records it again: the new one takes its place.
+        holdReplaces = pendingCommand?.id
+        waveform.reset()
+        stopPlayback()
+        guard var session, let captureStartedAt else {
+            // Idle or still starting: the clip starts with the capture; see `startRecording`.
+            hold = (0, 0)
+            holdBoundary = holdBoundary ?? 0
+            if !isRecording {
+                holdStartedRecording = true
+                startRecording()
+            }
+            return
+        }
+        if holdBoundary == nil {
+            session.commitTrailing(finalize: assembler.terminated)
+            publish(session)
+        }
+        liveText = ""
+        let press = Date().addingTimeInterval(-TimeInterval(Self.holdLeadIn))
+        let start = max(0, Float(press.timeIntervalSince(session.startedAt)), session.committedEnd)
+        let sample = max(0, Int(Float(press.timeIntervalSince(captureStartedAt)) * Float(WhisperKit.sampleRate)))
+        hold = (start, sample)
+        holdBoundary = holdBoundary ?? start
+        holdTap?.keep(from: sample)
+        if let transcriber { Task { await transcriber.pauseDecoding() } }
+    }
+
+    /// The capture sample recorded at `date`.
+    private func captureSample(at date: Date) -> Int {
+        guard let captureStartedAt else { return 0 }
+        return max(0, Int(Float(date.timeIntervalSince(captureStartedAt)) * Float(WhisperKit.sampleRate)))
+    }
+
+    /// The hold was let go: the clip is transcribed and committed as one line, then live
+    /// decoding resumes, or the recording stops when the hold started it.
+    func endHold() {
+        guard holding else { return }
+        let pressedAt = holdPressedAt
+        holdPressedAt = nil
+        // Let go soon after the press, for the machine: the clip is dropped and the command typed.
+        if sendToMacEnabled, session != nil, hold != nil, captureStartedAt != nil, let pressedAt,
+           Date().timeIntervalSince(pressedAt) < Self.typeInsteadBelow {
+            cancelHold()
+            typeCommandRequests += 1
+            return
+        }
+        holding = false
+        guard let session, let pressed = hold, captureStartedAt != nil else {
+            // Let go before the capture was running: nothing was said into it, so for the
+            // machine the command is typed instead.
+            hold = nil
+            if sendToMacEnabled { typeCommandRequests += 1 }
+            holdReplaces = nil
+            if holdTask == nil { holdBoundary = nil; liveForMac = false }
+            if holdStartedRecording, holdTask == nil {
+                holdStartedRecording = false
+                stopRecording()
+            }
+            return
+        }
+        hold = nil
+        let release = Date().addingTimeInterval(TimeInterval(Self.holdTail))
+        let end = Float(release.timeIntervalSince(session.startedAt))
+        let endSample = captureSample(at: release)
+        if let transcriber { Task { await transcriber.keepAudio(fromSample: endSample) } }
+        let previous = holdTask
+        let forMac = sendToMacEnabled
+        let replaces = holdReplaces
+        holdReplaces = nil
+        pendingHolds += 1
+        recognizingHold = true
+        holdTask = Task { [weak self] in
+            await previous?.value
+            await self?.finishHold(start: pressed.start, end: end, samples: pressed.sample..<endSample,
+                                   forMac: forMac, replacing: replaces)
+        }
+    }
+
+    /// Drops the hold under way without transcribing it. Live decoding resumes after it, or the
+    /// recording the hold started stops. A command it was to record again stays as it was.
+    private func cancelHold() {
+        guard holding else { return }
+        guard session != nil, hold != nil, captureStartedAt != nil else { endHold(); return }
+        holding = false
+        hold = nil
+        holdReplaces = nil
+        let endSample = captureSample(at: Date())
+        if let transcriber { Task { await transcriber.keepAudio(fromSample: endSample) } }
+        let previous = holdTask
+        pendingHolds += 1
+        holdTask = Task { [weak self] in
+            await previous?.value
+            await self?.settleHold()
+        }
+    }
+
+    /// Transcribes a hold's clip and commits whatever it says as one line, marked as a command
+    /// waiting to be sent when `forMac`, in place of the waiting command `replacing`, if any.
+    private func finishHold(start: Float, end: Float, samples: Range<Int>, forMac: Bool, replacing: String?) async {
+        // The tap hears the capture a moment late: wait until it has the clip's end.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while let tap = holdTap, tap.count < samples.upperBound, transcriber != nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        let clip = holdTap?.clip(samples) ?? []
+        // A live decode that was running at the press shares the model: let it finish first.
+        if let transcriber { while await transcriber.isDecoding { try? await Task.sleep(for: .milliseconds(50)) } }
+        let text = await recognize(clip)
+        if var session, !text.isEmpty {
+            let from = max(start, session.committedEnd)
+            let segment = TranscriptionSegment(start: from, end: max(end, from + 0.1), text: text)
+            let line = session.commitMerged(segments: [segment], assembler: assembler)
+            if let line, forMac { macCommands.insert(line.id) }
+            publish(session)
+            if let line, forMac {
+                pendingCommandID = line.id
+                // Recorded again: the command it replaces goes, if it is still unsent.
+                if let replacing, replacing != line.id,
+                   let old = lines.first(where: { $0.id == replacing }), isUnsentMacCommand(old) {
+                    deleteLine(old)
+                }
+                persistTranscript()
+            }
+        } else if text.isEmpty, forMac {
+            // Held for the machine, but nothing was heard: the command is typed instead.
+            typeCommandRequests += 1
+        }
+        await settleHold()
+    }
+
+    /// One pending hold is done. After the last, live decoding resumes, or the recording the
+    /// hold started stops.
+    private func settleHold() async {
+        pendingHolds -= 1
+        if pendingHolds == 0 { recognizingHold = false }
+        guard pendingHolds == 0, !holding else { return }
+        holdTask = nil
+        holdBoundary = nil
+        holdTap?.keepLeadInOnly()
+        liveText = ""
+        liveForMac = false
+        await transcriber?.resumeDecoding()
+        if holdStartedRecording {
+            holdStartedRecording = false
+            stopRecording()
+        }
+    }
+
+    /// The clip's text as the model hears it, with nothing filtered out.
+    private func recognize(_ clip: [Float]) async -> String {
+        guard !clip.isEmpty, let decoder else { return "" }
+        do {
+            let results = try await decoder.decode(clip, options: currentDecodingOptions(decoder: decoder), callback: nil)
+            let text = results.flatMap(\.segments).map(\.text).joined()
+            return LiveTranscriber.droppingPartialCharacters(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return ""
+        }
+    }
+
+    /// The recording is over, and with it any hold.
+    private func resetHolds() {
+        holding = false
+        recognizingHold = false
+        liveForMac = false
+        hold = nil
+        holdBoundary = nil
+        holdTask?.cancel()
+        holdTask = nil
+        pendingHolds = 0
+        holdStartedRecording = false
+        holdReplaces = nil
+        holdPressedAt = nil
+        holdTap = nil
+        captureStartedAt = nil
+    }
+
+    // MARK: - Send to machine
+
+    /// For a line sent to a machine, whether it went out; nil for every other line.
+    func macDelivery(of line: TranscriptLine) -> Bool? { macDeliveries[line.id] }
+
+    /// Whether the line is a command from a hold that has not been sent yet.
+    func isUnsentMacCommand(_ line: TranscriptLine) -> Bool { macCommands.contains(line.id) }
+
+    /// The command the latest hold recognised, while it waits to be sent: the record button is
+    /// then a send button. Nil once it is sent or deleted, or another record is shown.
+    var pendingCommand: TranscriptLine? {
+        guard sendToMacEnabled, let pendingCommandID, macCommands.contains(pendingCommandID) else { return nil }
+        return lines.first { $0.id == pendingCommandID }
+    }
+
+    /// Whether the record button sends: a command waits and nothing else is under way.
+    var sendsCommand: Bool {
+        pendingCommand != nil && !holding && !recognizingHold
+    }
+
+    /// Adds a command typed into the TYPE row, as a hold's would be: a blue line waiting to be
+    /// sent, with the record button as its send button. Returns the line, or nil when nothing
+    /// was typed.
+    @discardableResult
+    func addTypedCommand(_ text: String) -> TranscriptLine? {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, sendToMacEnabled else { return nil }
+        let line: TranscriptLine
+        let id = "typed-\(UUID().uuidString)"
+        // A command first, so it is never translated.
+        let replaced = pendingCommand
+        macCommands.insert(id)
+        if var session {
+            // Into the running recording, which would otherwise drop it with its next commit.
+            let at = session.committedEnd
+            session.appendTyped(TranscriptLine(id: id, start: at, end: at, recordedAt: Date(), text: text))
+            guard let added = session.transcript.last else { return nil }
+            line = added
+            publish(session)
+        } else {
+            line = TranscriptLine(id: id, start: 0, end: 0, recordedAt: Date(), text: text)
+            lines.append(line)
+            conversationLineIDs.insert(line.id)
+            translateVisibleLines()
+            requestHints()
+        }
+        // A command still waiting goes, as a new hold's would replace it.
+        if let old = replaced, old.id != line.id { deleteLine(old) }
+        macCommands.insert(line.id)
+        pendingCommandID = line.id
+        persistTranscript()
+        return line
+    }
+
+    /// Sends the waiting command. Returns whether it went out; if not, it keeps waiting.
+    @discardableResult
+    func sendPendingCommand() -> Bool {
+        guard let line = pendingCommand else { return false }
+        let delivered = sendLineToMac(line)
+        if delivered { pendingCommandID = nil }
+        return delivered
+    }
+
+    /// Gives up the waiting command, which is deleted: the record button records again.
+    func discardPendingCommand() {
+        guard let line = pendingCommand else { return }
+        pendingCommandID = nil
+        deleteLine(line)
+    }
+
+    /// Sends a line to the machine in the chosen mode and keeps the outcome with the record.
+    @discardableResult
+    func sendLineToMac(_ line: TranscriptLine) -> Bool {
+        guard sendToMacEnabled, lines.contains(where: { $0.id == line.id }) else { return false }
+        let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id,
+                                     history: sendToMacMode == .claude ? claudeHistory(before: line) : nil)
+        macDeliveries[line.id] = delivered
+        if delivered { macCommands.remove(line.id) }
+        persistTranscript()
+        return delivered
+    }
+
+    /// What the earlier lines sent with Run came to, oldest first, so Claude knows the conversation.
+    private func claudeHistory(before line: TranscriptLine) -> [ClaudeExchange] {
+        guard let index = lines.firstIndex(where: { $0.id == line.id }) else { return [] }
+        return lines[..<index].compactMap { earlier in
+            guard let run = claudeRun(forLine: earlier.id), let answer = run.conclusion else { return nil }
+            return ClaudeExchange(prompt: run.text, answer: answer)
+        }
+    }
+
+    // MARK: Claude Code runs
+
+    /// The run shown under a line: the machine's, while it still keeps it, or else the one kept
+    /// with the record.
+    func claudeRun(forLine id: String) -> ClaudeRun? {
+        macLink.latestRun(forLine: id) ?? claudeRuns[id]?.asStored
+    }
+
+    /// A run by its id, from the machine or kept with the current record.
+    func claudeRun(id: String) -> ClaudeRun? {
+        macLink.runs[id] ?? claudeRuns.values.first { $0.id == id }?.asStored
+    }
+
+    /// Answers a run: stop it, or allow or deny the tool it waits on.
+    func command(_ action: ClaudeRunCommand.Action, run: ClaudeRun) {
+        _ = macLink.send(ClaudeRunCommand(command: action, run: run.id, pending: action == .stop ? nil : run.pending?.id))
+    }
+
+    /// Keeps each current line's latest run, as the machine reports it.
+    private func keep(_ runs: [String: ClaudeRun]) {
+        let latest = Dictionary(grouping: runs.values.filter { $0.line != nil }, by: { $0.line! })
+            .compactMapValues { $0.max { ($0.startedAt ?? .infinity) < ($1.startedAt ?? .infinity) } }
+        var changed = false
+        for (line, run) in latest where lines.contains(where: { $0.id == line }) {
+            if let kept = claudeRuns[line] {
+                if kept.id == run.id { guard kept != run else { continue } }
+                else { guard (run.startedAt ?? .infinity) >= (kept.startedAt ?? .infinity) else { continue } }
+            }
+            claudeRuns[line] = run
+            changed = true
+        }
+        guard changed, runSave == nil else { return }
+        runSave = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            self?.runSave = nil
+            self?.persistTranscript()
+        }
+    }
+
+    /// Run (true) or Type (false); the wire still carries one of three modes.
+    var sendsToClaude: Bool {
+        get { sendToMacMode == .claude }
+        set {
+            if newValue { sendToMacMode = .claude } else if sendToMacMode == .claude { sendToMacMode = .type }
+        }
+    }
+
+    /// Under Type: whether Return follows the typed text.
+    var pressesReturn: Bool {
+        get { sendToMacMode == .typeAndReturn }
+        set { sendToMacMode = newValue ? .typeAndReturn : .type }
+    }
+
+    /// Automatic (nil), then the machines found, then the chosen one if it is away.
+    var machineChoices: [String?] {
+        var names = macLink.availableNames
+        if let target = sendToMacTarget, !names.contains(target) { names.append(target) }
+        return [nil] + names
+    }
+
+    /// A machine choice, with what is connected: the machine automatic found, or whether a chosen
+    /// one is away.
+    func machineChoiceLabel(_ name: String?) -> String {
+        guard let name else {
+            guard sendToMacTarget == nil else { return strings.automatic }
+            return strings.automatic + " · " + (macLink.connectedName ?? strings.searchingMachines)
+        }
+        return macLink.availableNames.contains(name) ? name : name + " · " + strings.machineNotFound
+    }
+
+    /// Under a machine, in grey: its system and address; under Automatic, those of the machine
+    /// it connected to.
+    func machineChoiceDetail(_ name: String?) -> String? {
+        guard let name = name ?? macLink.connectedName,
+              let parts = macLink.machines[name]?.parts, !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The machine sent to now: the one chosen, else the one Automatic connected to.
+    private var sendingMachine: String? { sendToMacTarget ?? macLink.connectedName }
+
+    /// Keeps the current way of sending for the machine sent to now.
+    private func rememberSending() {
+        guard !recallingSending, let name = sendingMachine else { return }
+        let sending = AppSettings.MachineSending(mode: sendToMacMode, folder: claudeFolder)
+        guard machineSending[name] != sending else { return }
+        machineSending[name] = sending
+        settings.phoneInputMachines = machineSending
+    }
+
+    /// Sends to `name` the way it was last sent to; a machine never sent to keeps the current way.
+    private func recallSending(for name: String?) {
+        guard let name, let sending = machineSending[name] else { return }
+        recallingSending = true
+        defer { recallingSending = false }
+        if sendToMacMode != sending.mode { sendToMacMode = sending.mode }
+        if claudeFolder != sending.folder { claudeFolder = sending.folder }
+    }
+
+    private func configureMacLink() {
+        macLink.preferredName = sendToMacTarget
+        if sendToMacEnabled {
+            macLink.start()
+        } else {
+            macLink.stop()
+        }
     }
 
     // MARK: - Preview
@@ -801,7 +1312,7 @@ final class TranscriptionController: ObservableObject {
 
     /// Capture source for recordings and previews: the denoising wrapper when noise reduction is
     /// on and a profile exists, otherwise nil for the model's own processor.
-    private func makeAudioSource() -> any AudioProcessing {
+    private func makeAudioSource() -> MicrophoneAudioSource {
         MicrophoneAudioSource(profile: noiseReductionEnabled ? noiseProfile : nil, mute: inputMute)
     }
 
@@ -874,6 +1385,20 @@ final class TranscriptionController: ObservableObject {
     }
 
     func stopRecording() {
+        startPending = false
+        // During a hold, or while a let-go hold's clip is transcribed, what was said still goes
+        // in first; the recording stops once it has.
+        if holding { endHold() }
+        guard isRecording else { return }
+        if holdTask != nil {
+            holdStartedRecording = true
+            return
+        }
+        finishRecording()
+    }
+
+    private func finishRecording() {
+        resetHolds()
         startTask?.cancel()
         startTask = nil
         let transcriber = transcriber
@@ -911,7 +1436,7 @@ final class TranscriptionController: ObservableObject {
     }
 
     private func fail(with detail: String) {
-        stopRecording()
+        finishRecording()
         phase = .failed(.recognition(detail))
     }
 
@@ -922,8 +1447,13 @@ final class TranscriptionController: ObservableObject {
     /// history. The new record is named by the time of the press; the next recording is saved into it.
     func startNewRecord() {
         if isRecording {
-            stopRecording()
+            // A hold's clip still being transcribed would land in the new record: it is dropped.
+            finishRecording()
         }
+        macCommands = []
+        macDeliveries = [:]
+        claudeRuns = [:]
+        pendingCommandID = nil
         stopPlayback()
         lines = []
         liveText = ""
@@ -979,6 +1509,9 @@ final class TranscriptionController: ObservableObject {
         session?.removeLine(id: line.id)
         lines.removeAll { $0.id == line.id }
         unspokenLineIDs.remove(line.id)
+        macCommands.remove(line.id)
+        macDeliveries[line.id] = nil
+        claudeRuns[line.id] = nil
         if lines.isEmpty {
             // persistTranscript keeps no empty transcript, so the record is emptied here.
             if let record = currentRecord {
@@ -1105,7 +1638,9 @@ final class TranscriptionController: ObservableObject {
     /// as for a line whose language cannot be told: a session without a source language would
     /// ask the user to pick one.
     private func translationPair(for line: TranscriptLine) -> LanguagePair? {
-        guard translationEnabled, translator != nil else { return nil }
+        // A command for a machine (waiting, or sent) is what the machine is told, word for word.
+        guard translationEnabled, translator != nil,
+              !macCommands.contains(line.id), macDeliveries[line.id] == nil else { return nil }
         let language = selectedLanguage.code ?? detectedLanguage(of: line.text)
         guard let rule = translationRules.rule(for: language),
               let source = rule.source?.code ?? language else { return nil }
@@ -1228,6 +1763,10 @@ final class TranscriptionController: ObservableObject {
         lines = record.lines
         liveText = ""
         currentRecordID = record.id
+        macCommands = record.macCommands ?? []
+        macDeliveries = record.macDeliveries ?? [:]
+        claudeRuns = record.claudeRuns ?? [:]
+        pendingCommandID = nil
         // Its lines are shown with the translations they already have; only what is said
         // from now on is translated.
         conversationLineIDs = []
@@ -1284,15 +1823,23 @@ final class TranscriptionController: ObservableObject {
         guard !lines.isEmpty else { return }
         let now = Date()
         var record: TranscriptRecord
+        let commands = macCommands.isEmpty ? nil : macCommands
+        let deliveries = macDeliveries.isEmpty ? nil : macDeliveries
+        let runs = claudeRuns.isEmpty ? nil : claudeRuns
         if let currentRecordID, let existing = history.first(where: { $0.id == currentRecordID }) {
             record = existing
-            guard record.lines != lines else { return }
+            guard record.lines != lines || (record.macCommands ?? []) != macCommands
+                    || (record.macDeliveries ?? [:]) != macDeliveries
+                    || (record.claudeRuns ?? [:]) != claudeRuns else { return }
             record.lines = lines
             record.updatedAt = now
         } else {
             let (id, createdAt) = pendingRecord ?? (historyStore.unusedID(startedAt: now), now)
             record = TranscriptRecord(id: id, createdAt: createdAt, updatedAt: now, lines: lines)
         }
+        record.macCommands = commands
+        record.macDeliveries = deliveries
+        record.claudeRuns = runs
         store(record, makeCurrent: true)
     }
 
@@ -1369,7 +1916,8 @@ extension TranscriptionController: LiveTranscriberDelegate {
     /// tracks recognition token by token. Updates from a decode that already finished are ignored
     /// because `didDecode` has replaced the preview with the real segments by then.
     func transcriber(_ transcriber: LiveTranscriber, didUpdateLiveText text: String, decode: Int) {
-        guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil else { return }
+        // During a hold the SPEECH row waits for the clip's text instead.
+        guard self.transcriber === transcriber, decode > lastFinishedDecode, session != nil, holdBoundary == nil else { return }
         let trimmed = HallucinationFilter.strip(text).trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
             liveText = assembler.normalized(trimmed)
@@ -1380,6 +1928,17 @@ extension TranscriptionController: LiveTranscriberDelegate {
         lastFinishedDecode = max(lastFinishedDecode, decode)
         guard self.transcriber === transcriber, var session else { return 0 }
         let assembler = assembler
+        if let holdBoundary {
+            // A decode that was running at the press: what was said before it is ordinary, and
+            // the rest belongs to the hold's clip.
+            let before = segments.filter { $0.start < holdBoundary }
+            if !before.isEmpty {
+                session.update(segments: before, assembler: assembler)
+                session.commitTrailing(finalize: assembler.terminated)
+                publish(session)
+            }
+            return session.committedEnd
+        }
         session.update(segments: segments, assembler: assembler)
         // When every segment of this decode was dropped as noise or a hallucination, right after a
         // pause, there is no pending text yet. Keep the streamed preview on screen instead of
@@ -1394,6 +1953,7 @@ extension TranscriptionController: LiveTranscriberDelegate {
 
     func transcriberDidDetectPause(_ transcriber: LiveTranscriber) -> Float {
         guard self.transcriber === transcriber, var session else { return 0 }
+        if holdBoundary != nil { return session.committedEnd }
         session.commitTrailing(finalize: assembler.terminated)
         liveText = ""
         publish(session)

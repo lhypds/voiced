@@ -111,6 +111,13 @@ final class MobileTranscriber: ObservableObject {
     private static let holdTail: Float = 0.3
     /// The press began this long before the hold was recognised.
     private static let holdLeadIn: Float = 0.6
+    /// A hold is recognised this long after the press.
+    private static let holdDelay: TimeInterval = 0.5
+    /// A hold for the Mac let go sooner than this after the press is not recognised: the
+    /// command is typed instead, as too little was said to be worth decoding.
+    private static let typeInsteadBelow: TimeInterval = 1.5
+    /// When the press that became the hold under way went down.
+    private var holdPressedAt: Date?
     @Published var allowLandscape: Bool { didSet { settings.allowLandscape = allowLandscape; OrientationLock.apply(allowLandscape: allowLandscape) } }
     @Published var promptText = ""
     @Published var previewActive = false
@@ -324,6 +331,7 @@ final class MobileTranscriber: ObservableObject {
         guard !holding, !stopping, !previewActive, !calibrating, !downloadingVoiceFilter else { return }
         holdCount += 1
         holding = true
+        holdPressedAt = Date().addingTimeInterval(-Self.holdDelay)
         liveForMac = sendToMacEnabled
         // A hold over a command waiting to be sent records it again: the new one takes its place.
         holdReplaces = pendingCommand?.id
@@ -367,6 +375,15 @@ final class MobileTranscriber: ObservableObject {
     /// decoding resumes, or the recording stops when the hold started it.
     func endHold() {
         guard holding else { return }
+        let pressedAt = holdPressedAt
+        holdPressedAt = nil
+        // Let go soon after the press, for the Mac: the clip is dropped and the command typed.
+        if sendToMacEnabled, session != nil, hold != nil, let pressedAt,
+           Date().timeIntervalSince(pressedAt) < Self.typeInsteadBelow {
+            cancelHold()
+            typeCommandRequests += 1
+            return
+        }
         holding = false
         guard let session, let pressed = hold else {
             // Let go before the recording was ready: nothing was said into it, so for the Mac the
@@ -498,6 +515,11 @@ final class MobileTranscriber: ObservableObject {
         current.macDeliveries?[line.id]
     }
 
+    /// Whether the line is a command for the Mac, waiting to be sent or sent: never translated.
+    private func isMacCommandLine(_ line: TranscriptLine) -> Bool {
+        isUnsentMacCommand(line) || macDelivery(of: line) != nil
+    }
+
     /// Whether the line is a command recognised from a hold that has not been sent yet.
     func isUnsentMacCommand(_ line: TranscriptLine) -> Bool {
         current.macCommands?.contains(line.id) == true
@@ -520,14 +542,17 @@ final class MobileTranscriber: ObservableObject {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, sendToMacEnabled else { return nil }
         var line: TranscriptLine
+        let id = "typed-\(UUID().uuidString)"
+        // A command first, so it is never translated.
+        current.macCommands = (current.macCommands ?? []).union([id])
         if var session, !previewActive {
             // Into the running recording, which would otherwise drop it with its next commit.
             let at = session.committedEnd
-            session.appendTyped(TranscriptLine(id: "typed-\(UUID().uuidString)", start: at, end: at, recordedAt: Date(), text: text))
+            session.appendTyped(TranscriptLine(id: id, start: at, end: at, recordedAt: Date(), text: text))
             line = session.transcript.last!
             publish(session)
         } else {
-            line = TranscriptLine(id: "typed-\(UUID().uuidString)", start: 0, end: 0, recordedAt: Date(), text: text)
+            line = TranscriptLine(id: id, start: 0, end: 0, recordedAt: Date(), text: text)
             current.lines.append(line)
             conversationLineIDs.insert(line.id)
             translateVisibleLines()
@@ -880,6 +905,7 @@ final class MobileTranscriber: ObservableObject {
         holdTask = nil
         pendingHolds = 0
         holdStartedRecording = false
+        holdPressedAt = nil
         holdTap = nil
         captureStartedAt = nil
     }
@@ -1124,62 +1150,6 @@ extension MobileTranscriber: LiveTranscriberDelegate {
     }
 }
 
-/// The input's latest moment, for a waveform that shakes in place rather than scrolling, drawn
-/// as lo's radio card draws its mirrored scope: the current samples reduced to columns, started
-/// at a rising zero crossing so a steady sound stands still, tapered to the centre at both ends
-/// and eased frame to frame so speech does not strobe. Fed on the capture thread, read per frame.
-final class WaveformMeter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recent: [Float] = []
-    private var columns: [CGFloat] = []
-    /// About 128 ms at 16 kHz: half of it is drawn, the other half leaves room for the trigger.
-    private static let window = 2048
-
-    func push(_ chunk: [Float]) {
-        lock.withLock {
-            recent.append(contentsOf: chunk)
-            if recent.count > Self.window * 2 { recent.removeFirst(recent.count - Self.window) }
-        }
-    }
-
-    func reset() {
-        lock.withLock {
-            recent = []
-            columns = []
-        }
-    }
-
-    /// The next frame: `count` amplitudes from 0 to 1, eased toward the current samples.
-    func frame(columns count: Int) -> [CGFloat] {
-        lock.withLock {
-            if columns.count != count { columns = Array(repeating: 0, count: count) }
-            let samples = Array(recent.suffix(Self.window))
-            let span = samples.count / 2
-            guard span >= count, count > 1 else {
-                for index in columns.indices { columns[index] *= 0.4 }
-                return columns
-            }
-            var start = 0
-            for index in 1..<(samples.count - span) where samples[index - 1] < 0 && samples[index] >= 0 {
-                start = index
-                break
-            }
-            let bucket = Double(span) / Double(count)
-            for index in 0..<count {
-                let from = start + Int(Double(index) * bucket)
-                let to = max(from + 1, start + Int(Double(index + 1) * bucket))
-                // The loudest sample in the column, not the average, which would flatten a consonant.
-                let peak = samples[from..<to].reduce(Float(0)) { max($0, abs($1)) }
-                // Microphone speech is far quieter than full scale: lifted so it fills the card.
-                let target = CGFloat(pow(min(1, peak * 4), 0.7))
-                let taper = CGFloat(pow(sin(Double(index) / Double(count - 1) * .pi), 0.35))
-                columns[index] += (target * taper - columns[index]) * 0.6
-            }
-            return columns
-        }
-    }
-}
-
 struct SummaryPresentation: Identifiable {
     let id: String
     let text: String
@@ -1322,7 +1292,8 @@ extension MobileTranscriber {
     }
 
     private func translationPair(for line: TranscriptLine) -> LanguagePair? {
-        guard translationEnabled, translator != nil else { return nil }
+        // A command for the Mac (waiting, or sent) is what the machine is told, word for word.
+        guard translationEnabled, translator != nil, !isMacCommandLine(line) else { return nil }
         let language = RecognitionLanguage.choice(id: languageID).code ?? LineLanguage.code(of: line.text)
         guard let rule = translationRules.rule(for: language), let source = rule.source?.code ?? language else { return nil }
         return source == rule.target.code ? nil : LanguagePair(source: source, target: rule.target.code)
@@ -1520,65 +1491,6 @@ extension MobileTranscriber {
         }
     }
 
-}
-
-/// Keeps the session's captured audio from a chosen sample on, for transcribing holds as clips.
-/// Without a hold only the last couple of seconds are kept, for the next hold's lead-in.
-/// Fed on the transcriber's thread, read on the main actor.
-final class HoldAudioTap: @unchecked Sendable {
-    private let lock = NSLock()
-    /// Samples received since the capture started.
-    private var total = 0
-    /// The earliest capture sample still needed; nil keeps only the lead-in.
-    private var keepFrom: Int?
-    private var samples: [Float] = []
-    /// Capture index of `samples[0]`.
-    private var samplesStart = 0
-    private let leadIn = 2 * WhisperKit.sampleRate
-
-    var count: Int { lock.withLock { total } }
-
-    func append(_ chunk: [Float]) {
-        lock.withLock {
-            samples.append(contentsOf: chunk)
-            total += chunk.count
-            trim()
-        }
-    }
-
-    /// Keeps everything from capture sample `index` on (as far back as the lead-in reaches),
-    /// unless an earlier start is already kept.
-    func keep(from index: Int) {
-        lock.withLock {
-            keepFrom = min(keepFrom ?? Int.max, max(0, index))
-            trim()
-        }
-    }
-
-    /// Back to keeping only a lead-in, once every clip has been taken.
-    func keepLeadInOnly() {
-        lock.withLock {
-            keepFrom = nil
-            trim()
-        }
-    }
-
-    /// The captured samples in `range`, as far as they are kept.
-    func clip(_ range: Range<Int>) -> [Float] {
-        lock.withLock {
-            let lower = max(0, range.lowerBound - samplesStart)
-            let upper = min(samples.count, range.upperBound - samplesStart)
-            return lower < upper ? Array(samples[lower..<upper]) : []
-        }
-    }
-
-    private func trim() {
-        let from = keepFrom ?? (total - leadIn)
-        let drop = min(max(0, from - samplesStart), samples.count)
-        guard drop > 0 else { return }
-        samples.removeFirst(drop)
-        samplesStart += drop
-    }
 }
 
 private struct AppleSpeechUnavailable: LocalizedError {
