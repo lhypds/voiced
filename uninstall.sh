@@ -1,7 +1,7 @@
 #!/bin/zsh
 #
 # 删除 install.sh（或应用菜单）安装的 voiced 命令，以及旧版的 vd 命令。
-# 应用本身和 voiced 服务不受影响；要停止服务，先运行 voiced stop。
+# 应用本身和 voiced 服务不受影响；要停止服务，先运行 voiced service stop。
 #
 # 用法：
 #   ./uninstall.sh                 # 从 /usr/local/bin 删除

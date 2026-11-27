@@ -2,17 +2,23 @@
 
 ## Building
 
-`./build.sh` builds everything: the macOS app, the voiced service and the iOS app (for the simulator; `./build.sh device` for a real iPhone). `./restart.sh` runs it, then restarts the voiced service and the macOS app, and finally reinstalls and reopens the app on the paired iPhone (`voiced restart ios device`), so all of them run the new build. A disconnected iPhone is reported and skipped.
-
-Three scripts at the repository root cover each part. Run one without arguments to pick an action from a menu, or pass the action:
+Everything is built and run through [`voiced`](../voiced) at the repository root. Name a part and what to do with it, in either order; leave either out to pick it from a menu with the arrow keys:
 
 ```sh
-./macos.sh [build | start | stop | restart]
-./ios.sh   [build [device] | emulate [simulator] | deploy [device]]
-./core.sh  [build | start | stop | restart | status]    # the voiced service
+voiced service [build | start | stop | restart | status]   # the voiced service, service/
+voiced macos   [build | start | stop | restart]            # the Mac app, macos/
+voiced ios     [build | start | stop | restart | deploy]   # the iOS app, ios/
+voiced core    [build]                                     # the shared library, core/VoicedCore
+
+voiced build   [all | core | service | ios | macos] [device]
+voiced restart [all | service | ios | macos] [device]
+voiced start   [all | service | macos | ios]
+voiced stop    [all | service | macos | ios]
 ```
 
-`macos.sh` builds the app at `macos/.build/Voiced.app`. `ios.sh emulate` builds and starts the iOS app in a simulator; `ios.sh deploy` installs and starts it on a paired, unlocked iPhone with Developer Mode on. `core.sh` builds the service at `core/.build/voiced` and runs it through `voiced`; `core.sh restart` rebuilds first.
+`restart` always builds first. `voiced build all` builds the service and both apps, which build core themselves (iOS for the simulator; `voiced build all device` for a real iPhone). `voiced restart all` rebuilds and restarts the service and the Mac app, then reinstalls and reopens the app on the paired iPhone; a disconnected iPhone is reported and skipped. `voiced start all` starts the service and the Mac app and opens the app on the paired iPhone; `voiced stop all` stops the service and the Mac app and quits the app on every connected iPhone and booted simulator.
+
+`voiced macos build` builds the app at `macos/.build/Voiced.app`. `voiced ios start` (or `restart`) asks for a connected iPhone or a simulator, then builds, installs and starts the app there; `voiced ios deploy` does the same on a paired, unlocked iPhone with Developer Mode on, without asking. `voiced service build` builds the service at `service/.build/voiced`; `voiced service restart` rebuilds it and restarts it under launchd.
 
 The macOS app is the Swift package in `macos/`. Run the commands below and in Release, Tests and Simulating live input from a file from that folder.
 
@@ -107,7 +113,7 @@ Model variants are listed in `RecognitionEngine.swift`, each with the Hugging Fa
 
 `core/VoicedCore/Package.swift` exports the `VoicedCore` library for macOS 14+ and iOS 17+. Both apps and `VoicedSimulate` depend on that library. `macos/Package.swift` is macOS-only; the iOS project references only `../core/VoicedCore`, so Xcode never needs to index desktop executable sources for iOS. Open `ios/Voiced.xcodeproj` and choose **Voiced iOS** for iPhone builds; open `macos/Package.swift` for the Mac app, whose **Voiced** scheme is macOS-only. Do not copy core source files into platform targets or reimplement recognition rules in their controllers.
 
-`core/` also holds a separate macOS package, the voiced service that types sentences sent from the iPhone (see [core/README.md](../core/README.md)). It sits next to `core/VoicedCore` but does not depend on it, so it builds without WhisperKit; build it with `core/build.sh`.
+The voiced service, which types sentences sent from the iPhone or runs them with Claude Code, is not part of the core: it is a Rust program in `service/` (see [service/README.md](../service/README.md)) that runs on macOS and Windows and builds without WhisperKit. Build it with `voiced service build`.
 
 | Responsibility | Shared implementation | Platform adapter |
 | --- | --- | --- |

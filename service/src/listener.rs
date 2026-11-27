@@ -1,0 +1,233 @@
+//! Advertises the service over Bonjour under the computer's name, accepts connections from the
+//! iPhone app and hands every line received to the core thread.
+//!
+//! On macOS the system's Bonjour (mDNSResponder) does the advertising, as for any Mac app: it
+//! resolves name clashes and withdraws the service when the process ends, however it ends.
+//! Elsewhere mdns-sd does it in Rust, so Windows needs no Bonjour service installed.
+
+use std::io::{Read, Write};
+use std::net::{Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Sender};
+use std::sync::Arc;
+use std::thread;
+
+use socket2::{Domain, Protocol, Socket, Type};
+
+use crate::protocol::{LineDecoder, SERVICE_TYPE};
+use crate::{log, Event};
+
+pub use bonjour::Advertisement;
+
+/// The port tried first: the same one every time keeps records other devices still hold from an
+/// earlier start valid. Another free port is taken when it is in use.
+const PREFERRED_PORT: u16 = 52_300;
+
+/// Starts accepting connections on a free port, over IPv4 and IPv6 as the phone may use either
+/// (often an IPv6 link-local address), and advertises it. Returns the port.
+pub fn start(events: Sender<Event>) -> Result<(u16, Advertisement), String> {
+    let v4 = TcpListener::bind(("0.0.0.0", PREFERRED_PORT))
+        .or_else(|_| TcpListener::bind(("0.0.0.0", 0)))
+        .map_err(|e| e.to_string())?;
+    let port = v4.local_addr().map_err(|e| e.to_string())?.port();
+    let v6 = match bind_v6(port) {
+        Ok(listener) => Some(listener),
+        Err(error) => {
+            log!("Listening over IPv4 only: {error}");
+            None
+        }
+    };
+    let advertisement = bonjour::advertise(port)?;
+    log!("Listening on port {port} as {}", SERVICE_TYPE.trim_end_matches(".local."));
+
+    let next_id = Arc::new(AtomicU64::new(0));
+    for listener in std::iter::once(v4).chain(v6) {
+        let (events, next_id) = (events.clone(), next_id.clone());
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => accept(next_id.fetch_add(1, Ordering::Relaxed) + 1, stream, events.clone()),
+                    Err(error) => log!("Accept failed: {error}"),
+                }
+            }
+        });
+    }
+    Ok((port, advertisement))
+}
+
+/// The IPv6 side on the same port, IPv6 only, so it does not clash with the IPv4 listener.
+fn bind_v6(port: u16) -> std::io::Result<TcpListener> {
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))?;
+    socket.set_only_v6(true)?;
+    socket.bind(&SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)).into())?;
+    socket.listen(128)?;
+    Ok(socket.into())
+}
+
+/// The name people know the computer by: "Liu's MacBook Pro" rather than its host name.
+pub fn computer_name() -> String {
+    #[cfg(target_os = "macos")]
+    if let Ok(output) = std::process::Command::new("/usr/sbin/scutil").args(["--get", "ComputerName"]).output() {
+        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if output.status.success() && !name.is_empty() {
+            return name;
+        }
+    }
+    #[cfg(windows)]
+    if let Ok(name) = std::env::var("COMPUTERNAME") {
+        if !name.is_empty() {
+            return name;
+        }
+    }
+    gethostname::gethostname().to_string_lossy().trim_end_matches(".local").to_string()
+}
+
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+fn sanitized(name: &str) -> String {
+    let name: String = name
+        .trim_end_matches(".local")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    if name.is_empty() { "computer".into() } else { name }
+}
+
+/// Each connection gets a thread reading its lines and a thread writing what is sent to it, so a
+/// slow phone never holds up the core thread.
+fn accept(id: u64, stream: TcpStream, events: Sender<Event>) {
+    let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
+    let Ok(mut writer) = stream.try_clone() else { return };
+    let (send, outgoing) = mpsc::channel::<Vec<u8>>();
+    thread::spawn(move || {
+        for data in outgoing {
+            if writer.write_all(&data).is_err() {
+                break;
+            }
+        }
+        let _ = writer.shutdown(Shutdown::Both);
+    });
+    let _ = events.send(Event::Connected { id, peer, send });
+
+    let mut stream = stream;
+    thread::spawn(move || {
+        let mut decoder = LineDecoder::default();
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let lines = decoder.feed(&buffer[..n]);
+                    if !lines.is_empty() && events.send(Event::Received { lines }).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        let _ = stream.shutdown(Shutdown::Both);
+        let _ = events.send(Event::Disconnected { id });
+    });
+}
+
+#[cfg(target_os = "macos")]
+mod bonjour {
+    use std::ffi::{c_char, c_void, CString};
+    use std::ptr;
+
+    #[allow(non_camel_case_types)]
+    type DNSServiceRef = *mut c_void;
+
+    // dns_sd.h, in libSystem.
+    extern "C" {
+        fn DNSServiceRegister(
+            sd_ref: *mut DNSServiceRef,
+            flags: u32,
+            interface_index: u32,
+            name: *const c_char,
+            regtype: *const c_char,
+            domain: *const c_char,
+            host: *const c_char,
+            port: u16,
+            txt_len: u16,
+            txt_record: *const c_void,
+            callback: *const c_void,
+            context: *mut c_void,
+        ) -> i32;
+        fn DNSServiceRefDeallocate(sd_ref: DNSServiceRef);
+    }
+
+    /// Kept for the life of the process: mDNSResponder withdraws the service when it ends.
+    pub struct Advertisement(DNSServiceRef);
+
+    unsafe impl Send for Advertisement {}
+
+    impl Advertisement {
+        pub fn stop(&self) {
+            unsafe { DNSServiceRefDeallocate(self.0) };
+        }
+    }
+
+    /// Registered under the computer's name (no name given), which mDNSResponder changes itself
+    /// when another device already uses it.
+    pub fn advertise(port: u16) -> Result<Advertisement, String> {
+        let regtype = CString::new(super::SERVICE_TYPE.trim_end_matches(".local.")).unwrap();
+        let mut service: DNSServiceRef = ptr::null_mut();
+        let error = unsafe {
+            DNSServiceRegister(
+                &mut service,
+                0,
+                0,
+                ptr::null(),
+                regtype.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                port.to_be(),
+                0,
+                ptr::null(),
+                ptr::null(),
+                ptr::null_mut(),
+            )
+        };
+        if error != 0 {
+            return Err(format!("Bonjour registration failed ({error})"));
+        }
+        Ok(Advertisement(service))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod bonjour {
+    use std::time::Duration;
+
+    use mdns_sd::{ServiceDaemon, ServiceInfo};
+
+    pub struct Advertisement {
+        daemon: ServiceDaemon,
+        fullname: String,
+    }
+
+    impl Advertisement {
+        /// Sends the goodbye before the process ends, so other devices drop the service at once
+        /// rather than keep it until it times out and clash with the next start's.
+        pub fn stop(&self) {
+            if let Ok(done) = self.daemon.unregister(&self.fullname) {
+                let _ = done.recv_timeout(Duration::from_secs(1));
+            }
+            if let Ok(done) = self.daemon.shutdown() {
+                let _ = done.recv_timeout(Duration::from_secs(1));
+            }
+        }
+    }
+
+    pub fn advertise(port: u16) -> Result<Advertisement, String> {
+        let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
+        let name = super::computer_name();
+        // A host name of our own, so the system's own records for `<name>.local` are not answered twice.
+        let host = format!("voiced-{}.local.", super::sanitized(&gethostname::gethostname().to_string_lossy()));
+        let info = ServiceInfo::new(super::SERVICE_TYPE, &name, &host, "", port, None::<std::collections::HashMap<String, String>>)
+            .map_err(|e| e.to_string())?
+            .enable_addr_auto();
+        let fullname = info.get_fullname().to_string();
+        daemon.register(info).map_err(|e| e.to_string())?;
+        Ok(Advertisement { daemon, fullname })
+    }
+}

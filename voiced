@@ -1,21 +1,15 @@
 #!/bin/zsh
 #
-# voiced：运行 voiced 服务（launchd 用户代理），并启动 Voiced 应用。
+# voiced：构建、启动、停止、重启 voiced 服务和 Voiced 应用。
 # 在仓库根目录直接运行 ./voiced，或用 ./install.sh 安装为系统命令 voiced（./uninstall.sh 删除）。
 #
-#   voiced                启动服务，并在每次登录时自动启动
-#   voiced start          询问在 macOS 还是 iOS 上启动 Voiced
-#   voiced start macos    打开 Mac 版（需要时先构建）
-#   voiced start ios      从已连接的 iPhone 和模拟器中选择，构建、安装并打开
-#   voiced start ios device  直接构建、安装并打开到已配对的 iPhone，不显示列表
-#   voiced stop           停止服务，登录时不再启动
-#   voiced stop macos     退出 Mac 版
-#   voiced restart        重启服务；voiced restart macos 重启 Mac 版
-#   voiced restart ios [device]  重新构建、安装并重新打开 iOS 版（device：已配对的 iPhone）
-#   voiced status         显示服务和 Mac 版的状态
-#   voiced help           显示帮助
+#   voiced                       显示帮助（同 voiced help）
+#   voiced <部分> [操作]         部分：service、macos、ios、core；不给操作时用上下箭头选择
+#   voiced <操作> [部分]         操作：build、start、stop、restart；不给部分时用上下箭头选择
+#   voiced status                显示服务和 Mac 版的状态
 #
-# 服务运行时菜单栏右上角有一个图标，点击可查看状态或停止服务。
+# 例：voiced service restart、voiced restart ios、voiced build core、voiced ios deploy。
+# restart 总是先构建。服务（service/，Rust）由 launchd 运行；core/VoicedCore 是两个应用共用的 Swift 库。
 # 每句话如何处理（输入、输入后回车、用 Claude Code 执行）由 iPhone 上的“发送到 Mac”方式决定，
 # Claude Code 的文件夹也在 iPhone 上设置。
 
@@ -23,22 +17,29 @@ set -euo pipefail
 
 # :A resolves the /usr/local/bin/voiced symlink, so paths point into the checkout.
 ROOT="${0:A:h}"
-CORE="$ROOT/core"
+SERVICE="$ROOT/service"
+CORE="$ROOT/core/VoicedCore"
 
 LABEL="com.local.voiced.input"
 DOMAIN="gui/$(id -u)"
-SERVICE_EXECUTABLE="$CORE/.build/voiced"
+SERVICE_EXECUTABLE="$SERVICE/.build/voiced"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/VoicedInput.log"
 
 UI_APP="$ROOT/macos/.build/Voiced.app"
 UI_EXECUTABLE="$UI_APP/Contents/MacOS/Voiced"
 
+IOS_BUNDLE_ID="com.voiced.personal.ios"
+
 usage() {
-    print -u2 "Usage: voiced"
-    print -u2 "       voiced start [macos|ios [device]]"
-    print -u2 "       voiced stop [macos]"
-    print -u2 "       voiced restart [macos|ios [device]]"
+    print -u2 "Usage: voiced service [build|start|stop|restart|status]"
+    print -u2 "       voiced macos [build|start|stop|restart]"
+    print -u2 "       voiced ios [build [device]|start [device]|stop|restart [device]|deploy [device]]"
+    print -u2 "       voiced core [build]"
+    print -u2 "       voiced build [all|core|service|ios|macos] [device]"
+    print -u2 "       voiced restart [all|service|ios|macos] [device]"
+    print -u2 "       voiced start [all|service|macos|ios]"
+    print -u2 "       voiced stop [all|service|macos|ios]"
     print -u2 "       voiced status"
     print -u2 "       voiced help"
     exit 2
@@ -46,21 +47,42 @@ usage() {
 
 show_help() {
     cat <<'HELP'
-voiced runs the voiced service, which types what Voiced on the iPhone hears at the Mac's
-cursor, and starts the Voiced apps.
+voiced builds and runs the parts of Voiced: the voiced service, which types what Voiced on the
+iPhone hears at the Mac's cursor (service/, Rust), the Mac app (macos/), the iOS app (ios/) and
+the library both apps share (core/VoicedCore).
 
-  voiced                       start the service, and at every login
-  voiced start                 ask whether to start Voiced on macOS or iOS
-  voiced start macos           open the Mac app, building it first if needed
-  voiced start ios             pick a connected iPhone or a simulator, then build, install and
-                               open the app there
-  voiced start ios device      the same on the paired iPhone, without the list
-  voiced stop                  stop the service; it no longer starts at login
-  voiced stop macos            quit the Mac app
-  voiced restart               restart the service
-  voiced restart macos         restart the Mac app
-  voiced restart ios [device]  rebuild, reinstall and reopen the iOS app (device: the paired iPhone)
+  voiced service start         start the service, and at every login
+
+Name a part, then what to do with it; leave out what to do to pick it with the arrow keys:
+
+  voiced service [build|start|stop|restart|status]
+                               start: also at every login; stop: no longer at login
+  voiced macos [build|start|stop|restart]
+  voiced ios [build|start|stop|restart|deploy]
+                               build: for the simulator (build device: for an iPhone)
+                               start, restart: pick a connected iPhone or a simulator, then build,
+                               install and open the app there (… device: the paired iPhone, no list)
+                               stop: quit the app on the iPhone or simulator you pick
+                               deploy [name]: build, install and open on the paired iPhone, or the
+                               one named
+  voiced core [build]          build the shared library on its own
+
+Or name what to do, then the part; leave out the part to pick it with the arrow keys:
+
+  voiced build [all|core|service|ios|macos] [device]
+                               all: the service and both apps (they build core themselves);
+                               device: build iOS for an iPhone rather than the simulator
+  voiced restart [all|service|ios|macos] [device]
+                               always builds first; all: the service and the Mac app, then the
+                               app on the paired iPhone
+  voiced start [all|service|macos|ios]
+                               all: the service and the Mac app, then the app on the paired iPhone
+  voiced stop [all|service|macos|ios]
+                               all: the service, the Mac app, and the app on every connected
+                               iPhone and booted simulator
+
   voiced status                show the service and the Mac app
+  voiced help                  show this
 
 What happens to each sentence (typed at the cursor, typed and followed by Return, or run
 by Claude Code) is the "Send to Mac" mode chosen on the iPhone, as is the folder Claude Code
@@ -68,7 +90,57 @@ runs in.
 HELP
 }
 
+# MARK: Menu
+
+# choose <title> <option>...: lets the user pick an option with the arrow keys (or j and k, or
+# its number) and Return, and sets choice. q or Escape cancels, and choose fails.
+choose() {
+    local title="$1"
+    shift
+    local -a options=("$@")
+    local count=${#options} index=1 picked=0 drawn=0 key rest i
+    if [[ ! -t 0 || ! -t 2 ]]; then
+        print -u2 "voiced: $title give one on the command line: ${(j:, :)options}"
+        return 1
+    fi
+    print -u2 -- $'\e[1m'"$title"$'\e[0m'
+    while true; do
+        (( drawn )) && print -nu2 -- $'\e['"${count}A"
+        for i in {1..$count}; do
+            if (( i == index )); then
+                print -u2 -- $'\e[2K\e[36m❯ '"${options[i]}"$'\e[0m'
+            else
+                print -u2 -- $'\e[2K  '"${options[i]}"
+            fi
+        done
+        drawn=1
+        (( picked )) && break
+        read -rsk1 key || return 1
+        case "$key" in
+            $'\e')
+                rest=""
+                read -rsk2 -t 0.05 rest || true
+                case "$rest" in
+                    "[A"|"OA") (( index = index > 1 ? index - 1 : count )) ;;
+                    "[B"|"OB") (( index = index < count ? index + 1 : 1 )) ;;
+                    "") return 1 ;;
+                esac
+                ;;
+            k) (( index = index > 1 ? index - 1 : count )) ;;
+            j) (( index = index < count ? index + 1 : 1 )) ;;
+            $'\n'|$'\r') picked=1 ;;
+            q) return 1 ;;
+            <1-9>) (( key <= count )) && { index=$key; picked=1 } ;;
+        esac
+    done
+    choice="${options[index]}"
+}
+
 # MARK: Service
+
+build_service() {
+    "$SERVICE/build.sh"
+}
 
 service_loaded() {
     launchctl print "$DOMAIN/$LABEL" &>/dev/null
@@ -115,7 +187,7 @@ start_service() {
         print "voiced is already running."
         return 0
     fi
-    [[ -x "$SERVICE_EXECUTABLE" ]] || "$CORE/build.sh"
+    [[ -x "$SERVICE_EXECUTABLE" ]] || build_service
     write_plist
     # Right after a bootout launchd may still be tearing the job down and refuse the bootstrap
     # with an I/O error for a moment.
@@ -153,7 +225,11 @@ stop_service() {
     print "Stopped voiced."
 }
 
-# MARK: Interface
+# MARK: Mac app
+
+build_macos() {
+    "$ROOT/macos/Scripts/build-app.sh"
+}
 
 ui_running() {
     pgrep -f -- "$UI_EXECUTABLE" >/dev/null
@@ -166,7 +242,7 @@ start_ui() {
         print "Voiced is already running."
         return 0
     fi
-    [[ -x "$UI_EXECUTABLE" ]] || "$ROOT/macos/Scripts/build-app.sh"
+    [[ -x "$UI_EXECUTABLE" ]] || build_macos
     open "$UI_APP"
     print "Started Voiced."
 }
@@ -212,9 +288,8 @@ for d in devices:
     if hardware.get("deviceType") not in ("iPhone", "iPad") or connection.get("pairingState") != "paired":
         continue
     state = "connected" if connection.get("tunnelState") != "unavailable" and connection.get("tunnelState") != "disconnected" else "not connected"
-    # zsh garbles some UTF-8 bytes when it prints a select menu, among them the second byte of
-    # the curly apostrophe in the default "Name’s iPhone"; show a plain one.
-    name = d.get("deviceProperties", {}).get("name", d["identifier"]).replace("\u2019", "\x27")
+    # Shown with a plain apostrophe rather than the curly one in the default "Name’s iPhone".
+    name = d.get("deviceProperties", {}).get("name", d["identifier"]).replace("’", "\x27")
     print("device", d["identifier"], f"{name} ({state})", sep="\t")
 
 def version(runtime):
@@ -234,40 +309,144 @@ for v in sorted(runtimes, reverse=True):
     rm -f "$json"
 }
 
-# Asks which device or simulator to use, then builds, installs and starts the app there.
-start_ios() {
+# pick_ios_target <title> [running]: asks which iPhone or simulator, and sets target_kind,
+# target_id and target_label. With running, only iPhones and booted simulators are offered.
+pick_ios_target() {
+    local title="$1" only_running="${2:-}"
     local -a kinds ids labels
     local kind id label
     while IFS=$'\t' read -r kind id label; do
+        [[ -n "$only_running" && "$kind" == simulator && "$label" != *booted* ]] && continue
         kinds+=("$kind"); ids+=("$id"); labels+=("$label")
     done < <(ios_targets)
     if (( ${#labels} == 0 )); then
         print -u2 "No iPhone or simulator found. Connect an iPhone, or install a simulator in Xcode."
         return 1
     fi
-
-    local PROMPT3="Run Voiced on: " choice
-    select choice in "${labels[@]}"; do
-        [[ -n "$choice" ]] && break
-    done
-    [[ -n "$choice" ]] || return 1
+    choose "$title" "${labels[@]}" || return 1
     local i="${labels[(ie)$choice]}"
+    target_kind="${kinds[$i]}"
+    target_id="${ids[$i]}"
+    target_label="${labels[$i]}"
+}
 
-    if [[ "${kinds[$i]}" == device ]]; then
-        "$ROOT/ios/deploy.sh" "${ids[$i]}"
+# Builds, installs and starts the app on the iPhone or simulator picked, ending the running one
+# first; with device, on the paired iPhone without asking.
+start_ios() {
+    if [[ "${1:-}" == device ]]; then
+        "$ROOT/ios/deploy.sh"
+        return
+    fi
+    pick_ios_target "Run Voiced on:" || return 1
+    if [[ "$target_kind" == device ]]; then
+        "$ROOT/ios/deploy.sh" "$target_id"
     else
-        "$ROOT/ios/emulate.sh" "${ids[$i]}"
+        "$ROOT/ios/emulate.sh" "$target_id"
     fi
 }
 
-# Asks for the platform when none is given, and sets platform. It runs in this shell, not in
-# $(...), so the device menu that may follow reads the next line of input.
-choose_platform() {
-    local PROMPT3="Start Voiced on: " choice
-    select choice in macos ios; do
-        [[ -n "$choice" ]] && { platform="$choice"; return 0; }
-    done
-    return 1
+stop_ios() {
+    pick_ios_target "Quit Voiced on:" running || return 1
+    stop_ios_on "$target_kind" "$target_id" "$target_label"
+}
+
+# Quits the app on every connected iPhone and booted simulator, without asking.
+stop_ios_everywhere() {
+    local kind id label found=0
+    while IFS=$'\t' read -r kind id label; do
+        [[ "$kind" == simulator && "$label" != *booted* ]] && continue
+        [[ "$kind" == device && "$label" == *"(not connected)"* ]] && continue
+        found=1
+        stop_ios_on "$kind" "$id" "$label" || true
+    done < <(ios_targets)
+    (( found )) || print "No connected iPhone or booted simulator."
+}
+
+# stop_ios_on <kind> <id> <label>: quits the app on that iPhone or simulator.
+stop_ios_on() {
+    local kind="$1" id="$2" label="$3"
+    if [[ "$kind" == simulator ]]; then
+        if xcrun simctl terminate "$id" "$IOS_BUNDLE_ID" 2>/dev/null; then
+            print "Stopped Voiced on $label."
+        else
+            print "Voiced is not running on $label."
+        fi
+        return 0
+    fi
+    local target_id="$id" target_label="$label"
+    local json="$(mktemp -t voiced-processes)" pid
+    if ! xcrun devicectl device info processes --device "$target_id" --json-output "$json" >/dev/null 2>&1; then
+        rm -f "$json"
+        print -u2 "Cannot reach $target_label: connect and unlock it."
+        return 1
+    fi
+    pid="$(/usr/bin/python3 -c '
+import json, sys
+for p in json.load(open(sys.argv[1])).get("result", {}).get("runningProcesses", []):
+    if "/Voiced.app/" in p.get("executable", ""):
+        print(p["processIdentifier"]); break
+' "$json")"
+    rm -f "$json"
+    if [[ -z "$pid" ]]; then
+        print "Voiced is not running on $target_label."
+        return 0
+    fi
+    xcrun devicectl device process terminate --device "$target_id" --pid "$pid" >/dev/null
+    print "Stopped Voiced on $target_label."
+}
+
+# MARK: Core
+
+build_core() {
+    print "Building core/VoicedCore..."
+    (cd "$CORE" && swift build)
+}
+
+# MARK: All
+
+build_all() {
+    print "==> voiced service"
+    build_service
+    print "==> macOS"
+    build_macos
+    print "==> iOS"
+    "$ROOT/ios/build.sh" "${1:-simulator}"
+}
+
+# The service and the Mac app are started, then the app is built, installed and opened on the
+# paired iPhone. A disconnected iPhone is reported and skipped.
+start_all() {
+    print "==> voiced service"
+    start_service
+    print "==> Mac app"
+    start_ui
+    print "==> iPhone"
+    "$ROOT/ios/deploy.sh" || print -u2 "Voiced was not started on the iPhone: connect and unlock it, then run voiced start ios device."
+}
+
+# The service, the Mac app, and the app on every connected iPhone and booted simulator.
+stop_all() {
+    print "==> voiced service"
+    stop_service
+    print "==> Mac app"
+    stop_ui
+    print "==> iOS"
+    stop_ios_everywhere
+}
+
+# The service and the Mac app are built and restarted, then the app on the paired iPhone is
+# rebuilt, reinstalled and reopened. A disconnected iPhone is reported and skipped.
+restart_all() {
+    print "==> voiced service"
+    build_service
+    stop_service
+    start_service
+    print "==> Mac app"
+    build_macos
+    stop_ui
+    start_ui
+    print "==> iPhone"
+    "$ROOT/ios/deploy.sh" || print -u2 "The iPhone was not updated: connect and unlock it, then run voiced restart ios device."
 }
 
 # MARK: Status
@@ -292,53 +471,108 @@ show_status() {
 
 # MARK: Commands
 
+# perform <part> <action> [argument]: does it, or fails with the usage.
+perform() {
+    local part="$1" action="$2"
+    shift 2
+    # Only iOS (device, or a device name for deploy) and all (device) take an argument.
+    case "$part" in
+        ios|all) (( $# <= 1 )) || usage ;;
+        *) (( $# == 0 )) || usage ;;
+    esac
+    case "$part:$action" in
+        service:build) build_service ;;
+        service:start) start_service ;;
+        service:stop) stop_service ;;
+        service:restart) build_service; stop_service; start_service ;;
+        service:status) show_status ;;
+        macos:build) build_macos ;;
+        macos:start) start_ui ;;
+        macos:stop) stop_ui ;;
+        macos:restart) build_macos; stop_ui; start_ui ;;
+        ios:build)
+            case "${1:-simulator}" in
+                sim|simulator) "$ROOT/ios/build.sh" simulator ;;
+                device|iphone) "$ROOT/ios/build.sh" device ;;
+                *) usage ;;
+            esac
+            ;;
+        # emulate.sh and deploy.sh always build first, and end the running app.
+        ios:start|ios:restart)
+            [[ -z "${1:-}" || "$1" == device ]] || usage
+            start_ios "$@"
+            ;;
+        ios:stop) (( $# == 0 )) || usage; stop_ios ;;
+        ios:deploy) "$ROOT/ios/deploy.sh" "$@" ;;
+        core:build) build_core ;;
+        all:build)
+            case "${1:-simulator}" in
+                sim|simulator) build_all simulator ;;
+                device|iphone) build_all device ;;
+                *) usage ;;
+            esac
+            ;;
+        all:restart) [[ -z "${1:-}" || "$1" == device ]] || usage; restart_all ;;
+        all:start) (( $# == 0 )) || usage; start_all ;;
+        all:stop) (( $# == 0 )) || usage; stop_all ;;
+        *)
+            print -u2 "voiced: $part has no $action."
+            usage
+            ;;
+    esac
+}
+
+actions_of() {
+    case "$1" in
+        service) reply=(build start stop restart status) ;;
+        macos) reply=(build start stop restart) ;;
+        ios) reply=(build restart start stop) ;;
+        core) reply=(build) ;;
+    esac
+}
+
+parts_for() {
+    case "$1" in
+        build) reply=(all core service ios macos) ;;
+        restart) reply=(all service ios macos) ;;
+        start|stop) reply=(all service macos ios) ;;
+    esac
+}
+
+typeset -a reply
+choice=""
+
 case "${1:-}" in
-    "")
-        start_service
-        ;;
-    help|-h|--help)
+    ""|help|-h|--help)
         show_help
-        ;;
-    start)
-        (( $# <= 3 )) || usage
-        platform="${2:-}"
-        [[ -n "$platform" ]] || choose_platform || exit 1
-        case "$platform:${3:-}" in
-            macos:) start_ui ;;
-            ios:) start_ios ;;
-            # The first paired iPhone, without the list.
-            ios:device) "$ROOT/ios/deploy.sh" ;;
-            *) usage ;;
-        esac
-        ;;
-    stop)
-        (( $# <= 2 )) || usage
-        case "${2:-}" in
-            "") stop_service ;;
-            macos) stop_ui ;;
-            *) usage ;;
-        esac
-        ;;
-    restart)
-        (( $# <= 3 )) || usage
-        case "${2:-}:${3:-}" in
-            macos:)
-                stop_ui
-                start_ui
-                ;;
-            # Rebuild, reinstall and relaunch: the deploy and emulate scripts end the running app first.
-            ios:) start_ios ;;
-            ios:device) "$ROOT/ios/deploy.sh" ;;
-            :)
-                stop_service
-                start_service
-                ;;
-            *) usage ;;
-        esac
         ;;
     status)
         (( $# == 1 )) || usage
         show_status
+        ;;
+    service|macos|ios|core)
+        part="$1"
+        shift
+        if (( $# == 0 )); then
+            actions_of "$part"
+            choose "$part:" "${reply[@]}" || exit 1
+            set -- "$choice"
+        fi
+        action="$1"
+        shift
+        perform "$part" "$action" "$@"
+        ;;
+    build|start|stop|restart)
+        action="$1"
+        shift
+        if (( $# == 0 )); then
+            parts_for "$action"
+            choose "$action:" "${reply[@]}" || exit 1
+            set -- "$choice"
+        fi
+        part="$1"
+        shift
+        perform "$part" "$action" "$@"
         ;;
     *)
         usage
