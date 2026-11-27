@@ -1203,6 +1203,13 @@ extension MobileTranscriber {
         translateVisibleLines()
     }
 
+    /// The record's saved `transcript.json`, with its lines, sessions and Claude Code runs; nil
+    /// until it has been saved.
+    func transcriptFileURL(for record: TranscriptRecord) -> URL? {
+        let url = historyStore.recordDirectory(id: record.id).appendingPathComponent(TranscriptHistoryStore.transcriptFileName)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
     func audioURLs(for record: TranscriptRecord) -> [URL] {
         var seen: Set<String> = []
         return record.sessions.compactMap(\.audioFile).filter { seen.insert($0).inserted }

@@ -111,6 +111,9 @@ struct MobileHistoryView: View {
                             }
                             if model.hasSummary(record) { Button("查看摘要", systemImage: "doc.text") { model.openSummary(record) } }
                             ShareLink(item: model.export(record.lines)) { Label("导出文字", systemImage: "square.and.arrow.up") }
+                            if let json = model.transcriptFileURL(for: record) {
+                                ShareLink(item: json) { Label("导出 JSON", systemImage: "curlybraces") }
+                            }
                             ForEach(model.audioURLs(for: record), id: \.self) { url in
                                 ShareLink(item: url) { Label("音频文件", systemImage: "waveform") }
                             }

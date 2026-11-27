@@ -44,7 +44,8 @@ public struct TranscriptHistoryStore {
                     lines: stored.lines,
                     sessions: stored.sessions,
                     macDeliveries: stored.macDeliveries,
-                    macCommands: stored.macCommands
+                    macCommands: stored.macCommands,
+                    claudeRuns: stored.claudeRuns
                 )
             }
             .sorted { $0.updatedAt > $1.updatedAt }
