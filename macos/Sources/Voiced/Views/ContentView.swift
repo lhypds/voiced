@@ -55,7 +55,8 @@ struct ContentView: View {
                 emptyState
             }
         }
-        .overlay(alignment: .top) {
+        // A copy is confirmed under the header; a send, just above the record button that sent it.
+        .overlay(alignment: toast?.atBottom == true ? .bottom : .top) {
             if let toast {
                 toastView(toast)
             }
@@ -420,13 +421,16 @@ struct ContentView: View {
                     )
                     .shadow(color: Theme.accentDark.opacity(0.25), radius: 6, x: 0, y: 3)
             )
-            .padding(.top, Self.toastTopInset)
+            .padding(.top, toast.atBottom ? 0 : Self.toastTopInset)
+            .padding(.bottom, toast.atBottom ? Self.toastBottomInset : 0)
             .transition(.opacity)
             .allowsHitTesting(false)
     }
 
     /// Distance from the window's top edge to the toast: just below the header row.
     private static let toastTopInset: CGFloat = headerTopInset + 36 + 12
+    /// Distance from the window's bottom edge to a bottom toast: just above the record button.
+    private static let toastBottomInset: CGFloat = edgeInset + recordButtonSize + 12
 
     private func showToast(_ content: ToastContent) {
         withAnimation(.easeOut(duration: 0.2)) { toast = content }
@@ -970,10 +974,12 @@ private struct ToastContent: Equatable {
     let text: String
     let symbol: String
     var duration: Duration = .seconds(1.2)
+    /// Shown above the record button rather than under the header.
+    var atBottom = false
 
     static func copied(_ strings: AppStrings) -> ToastContent { .init(text: strings.copied, symbol: "checkmark") }
-    static func sent(_ strings: AppStrings) -> ToastContent { .init(text: strings.sentToMachine, symbol: "laptopcomputer", duration: .seconds(2)) }
-    static func notSent(_ strings: AppStrings) -> ToastContent { .init(text: strings.notSentToMachine, symbol: "laptopcomputer.slash", duration: .seconds(2)) }
+    static func sent(_ strings: AppStrings) -> ToastContent { .init(text: strings.sentToMachine, symbol: "laptopcomputer", duration: .seconds(2), atBottom: true) }
+    static func notSent(_ strings: AppStrings) -> ToastContent { .init(text: strings.notSentToMachine, symbol: "laptopcomputer.slash", duration: .seconds(2), atBottom: true) }
 }
 
 /// The row a hold opens above the transcript, in place of LIVE: its speech as a waveform while
@@ -996,9 +1002,10 @@ private struct SpeechRow: View {
                     WaveformView(meter: waveform, color: mac ? VoicedPalette.macAccent : Theme.accent.opacity(0.5))
                         .frame(height: 28)
                 } else {
+                    // The rows' own type, grey as the LIVE text is.
                     Text(controller.strings.recognizingClip)
-                        .font(.system(size: Theme.bodyFontSize, weight: .bold))
-                        .foregroundStyle(Theme.accent.opacity(0.5))
+                        .font(.system(size: Theme.bodyFontSize))
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
