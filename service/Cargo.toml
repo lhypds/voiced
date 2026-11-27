@@ -33,8 +33,8 @@ libc = "0.2"
 core-foundation = "0.10"
 core-graphics = "0.25"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSButton", "NSControl", "NSFontDescriptor", "NSImage", "NSResponder", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSView"] }
-objc2-foundation = { version = "0.3", features = ["NSString", "NSUserDefaults"] }
+objc2-app-kit = { version = "0.3", features = ["NSBox", "NSButton", "NSColor", "NSControl", "NSFont", "NSFontDescriptor", "NSImage", "NSMenu", "NSMenuItem", "NSResponder", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSText", "NSTextField", "NSView"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSGeometry", "NSString", "NSUserDefaults"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

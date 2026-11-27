@@ -13,6 +13,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 use crate::{Status, ListenerState};
 
 struct Items {
+    menu: Menu,
     state: MenuItem,
     name: MenuItem,
     connections: MenuItem,
@@ -65,10 +66,12 @@ pub fn run(status: Arc<Mutex<Status>>, quit: impl Fn() + 'static) -> ! {
 }
 
 fn build() -> Result<(TrayIcon, Items), String> {
-    // Enabled, so the system draws them in the normal text colour rather than grey; choosing one
-    // does nothing (only the Accessibility row, while the permission is missing, opens Settings).
-    let row = |text: &str| MenuItem::new(text, true, None);
+    // Status rows cannot be chosen. On macOS they are shown as labels in the normal text colour
+    // (paint_rows); the Accessibility row can be chosen while the permission is missing.
+    let row = |text: &str| MenuItem::new(text, false, None);
+    let menu = Menu::new();
     let items = Items {
+        menu: menu.clone(),
         state: row("voiced · Starting…"),
         name: row(""),
         connections: row(""),
@@ -77,7 +80,6 @@ fn build() -> Result<(TrayIcon, Items), String> {
         accessibility: row(""),
         quit: MenuItem::new("Quit voiced", true, None),
     };
-    let menu = Menu::new();
     let separator = PredefinedMenuItem::separator();
     menu.append_items(&[&items.state, &separator, &items.name, &items.connections, &items.since, &items.typed])
         .map_err(|e| e.to_string())?;
@@ -144,19 +146,122 @@ fn refresh(items: &Items, status: &Status) {
         ListenerState::Listening(port) => format!("Running · port {port}"),
         ListenerState::Failed(detail) => format!("Failed: {detail}"),
     };
-    items.state.set_text(format!("voiced · {state}"));
-    items.name.set_text(format!("Advertised as {}", status.name));
-    items.connections.set_text(format!("iPhones connected: {}", status.connections));
-    items.since.set_text(format!("Running since {}", status.started_at.format("%H:%M")));
     let last = status.last_sentence_at.map(|t| format!(" (last {})", t.format("%H:%M"))).unwrap_or_default();
-    items.typed.set_text(match &status.delivery_error {
+    let typed = match &status.delivery_error {
         Some(error) => error.clone(),
         None => format!("Sentences delivered: {}{last}", status.sentences_typed),
-    });
-    if status.accessibility_allowed {
-        items.accessibility.set_text("Accessibility: allowed");
-    } else {
-        items.accessibility.set_text("Accessibility: not allowed — Allow…");
+    };
+    let accessibility = if status.accessibility_allowed { "Accessibility: allowed" } else { "Accessibility: not allowed — Allow…" };
+    items.accessibility.set_enabled(!status.accessibility_allowed);
+    // Each row with its place in the menu (the separator is 1).
+    let rows = [
+        (&items.state, 0, format!("voiced · {state}")),
+        (&items.name, 2, format!("Advertised as {}", status.name)),
+        (&items.connections, 3, format!("iPhones connected: {}", status.connections)),
+        (&items.since, 4, format!("Running since {}", status.started_at.format("%H:%M"))),
+        (&items.typed, 5, typed),
+        (&items.accessibility, 6, accessibility.to_string()),
+    ];
+    #[cfg(target_os = "macos")]
+    {
+        let dot = match &status.listener {
+            ListenerState::Starting => Dot::Yellow,
+            ListenerState::Listening(_) => Dot::Green,
+            ListenerState::Failed(_) => Dot::Red,
+        };
+        paint_rows(&items.menu, &rows, status.accessibility_allowed, dot);
+    }
+    #[cfg(not(target_os = "macos"))]
+    for (item, _, text) in &rows {
+        item.set_text(text);
+    }
+}
+
+/// The colour of the dot before the state.
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+enum Dot {
+    Yellow,
+    Green,
+    Red,
+}
+
+/// Shows each row as a plain label in the item's place, in the menu's font and the normal text
+/// colour: an item with a view of its own is neither highlighted nor chosen, while one that merely
+/// cannot be chosen is drawn grey whatever colour its title asks for. The Accessibility row stays
+/// an ordinary item while the permission is missing, to be chosen to open Settings.
+#[cfg(target_os = "macos")]
+fn paint_rows(menu: &Menu, rows: &[(&MenuItem, usize, String)], accessibility_allowed: bool, dot: Dot) {
+    use objc2::rc::Retained;
+    use objc2::MainThreadOnly;
+    use objc2_app_kit::{NSBox, NSBoxType, NSColor, NSFont, NSMenu, NSTextField, NSTitlePosition, NSView};
+    use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
+    use tray_icon::menu::ContextMenu;
+
+    /// Space left and right of a label, as the menu leaves around its items' titles.
+    const INSET: f64 = 14.0;
+    const HEIGHT: f64 = 22.0;
+    /// The state's dot, as in the Swift service's card: 7 pt across, 5 pt before the text.
+    const DOT: f64 = 7.0;
+    const DOT_GAP: f64 = 5.0;
+
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    unsafe {
+        let ns_menu = &*(menu.ns_menu() as *const NSMenu);
+        for (item, index, text) in rows {
+            let Some(ns_item) = ns_menu.itemAtIndex(*index as isize) else { continue };
+            if *index == 6 && !accessibility_allowed {
+                ns_item.setView(None);
+                item.set_text(text);
+                continue;
+            }
+            // The row's view holds its label first, then, for the state, the dot.
+            let subview = |i: usize| ns_item.view().and_then(|view| {
+                let subviews = view.subviews();
+                (i < subviews.count()).then(|| subviews.objectAtIndex(i))
+            });
+            let existing = subview(0).and_then(|label| label.downcast::<NSTextField>().ok());
+            let (view, label): (Retained<NSView>, Retained<NSTextField>) = match (ns_item.view(), existing) {
+                (Some(view), Some(label)) => (view, label),
+                _ => {
+                    let label = NSTextField::labelWithString(&NSString::from_str(""), mtm);
+                    label.setFont(Some(&NSFont::menuFontOfSize(0.0)));
+                    label.setTextColor(Some(&NSColor::labelColor()));
+                    let view = NSView::initWithFrame(NSView::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, HEIGHT)));
+                    view.addSubview(&label);
+                    if *index == 0 {
+                        let circle = NSBox::initWithFrame(NSBox::alloc(mtm), NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(DOT, DOT)));
+                        circle.setBoxType(NSBoxType::Custom);
+                        circle.setTitlePosition(NSTitlePosition::NoTitle);
+                        circle.setBorderWidth(0.0);
+                        circle.setCornerRadius(DOT / 2.0);
+                        view.addSubview(&circle);
+                    }
+                    ns_item.setView(Some(&view));
+                    (view, label)
+                }
+            };
+            let text = NSString::from_str(text);
+            if label.stringValue() != text {
+                label.setStringValue(&text);
+            }
+            label.sizeToFit();
+            let size = label.frame().size;
+            let mut left = INSET;
+            if let Some(circle) = subview(1).and_then(|circle| circle.downcast::<NSBox>().ok()) {
+                let color = match dot {
+                    Dot::Yellow => NSColor::systemYellowColor(),
+                    Dot::Green => NSColor::systemGreenColor(),
+                    Dot::Red => NSColor::systemRedColor(),
+                };
+                circle.setFillColor(&color);
+                // Centred on the line, as the label is.
+                circle.setFrameOrigin(NSPoint::new(INSET, ((HEIGHT - DOT) / 2.0).round()));
+                left += DOT + DOT_GAP;
+            }
+            label.setFrameOrigin(NSPoint::new(left, ((HEIGHT - size.height) / 2.0).round()));
+            view.setFrameSize(NSSize::new(left + size.width + INSET, HEIGHT));
+        }
     }
 }
 
