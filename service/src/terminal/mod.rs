@@ -39,16 +39,17 @@ const PERMISSION_MODES: [&str; 6] = ["default", "acceptEdits", "auto", "plan", "
 /// variable VOICED_PERMISSION_MODE or, on macOS, by
 /// `defaults write com.local.voiced.input claudePermissionMode <mode>`. Read for every run.
 pub fn permission_mode() -> String {
-    let mut mode = std::env::var("VOICED_PERMISSION_MODE").unwrap_or_default();
+    let mode = std::env::var("VOICED_PERMISSION_MODE").unwrap_or_default();
     #[cfg(target_os = "macos")]
-    if mode.is_empty() {
-        if let Ok(output) = std::process::Command::new("/usr/bin/defaults")
+    let mode = if mode.is_empty() {
+        std::process::Command::new("/usr/bin/defaults")
             .args(["read", "com.local.voiced.input", "claudePermissionMode"])
             .output()
-        {
-            mode = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        }
-    }
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or(mode)
+    } else {
+        mode
+    };
     if PERMISSION_MODES.contains(&mode.as_str()) { mode } else { "acceptEdits".into() }
 }
 
