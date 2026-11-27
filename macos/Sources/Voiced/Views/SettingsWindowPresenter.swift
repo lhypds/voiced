@@ -16,8 +16,8 @@ struct SettingsWindowSize {
 /// A SwiftUI sheet on macOS hangs from the window's title bar, so a tall sheet over a tall window
 /// sits against the top edge. This window is placed with its center on the hosting window's
 /// center, or with its top edge on the hosting window's top edge when it is taller. From then on
-/// it is an independent window: both it and the hosting window can be focused, dragged and
-/// brought to the front, and neither blocks the other. (A modal session would block the hosting
+/// it is a child of the hosting window: always in front of it, even while the hosting window has
+/// the focus, and moved along with it; both can be focused and neither blocks the other. (A modal session would block the hosting
 /// window, but SwiftUI stops updating its views inside the nested modal loop, so the close
 /// button's change to `isPresented` never arrived.) The window keeps `size.width`; its height is
 /// the user's to drag, from `size.minHeight` up, and it reopens at the last height.
@@ -127,6 +127,8 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
 
             self.window = window
             self.parent = parent
+            // A child window stays above its parent, whichever of the two has the focus.
+            parent.addChildWindow(window, ordered: .above)
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             window.orderFrontRegardless()
@@ -135,6 +137,7 @@ struct SettingsWindowPresenter<Content: View>: NSViewRepresentable {
         func dismiss() {
             guard let window else { return }
             UserDefaults.standard.set(Double(window.contentLayoutRect.height), forKey: Self.heightKey)
+            parent?.removeChildWindow(window)
             window.orderOut(nil)
             window.contentView = nil
             self.window = nil
