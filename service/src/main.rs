@@ -47,7 +47,7 @@ pub enum Event {
     Connected { id: u64, peer: String, send: Sender<Vec<u8>> },
     Received { lines: Vec<Incoming> },
     Disconnected { id: u64 },
-    ShellReady { run: String, continuing: bool, environment: Option<ShellEnv> },
+    ShellReady { run: String, environment: Option<ShellEnv> },
     ClaudeLine { run: String, line: String },
     ClaudeStderr { run: String, line: String },
     ClaudeExited { run: String, status: String },
@@ -169,7 +169,7 @@ fn core(inbox: Receiver<Event>, mut runner: Runner, status: Arc<Mutex<Status>>, 
                     }
                 }
             }
-            Some(Event::ShellReady { run, continuing, environment }) => runner.shell_ready(&run, continuing, environment),
+            Some(Event::ShellReady { run, environment }) => runner.shell_ready(&run, environment),
             Some(Event::ClaudeLine { run, line }) => runner.received(&run, line),
             Some(Event::ClaudeStderr { run, line }) => runner.received_stderr(&run, line),
             Some(Event::ClaudeExited { run, status }) => runner.exited(&run, status),
@@ -207,7 +207,7 @@ fn deliver(message: protocol::Message, runner: &mut Runner, status: &Arc<Mutex<S
             let folder = message.resolved_folder();
             if Path::new(&folder).is_dir() {
                 let folder = folder.to_string_lossy().into_owned();
-                runner.start(message.text, folder, message.line, message.history.unwrap_or_default());
+                runner.start(message.text, folder, message.line, message.record, message.history.unwrap_or_default());
                 None
             } else {
                 Some(format!("Dropped a sentence: {} is not a folder", folder.display()))

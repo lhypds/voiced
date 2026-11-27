@@ -5,8 +5,9 @@
 //! (`--output-format stream-json`) and its prompt and answers on stdin (`--input-format
 //! stream-json`). A tool it may not use without asking comes up as a `can_use_tool` control
 //! request (`--permission-prompt-tool stdio`), which the phone allows or denies. Runs go one at a
-//! time, in order; a later sentence for the same folder continues the conversation
-//! (`--continue`), one for another folder starts a new one.
+//! time, in order; a later sentence of the same record on the phone, for the same folder,
+//! continues the conversation (`--resume`), one of another record or for another folder starts a
+//! new one.
 //!
 //! What the phone is told is a transcript per run, built from the events as tm builds its own:
 //! Claude's text as it streams, each tool call with its result, and how the run ended. Every
@@ -56,6 +57,26 @@ struct Run {
     stderr: String,
     /// The earlier requests of the phone's record and what Claude concluded.
     history: Vec<ClaudeExchange>,
+    /// The phone's record the sentence is in; none from older phones.
+    record: Option<String>,
+    /// The session this run continues; none when it starts a conversation.
+    resume: Option<String>,
+}
+
+/// The conversation the last run belonged to.
+struct Conversation {
+    folder: String,
+    record: Option<String>,
+    /// Claude Code's id for it, known once a run of it has started; none when none got that far.
+    session: Option<String>,
+}
+
+impl Conversation {
+    /// The session a sentence of `record` for `folder` continues: this one's, when it is the
+    /// same record in the same folder. Any other sentence starts a new conversation.
+    fn session_for(&self, folder: &str, record: Option<&str>) -> Option<String> {
+        if self.folder == folder && self.record.as_deref() == record { self.session.clone() } else { None }
+    }
 }
 
 impl Run {
@@ -71,8 +92,7 @@ pub struct Runner {
     pub terminal: Terminal,
     /// Oldest first.
     runs: Vec<Run>,
-    /// The folder of the conversation the last run belonged to.
-    conversation_folder: Option<String>,
+    conversation: Option<Conversation>,
     /// The input of each tool waiting for an answer, sent back unchanged when it is allowed.
     pending_inputs: HashMap<String, Value>,
 }
@@ -90,7 +110,7 @@ impl Runner {
             outbox: Vec::new(),
             terminal: Terminal::default(),
             runs: Vec::new(),
-            conversation_folder: None,
+            conversation: None,
             pending_inputs: HashMap::new(),
         }
     }
@@ -100,9 +120,9 @@ impl Runner {
         RunEvent::snapshot(self.runs.iter().map(|r| r.info.clone()).collect())
     }
 
-    /// Queues a run of `text` in `folder`, for the phone's transcript line `line`, with the
-    /// conversation so far on the phone, `history`, for Claude to refer to.
-    pub fn start(&mut self, text: String, folder: String, line: Option<String>, history: Vec<ClaudeExchange>) {
+    /// Queues a run of `text` in `folder`, for the phone's transcript line `line` of its record
+    /// `record`, with the conversation so far on the phone, `history`, for Claude to refer to.
+    pub fn start(&mut self, text: String, folder: String, line: Option<String>, record: Option<String>, history: Vec<ClaudeExchange>) {
         let id = new_id();
         let log_path = log_folder().join(format!("{id}.jsonl"));
         let info = ClaudeRun {
@@ -127,6 +147,8 @@ impl Runner {
             stop_requested: false,
             stderr: String::new(),
             history,
+            record,
+            resume: None,
         });
         let index = self.runs.len() - 1;
         self.emit_state(index);
@@ -171,9 +193,11 @@ impl Runner {
         }
         let Some(index) = self.runs.iter().position(|r| r.info.state == RunState::Queued) else { return };
         let folder = self.runs[index].info.folder.clone();
-        let continuing = self.conversation_folder.as_deref() == Some(folder.as_str());
-        self.conversation_folder = Some(folder);
+        let record = self.runs[index].record.clone();
+        let resume = self.conversation.as_ref().and_then(|c| c.session_for(&folder, record.as_deref()));
+        self.conversation = Some(Conversation { folder, record, session: resume.clone() });
         let run = &mut self.runs[index];
+        run.resume = resume;
         run.info.state = RunState::Running;
         run.info.started_at = Some(now());
         let id = run.info.id.clone();
@@ -182,19 +206,19 @@ impl Runner {
         let events = self.events.clone();
         thread::spawn(move || {
             let environment = crate::shell::environment();
-            let _ = events.send(Event::ShellReady { run: id, continuing, environment });
+            let _ = events.send(Event::ShellReady { run: id, environment });
         });
     }
 
-    pub fn shell_ready(&mut self, id: &str, continuing: bool, environment: Option<ShellEnv>) {
+    pub fn shell_ready(&mut self, id: &str, environment: Option<ShellEnv>) {
         let Some(index) = self.index(id) else { return };
         match environment {
             None => self.fail(index, "Claude Code was not found: `claude` is not on the PATH of your login shell.".into()),
-            Some(shell) => self.launch(index, continuing, shell),
+            Some(shell) => self.launch(index, shell),
         }
     }
 
-    fn launch(&mut self, index: usize, continuing: bool, shell: ShellEnv) {
+    fn launch(&mut self, index: usize, shell: ShellEnv) {
         let permission_mode = terminal::permission_mode();
         let run = &mut self.runs[index];
         if run.info.state != RunState::Running || run.stop_requested {
@@ -203,9 +227,11 @@ impl Runner {
         let _ = fs::create_dir_all(log_folder());
         run.log = File::create(&run.log_path).ok();
 
+        // By its id, not `--continue`: the latest conversation in the folder may be someone else's.
+        let resume = run.resume.clone();
         let mut arguments: Vec<&str> = vec!["-p"];
-        if continuing {
-            arguments.push("--continue");
+        if let Some(session) = &resume {
+            arguments.extend(["--resume", session]);
         }
         arguments.extend([
             "--permission-mode", &permission_mode,
@@ -260,7 +286,7 @@ impl Runner {
         let (log_path, text, folder) = (run.log_path.clone(), run.info.text.clone(), run.info.folder.clone());
         log!(
             "{} Claude Code in {folder} (run {}, {permission_mode}, {} earlier exchanges)",
-            if continuing { "Continued" } else { "Started" },
+            if resume.is_some() { "Continued" } else { "Started" },
             run.info.id,
             run.history.len()
         );
@@ -283,6 +309,12 @@ impl Runner {
             return;
         }
         match str_of(&message, "type") {
+            // Runs go one at a time, so the conversation is this run's: later sentences resume it.
+            "system" if str_of(&message, "subtype") == "init" => {
+                if let (Some(conversation), Some(session)) = (self.conversation.as_mut(), message.get("session_id").and_then(Value::as_str)) {
+                    conversation.session = Some(session.into());
+                }
+            }
             "stream_event" => {
                 let Some(event) = message.get("event").and_then(Value::as_object) else { return };
                 match str_of(event, "type") {
@@ -677,5 +709,23 @@ mod tests {
         let text = prompt("go", &history);
         assert!(text.starts_with("<earlier_conversation>\nFor reference: the user's earlier requests in this conversation (sent by voice from their iPhone)"));
         assert!(text.contains("\n\n[1] User: a\nYou concluded: b\n</earlier_conversation>\n\ngo"));
+    }
+
+    #[test]
+    fn only_the_same_record_in_the_same_folder_continues() {
+        let conversation = |record: Option<&str>, session: Option<&str>| Conversation {
+            folder: "/a".into(),
+            record: record.map(String::from),
+            session: session.map(String::from),
+        };
+        let one = conversation(Some("r1"), Some("s1"));
+        assert_eq!(one.session_for("/a", Some("r1")), Some("s1".into()));
+        assert_eq!(one.session_for("/a", Some("r2")), None);
+        assert_eq!(one.session_for("/b", Some("r1")), None);
+        assert_eq!(one.session_for("/a", None), None);
+        // Older phones send no record: the folder alone decides, as before.
+        assert_eq!(conversation(None, Some("s1")).session_for("/a", None), Some("s1".into()));
+        // No run of it got as far as a session: nothing to continue.
+        assert_eq!(conversation(Some("r1"), None).session_for("/a", Some("r1")), None);
     }
 }

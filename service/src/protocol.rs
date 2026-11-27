@@ -31,6 +31,9 @@ pub struct Message {
     pub folder: Option<String>,
     /// The phone's id for the transcript line the sentence is, so a run shows under it there.
     pub line: Option<String>,
+    /// For `claude`: the phone's id for the record the sentence is in. A sentence of another
+    /// record starts a new conversation. Missing from older phones.
+    pub record: Option<String>,
     /// For `claude`: the earlier requests of the same record and what Claude concluded.
     pub history: Option<Vec<ClaudeExchange>>,
 }
@@ -46,7 +49,7 @@ impl Message {
         };
         let string = |key: &str| object.get(key).and_then(Value::as_str).map(String::from);
         let history = object.get("history").and_then(|h| serde_json::from_value(h.clone()).ok());
-        Some(Message { text, mode, folder: string("folder"), line: string("line"), history })
+        Some(Message { text, mode, folder: string("folder"), line: string("line"), record: string("record"), history })
     }
 
     /// `folder` as a path here: `~` expanded, the home folder when none was sent, and
@@ -348,7 +351,7 @@ mod tests {
 
     #[test]
     fn folders_resolve() {
-        let m = |f: &str| Message { text: String::new(), mode: Mode::Claude, folder: Some(f.into()), line: None, history: None };
+        let m = |f: &str| Message { text: String::new(), mode: Mode::Claude, folder: Some(f.into()), line: None, record: None, history: None };
         assert_eq!(m(" ~ ").resolved_folder(), home_dir());
         assert_eq!(m("~/").resolved_folder(), home_dir());
         assert_eq!(m("/a/./b/../c/").resolved_folder(), PathBuf::from("/a/c"));

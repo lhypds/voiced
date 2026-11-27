@@ -1153,7 +1153,7 @@ final class TranscriptionController: ObservableObject {
     func sendLineToMac(_ line: TranscriptLine) -> Bool {
         guard sendToMacEnabled, lines.contains(where: { $0.id == line.id }) else { return false }
         let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id,
-                                     history: sendToMacMode == .claude ? claudeHistory(before: line) : nil)
+                                     record: currentRecordID ?? pendingRecord?.id, history: sendToMacMode == .claude ? claudeHistory(before: line) : nil)
         macDeliveries[line.id] = delivered
         if delivered { macCommands.remove(line.id) }
         persistTranscript()

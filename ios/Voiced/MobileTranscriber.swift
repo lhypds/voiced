@@ -936,7 +936,7 @@ final class MobileTranscriber: ObservableObject {
     func sendLineToMac(_ line: TranscriptLine) -> Bool {
         guard sendToMacEnabled, current.lines.contains(where: { $0.id == line.id }) else { return false }
         let delivered = macLink.send(line.text, mode: sendToMacMode, folder: claudeFolder, line: line.id,
-                                     history: sendToMacMode == .claude ? claudeHistory(before: line) : nil)
+                                     record: current.id, history: sendToMacMode == .claude ? claudeHistory(before: line) : nil)
         current.macDeliveries = (current.macDeliveries ?? [:]).merging([line.id: delivered]) { $1 }
         if delivered { current.macCommands?.remove(line.id) }
         save()

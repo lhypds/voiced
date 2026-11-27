@@ -51,9 +51,9 @@ final class PhoneInputTests: XCTestCase {
     func testTheEarlierConversationTravelsWithARunSentence() {
         var decoder = PhoneInput.Decoder()
         let history = [ClaudeExchange(prompt: "what fails?", answer: "Two tests in PhoneInputTests.")]
-        let data = PhoneInput.encode("fix them", mode: .claude, line: "l2", history: history)
+        let data = PhoneInput.encode("fix them", mode: .claude, line: "l2", record: "r1", history: history)
 
-        XCTAssertEqual(decoder.feed(data), [PhoneInput.Message(text: "fix them", mode: .claude, line: "l2", history: history)])
+        XCTAssertEqual(decoder.feed(data), [PhoneInput.Message(text: "fix them", mode: .claude, line: "l2", record: "r1", history: history)])
     }
 
     func testARunsConclusionIsWhatClaudeWroteLastOrHowItEnded() {
