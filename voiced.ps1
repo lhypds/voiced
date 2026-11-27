@@ -310,7 +310,7 @@ try {
         '^service$' {
             if ($arguments.Count -gt 2) { Show-Usage }
             $action = if ($arguments.Count -eq 2) { $arguments[1] } else {
-                Select-Option 'service:' @('build', 'start', 'stop', 'restart', 'status')
+                Select-Option 'service:' @('restart', 'build', 'start', 'stop', 'status')
             }
             if (-not $action) { exit 1 }
             Invoke-Service $action

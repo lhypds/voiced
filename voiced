@@ -537,9 +537,9 @@ perform() {
 
 actions_of() {
     case "$1" in
-        service) reply=(build start stop restart status) ;;
-        macos) reply=(build start stop restart) ;;
-        ios) reply=(build restart start stop) ;;
+        service) reply=(restart build start stop status) ;;
+        macos) reply=(restart build start stop) ;;
+        ios) reply=(restart build start stop) ;;
         core) reply=(build) ;;
     esac
 }

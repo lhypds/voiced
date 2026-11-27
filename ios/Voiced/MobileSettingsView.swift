@@ -95,7 +95,7 @@ struct MobileSettingsView: View {
     @State private var isAPIKeyRevealed = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    /// "Send to Mac" → Run (true) or Type (false); the wire still carries one of three modes.
+    /// "Send to machine" → Run (true) or Type (false); the wire still carries one of three modes.
     private var sendsToClaude: Binding<Bool> {
         Binding { model.sendToMacMode == .claude } set: { run in
             // Choosing Type again while already typing keeps the Return switch as it is.
@@ -108,14 +108,16 @@ struct MobileSettingsView: View {
         Binding { model.sendToMacMode == .typeAndReturn } set: { model.sendToMacMode = $0 ? .typeAndReturn : .type }
     }
 
-    /// "Send to Mac" → Mac: automatic (nil), then the Macs found, then the chosen Mac if it is away.
+    /// "Send to machine" → Machine: automatic (nil), then the machines found, then the chosen one
+    /// if it is away.
     private var macChoices: [String?] {
         var names = model.macLink.availableNames
         if let target = model.sendToMacTarget, !names.contains(target) { names.append(target) }
         return [nil] + names
     }
 
-    /// A Mac choice, with what is connected: the Mac automatic found, or whether a chosen one is away.
+    /// A machine choice, with what is connected: the machine automatic found, or whether a chosen
+    /// one is away.
     private func macChoiceLabel(_ name: String?) -> Text {
         let separator = Text(verbatim: " · ")
         guard let name else {
@@ -240,11 +242,14 @@ struct MobileSettingsView: View {
             } footer: { Text("关闭后界面始终保持竖屏，不随设备旋转。") }
                 .listRowBackground(Color.white)
             Section {
-                Toggle("发送到 Mac", isOn: $model.sendToMacEnabled)
+                Toggle("发送到电脑", isOn: $model.sendToMacEnabled)
                 if model.sendToMacEnabled {
-                    // Automatic (the first Mac found) or one Mac by name; a chosen Mac that is away
-                    // stays listed, marked not found, and nothing is sent until it is back.
-                    ChoicePicker("Mac", selection: $model.sendToMacTarget, options: macChoices) { name in
+                    // Automatic (the first machine found) or one machine by name; a chosen machine
+                    // that is away stays listed, marked not found, and nothing is sent until it is back.
+                    // Its list has Refresh List on top, to look for machines again, for one whose
+                    // service has just started.
+                    ChoicePicker("电脑", selection: $model.sendToMacTarget, options: macChoices,
+                                 refresh: { model.macLink.refresh() }) { name in
                         macChoiceLabel(name)
                     }.accessibilityIdentifier("send-to-mac-target")
                     // Two choices, Type and Run; Return is a switch under Type rather than a third mode.
@@ -252,7 +257,7 @@ struct MobileSettingsView: View {
                         run ? Text("执行") : Text("输入")
                     }
                     if model.sendToMacMode == .claude {
-                        // A path on the Mac, which the phone cannot browse: typed, `~` for the home folder.
+                        // A path on the machine, which the phone cannot browse: typed, `~` for the home folder.
                         LabeledContent("工作目录") {
                             FolderField(text: $model.claudeFolder, placeholder: AppSettings.defaultClaudeFolder)
                         }
@@ -260,7 +265,7 @@ struct MobileSettingsView: View {
                         Toggle("输入后按回车", isOn: pressesReturn)
                     }
                 }
-            } footer: { Text("打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 Voiced 的 Mac；正在录音时也可以按住。“输入”把文字输入到 Mac 的光标处，例如终端的提示符，打开“输入后按回车”会再按回车；“执行”交给 Mac 上的 Claude Code 执行，它在终端里打开，位置是上面的“工作目录”（Mac 上的路径，~ 为主目录）。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在 Mac 上运行 voiced 启动 voiced 服务。未连接时说的话不会补发。") }
+            } footer: { Text("打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 voiced 服务的电脑（Mac 或 Windows）；正在录音时也可以按住。“输入”把文字输入到电脑的光标处，例如终端的提示符，打开“输入后按回车”会再按回车；“执行”交给电脑上的 Claude Code 执行，它在终端里打开，位置是上面的“工作目录”（电脑上的路径，~ 为主目录）。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在电脑上运行 voiced service start 启动 voiced 服务；找不到电脑时，点“刷新列表”重新查找。未连接时说的话不会补发。") }
                 .listRowBackground(Color.white)
             Section {
                 Button("重置所有设置", role: .destructive) { confirmReset = true }.disabled(model.locked)
@@ -583,18 +588,22 @@ private struct ChoicePicker<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
     let options: [Value]
+    /// When given, the list has a Refresh List button on top, in a card of its own.
+    let refresh: (() -> Void)?
     let label: (Value) -> Text
 
-    init(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> Text) {
+    init(_ title: String, selection: Binding<Value>, options: [Value], refresh: (() -> Void)? = nil,
+         label: @escaping (Value) -> Text) {
         self.title = title
         _selection = selection
         self.options = options
+        self.refresh = refresh
         self.label = label
     }
 
     var body: some View {
         NavigationLink {
-            ChoiceList(title: title, selection: $selection, options: options, label: label)
+            ChoiceList(title: title, selection: $selection, options: options, refresh: refresh, label: label)
         } label: {
             HStack {
                 Text(LocalizedStringKey(title))
@@ -609,11 +618,26 @@ private struct ChoiceList<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
     let options: [Value]
+    let refresh: (() -> Void)?
     let label: (Value) -> Text
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
+            if let refresh {
+                Section {
+                    Button(action: refresh) {
+                        Label("刷新列表", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(MobileTheme.accent)
+                    .accessibilityIdentifier("choice-refresh")
+                }
+                .listRowBackground(Color.white)
+                // Close to the list it refreshes.
+                .listSectionSpacing(12)
+            }
             Section {
                 ForEach(options, id: \.self) { option in
                     Button {

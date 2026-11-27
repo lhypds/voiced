@@ -188,7 +188,7 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         row.press(forDuration: 1)
         XCTAssertTrue(app.buttons["编辑"].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons["发送到 Mac"].exists)
+        XCTAssertFalse(app.buttons["发送到电脑"].exists)
     }
 
     /// Sends to whatever Mac the simulator finds: run it with a stand-in receiver, not the real service.
@@ -200,9 +200,9 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         sleep(3) // time to find and connect to the Mac
         row.press(forDuration: 1)
-        XCTAssertTrue(app.buttons["发送到 Mac"].waitForExistence(timeout: 3))
-        app.buttons["发送到 Mac"].tap()
-        XCTAssertTrue(app.staticTexts["已发送到 Mac"].waitForExistence(timeout: 3), "the line was not sent")
+        XCTAssertTrue(app.buttons["发送到电脑"].waitForExistence(timeout: 3))
+        app.buttons["发送到电脑"].tap()
+        XCTAssertTrue(app.staticTexts["已发送到电脑"].waitForExistence(timeout: 3), "the line was not sent")
     }
 
     /// End to end with the voiced service running on this Mac and Claude Code: a line sent with
@@ -219,7 +219,7 @@ final class FeatureParityUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         sleep(3) // time to find and connect to the Mac
         row.press(forDuration: 1)
-        app.buttons["发送到 Mac"].tap()
+        app.buttons["发送到电脑"].tap()
         let card = app.descendants(matching: .any)["claude-run"].firstMatch
         XCTAssertTrue(card.waitForExistence(timeout: 10), "no run under the line")
         let allow = app.buttons["允许"]

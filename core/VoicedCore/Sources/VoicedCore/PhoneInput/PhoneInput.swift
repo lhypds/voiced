@@ -122,17 +122,32 @@ public enum PhoneInput {
     }
 }
 
-/// The phone's side: finds a Mac running Voiced on the local network, keeps a connection to it
-/// and sends it sentences. Connects to the Mac chosen by name, or with none chosen to the first
-/// found, by name, and looks again whenever the connection ends. A sentence sent while no Mac is
-/// connected is dropped rather than typed late. The Mac tells it over the same connection how the
-/// Claude Code runs of Run sentences go.
+/// The system a machine running the voiced service has, from the `os` key of its Bonjour TXT
+/// record (`macos` or `windows`). A service that does not say is a Mac's: the only kind there was
+/// before Windows.
+public enum MachinePlatform: Sendable {
+    case mac
+    case windows
+
+    init(txt value: String?) {
+        self = value == "windows" ? .windows : .mac
+    }
+}
+
+/// The phone's side: finds a machine (Mac or Windows) running the voiced service on the local
+/// network, keeps a connection to it and sends it sentences. Connects to the machine chosen by
+/// name, or with none chosen to the first found, by name, and looks again whenever the connection
+/// ends. A sentence sent while no machine is connected is dropped rather than typed late. The
+/// machine tells it over the same connection how the Claude Code runs of Run sentences go.
 @MainActor
 public final class PhoneInputSender: ObservableObject {
     /// The name of the Mac sentences go to; nil while none is connected.
     @Published public private(set) var connectedName: String?
-    /// The names of the Macs found on the network, sorted.
+    /// The names of the machines found on the network, sorted.
     @Published public private(set) var availableNames: [String] = []
+    /// The system of each machine found, by name; kept for machines no longer found, so a chosen
+    /// machine that is away still shows as what it is.
+    @Published public private(set) var platforms: [String: MachinePlatform] = [:]
     /// Whether the sender is looking for, or connected to, a Mac.
     @Published public private(set) var isActive = false
     /// The Mac's Claude Code runs, by id, as last heard; replaced whenever a connection opens.
@@ -163,7 +178,8 @@ public final class PhoneInputSender: ObservableObject {
     public func start() {
         guard browser == nil else { return }
         isActive = true
-        let browser = NWBrowser(for: .bonjour(type: PhoneInput.serviceType, domain: nil), using: .tcp)
+        // With the TXT record, which says what system the machine has.
+        let browser = NWBrowser(for: .bonjourWithTXTRecord(type: PhoneInput.serviceType, domain: nil), using: .tcp)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in self?.browsed(results, by: browser) }
         }
@@ -173,6 +189,29 @@ public final class PhoneInputSender: ObservableObject {
         }
         self.browser = browser
         browser.start(queue: queue)
+    }
+
+    /// Looks for machines again from scratch, for a machine that has just started its service or
+    /// one that went away without saying so. A machine already connected stays connected; a
+    /// connection still trying to open is given up and tried again once machines are found.
+    public func refresh() {
+        guard isActive else { return }
+        retry?.cancel()
+        retry = nil
+        browser?.cancel()
+        browser = nil
+        results = []
+        availableNames = []
+        if let connection, connectedName == nil {
+            connection.cancel()
+            dropConnection()
+        }
+        start()
+    }
+
+    /// The system of the machine called `name`: a Mac's unless it said otherwise.
+    public func platform(of name: String?) -> MachinePlatform {
+        name.flatMap { platforms[$0] } ?? .mac
     }
 
     public func stop() {
@@ -221,6 +260,13 @@ public final class PhoneInputSender: ObservableObject {
         self.results = results.sorted { Self.name(of: $0.endpoint) < Self.name(of: $1.endpoint) }
         let names = self.results.map { Self.name(of: $0.endpoint) }
         if names != availableNames { availableNames = names }
+        var platforms = self.platforms
+        for result in self.results {
+            if case .bonjour(let txt) = result.metadata {
+                platforms[Self.name(of: result.endpoint)] = MachinePlatform(txt: txt["os"])
+            }
+        }
+        if platforms != self.platforms { self.platforms = platforms }
         connectIfIdle()
     }
 

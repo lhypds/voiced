@@ -97,6 +97,18 @@ struct ContentView: View {
     }
     /// The microphone button's diameter, and the space the recording controls keep above and below it.
     private static let micSize: CGFloat = 84
+    /// The machine's icon in the microphone while a command waits to be sent.
+    private static let machineIconSize: CGFloat = 34
+
+    /// The system of the machine sentences go to: the one connected, else the one chosen.
+    private var machine: MachinePlatform {
+        model.macLink.platform(of: model.macLink.connectedName ?? model.sendToMacTarget)
+    }
+
+    /// A machine icon at the size of the text beside it.
+    private func machineIcon(_ name: String) -> some View {
+        Image(name).resizable().scaledToFit().frame(width: 18, height: 18)
+    }
     private static let controlsTopPadding: CGFloat = 24
     private static let controlsBottomPadding: CGFloat = 4
     /// The recording controls float over the list; its last card can scroll up clear of them.
@@ -367,7 +379,7 @@ struct ContentView: View {
     /// whether the sentence went out; false adds a note that no Mac was connected.
     private func transcriptCard(label: String, text: String, live: Bool = false, secondary: String? = nil, line: TranscriptLine? = nil,
                                 mac: Bool? = nil) -> some View {
-        let note: String? = mac == false ? "未连接 Mac，未发送" : nil
+        let note: String? = mac == false ? "未连接电脑，未发送" : nil
         let editing = line != nil && line?.id == editingLineID
         // A command waiting to be sent (PROMPT) is as tall as the SPEECH card it replaces.
         let waiting = line.map { model.isUnsentMacCommand($0) && model.macDelivery(of: $0) == nil } ?? false
@@ -417,10 +429,12 @@ struct ContentView: View {
                 Button("从此处播放", systemImage: "play") { model.play(model.current, from: line) }
                     .disabled(model.locked || model.current.audioPosition(of: line) == nil)
                 Button("编辑", systemImage: "pencil") { beginEditing(line) }
-                // Only with "Send to Mac" on in Settings; again for a line already sent.
+                // Only with "Send to machine" on in Settings; again for a line already sent.
                 if model.sendToMacEnabled {
-                    Button("发送到 Mac", systemImage: "laptopcomputer") {
+                    Button {
                         show(model.sendLineToMac(line) ? .sentToMac : .notSentToMac, for: .seconds(2))
+                    } label: {
+                        Label { Text("发送到电脑") } icon: { Image(machine.imageName) }
                     }
                 }
                 // The view's tint would colour the symbol with the accent and leave only the title
@@ -483,7 +497,7 @@ struct ContentView: View {
     /// becomes the command, a blue line waiting to be sent as a spoken one would. Return, or the
     /// keyboard going away, adds it; left empty, the card just goes.
     private var commandDraftCard: some View {
-        let textField = TextField("", text: $commandText, prompt: Text("输入要发送到 Mac 的内容"), axis: .vertical)
+        let textField = TextField("", text: $commandText, prompt: Text("输入要发送到电脑的内容"), axis: .vertical)
             .font(.body.bold())
             .focused($commandFocused)
             .submitLabel(.done)
@@ -501,7 +515,7 @@ struct ContentView: View {
         // The field is a few points taller than its text, all of it below the glyphs, which left
         // the prompt above the card's middle. As in lineEditor: laid from the top over the same
         // text, hidden, so the card is sized by the text and centres it.
-        let field = (commandText.isEmpty ? Text("输入要发送到 Mac 的内容") : Text(verbatim: commandText))
+        let field = (commandText.isEmpty ? Text("输入要发送到电脑的内容") : Text(verbatim: commandText))
             .font(.body.bold())
             .hidden()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -640,8 +654,8 @@ struct ContentView: View {
             switch toast {
             case .copied: Label(model.strings.copied, systemImage: "checkmark")
             case .releaseToCancel: Label("松开手指，取消识别", systemImage: "xmark")
-            case .sentToMac: Label("已发送到 Mac", systemImage: "laptopcomputer")
-            case .notSentToMac: Label("未连接 Mac，未发送", systemImage: "laptopcomputer.slash")
+            case .sentToMac: Label { Text("已发送到电脑") } icon: { machineIcon(machine.imageName) }
+            case .notSentToMac: Label { Text("未连接电脑，未发送") } icon: { machineIcon(machine.slashedImageName) }
             }
         }
             .font(.callout.weight(.medium))
@@ -840,24 +854,22 @@ struct ContentView: View {
                         // through, rather than a second, filled layer. The colours repeat
                         // RingButtonStyle's, which this has to set over.
                         let filled = micTouching && !micOutside && !micLoadOnly
-                        Image(systemName: send ? "laptopcomputer"
-                              : !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
-                            .font(.system(size: send ? 30 : 33, weight: .regular))
-                            .symbolRenderingMode(.monochrome)
-                            .foregroundStyle(filled ? Color.white : MobileTheme.accent)
-                            .contentTransition(.symbolEffect(.replace))
-                            // A play mark inside the laptop's screen: a tap runs the waiting
-                            // command. The screen's inner centre sits half a point above the
-                            // symbol's; the half point right centres the triangle by eye.
-                            .overlay {
-                                if send {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 10, weight: .regular))
-                                        .foregroundStyle(filled ? Color.white : MobileTheme.accent)
-                                        .offset(x: 0.5, y: -0.5)
-                                        .transition(.opacity)
-                                }
-                            }
+                        if send {
+                            // The machine the command goes to, with a play mark drawn in the middle
+                            // of its screen: a tap runs the waiting command.
+                            Image(machine.playImageName)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: Self.machineIconSize, height: Self.machineIconSize)
+                                .foregroundStyle(filled ? Color.white : MobileTheme.accent)
+                                .transition(.opacity)
+                        } else {
+                            Image(systemName: !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
+                                .font(.system(size: 33, weight: .regular))
+                                .symbolRenderingMode(.monochrome)
+                                .foregroundStyle(filled ? Color.white : MobileTheme.accent)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
                     }
                 }
                 .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly))
@@ -869,12 +881,12 @@ struct ContentView: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(Text(LocalizedStringKey(sendsCommand ? "发送到 Mac" : model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")))
+                .accessibilityLabel(Text(LocalizedStringKey(sendsCommand ? "发送到电脑" : model.recording ? "停止录音" : model.busy ? "取消准备" : "开始录音")))
                 .accessibilityValue(Text(LocalizedStringKey(model.status)))
                 .accessibilityAction { micTapped() }
                 // VoiceOver's double-tap and hold passes the touch through, so holding works there too.
                 .accessibilityHint(sendsCommand ? Text("按住重新录制")
-                                   : model.sendToMacEnabled ? Text("按住说话，识别为发给 Mac 的命令") : Text("按住说话，松开后整段识别"))
+                                   : model.sendToMacEnabled ? Text("按住说话，识别为发给电脑的命令") : Text("按住说话，松开后整段识别"))
                 HStack {
                     #if DEBUG
                     if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
@@ -1183,4 +1195,12 @@ struct PressTracker: UIViewRepresentable {
             reportedInside = true
         }
     }
+}
+
+/// The machine icons in the asset catalog: a classic Macintosh, and a PC with its tower, each also
+/// slashed, and with a play mark in the middle of its screen.
+private extension MachinePlatform {
+    var imageName: String { self == .windows ? "machine.pc" : "machine.mac" }
+    var slashedImageName: String { imageName + ".slash" }
+    var playImageName: String { imageName + ".play" }
 }

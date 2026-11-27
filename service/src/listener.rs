@@ -167,9 +167,13 @@ mod bonjour {
     }
 
     /// Registered under the computer's name (no name given), which mDNSResponder changes itself
-    /// when another device already uses it.
+    /// when another device already uses it. The TXT record says what system this is (os=macos),
+    /// for the phone's icon.
     pub fn advertise(port: u16) -> Result<Advertisement, String> {
         let regtype = CString::new(super::SERVICE_TYPE.trim_end_matches(".local.")).unwrap();
+        let entry = b"os=macos";
+        let mut txt = vec![entry.len() as u8];
+        txt.extend_from_slice(entry);
         let mut service: DNSServiceRef = ptr::null_mut();
         let error = unsafe {
             DNSServiceRegister(
@@ -181,8 +185,8 @@ mod bonjour {
                 ptr::null(),
                 ptr::null(),
                 port.to_be(),
-                0,
-                ptr::null(),
+                txt.len() as u16,
+                txt.as_ptr().cast(),
                 ptr::null(),
                 ptr::null_mut(),
             )
@@ -223,7 +227,10 @@ mod bonjour {
         let name = super::computer_name();
         // A host name of our own, so the system's own records for `<name>.local` are not answered twice.
         let host = format!("voiced-{}.local.", super::sanitized(&gethostname::gethostname().to_string_lossy()));
-        let info = ServiceInfo::new(super::SERVICE_TYPE, &name, &host, "", port, None::<std::collections::HashMap<String, String>>)
+        // What system this is, for the phone's icon.
+        let os = if cfg!(windows) { "windows" } else { std::env::consts::OS };
+        let properties = std::collections::HashMap::from([("os".to_string(), os.to_string())]);
+        let info = ServiceInfo::new(super::SERVICE_TYPE, &name, &host, "", port, Some(properties))
             .map_err(|e| e.to_string())?
             .enable_addr_auto();
         let fullname = info.get_fullname().to_string();

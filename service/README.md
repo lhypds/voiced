@@ -50,7 +50,7 @@ The Windows build has not been compiled yet on a Windows machine; expect to fix 
 
 ## On the iPhone
 
-Turn on "Send to Mac" in Voiced's General settings and pick its mode: Type (typed at the cursor), Type and Return (typed, then Return), or Run (carried out by Claude Code in the "Claude Code folder" set beneath the mode, a path on the computer where `~` is the home folder). Then hold the microphone while speaking: what is said before letting go is sent, whether or not a recording is running. A tap only starts or stops recording and sends nothing. On the same network the phone finds the computer by itself and sends each sentence once it is committed.
+Turn on "Send to Machine" in Voiced's General settings and pick its mode: Type (typed at the cursor), Type and Return (typed, then Return), or Run (carried out by Claude Code in the "Claude Code folder" set beneath the mode, a path on the computer where `~` is the home folder). Then hold the microphone while speaking: what is said before letting go is sent, whether or not a recording is running. A tap only starts or stops recording and sends nothing. On the same network the phone finds the computer by itself and sends each sentence once it is committed.
 
 ## How it works
 
