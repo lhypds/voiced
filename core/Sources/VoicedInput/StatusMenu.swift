@@ -37,7 +37,9 @@ final class StatusMenu: NSObject {
         super.init()
 
         if let button = item.button {
-            let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "voiced")
+            // 15 pt rather than the default 13: 18×18 instead of 15×16, a little larger in the bar.
+            let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "voiced")?
+                .withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
             image?.isTemplate = true
             button.image = image
             button.target = self

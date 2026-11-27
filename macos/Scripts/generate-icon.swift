@@ -52,7 +52,7 @@ guard let symbol = NSImage(systemSymbolName: "waveform", accessibilityDescriptio
     fatalError("Unable to load the waveform symbol")
 }
 // Fit the symbol into the middle of the tile, keeping its proportions.
-let box = tileRect.width * (isIOS ? 0.58 : 0.62)
+let box = tileRect.width * (isIOS ? 0.55 : 0.62)
 let scale = min(box / symbol.size.width, box / symbol.size.height)
 let symbolSize = NSSize(width: symbol.size.width * scale, height: symbol.size.height * scale)
 let symbolRect = NSRect(

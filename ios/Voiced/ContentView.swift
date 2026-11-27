@@ -176,7 +176,11 @@ struct ContentView: View {
                         if let message = model.translationError { Text(message).font(.caption).foregroundStyle(.red) }
                         if typingCommand { commandDraftCard }
                         ForEach(lines) { line in
-                            transcriptCard(label: line.timestamp(mode: TimestampMode(rawValue: model.timestampID) ?? .current,
+                            // A command waiting to be sent says so where its time would be, as
+                            // SPEECH and TYPE do for the hold and typed cards before it.
+                            let waiting = model.isUnsentMacCommand(line) && model.macDelivery(of: line) == nil
+                            transcriptCard(label: waiting ? "PROMPT"
+                                           : line.timestamp(mode: TimestampMode(rawValue: model.timestampID) ?? .current,
                                                                 showDate: model.showDate), text: model.displayTexts(line).primary, secondary: model.displayTexts(line).secondary, line: line,
                                            // A command from a hold not sent yet is blue too, with no note.
                                            mac: model.macDelivery(of: line) ?? (model.isUnsentMacCommand(line) ? true : nil))
@@ -365,6 +369,8 @@ struct ContentView: View {
                                 mac: Bool? = nil) -> some View {
         let note: String? = mac == false ? "未连接 Mac，未发送" : nil
         let editing = line != nil && line?.id == editingLineID
+        // A command waiting to be sent (PROMPT) is as tall as the SPEECH card it replaces.
+        let waiting = line.map { model.isUnsentMacCommand($0) && model.macDelivery(of: $0) == nil } ?? false
         return Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) {
@@ -380,7 +386,7 @@ struct ContentView: View {
             }
         }
         .foregroundStyle(live ? MobileTheme.ink.opacity(0.5) : MobileTheme.ink)
-        .padding(16).frame(maxWidth: .infinity, minHeight: live ? 64 : nil, alignment: .leading)
+        .padding(16).frame(maxWidth: .infinity, minHeight: live || waiting ? 64 : nil, alignment: .leading)
         .background(cardFill(line: line, mac: mac != nil), in: RoundedRectangle(cornerRadius: 18))
         // Nil for the other cards, so starting to edit this one reports its frame even though it has not moved.
         .onGeometryChange(for: CGRect?.self) { editing ? $0.frame(in: .global) : nil } action: { if let frame = $0 { editingCardFrame = frame } }
@@ -393,7 +399,14 @@ struct ContentView: View {
         .onTapGesture {
             if editing { return }
             if editingLineID != nil { editFocused = false; return }
-            if let line, model.tap(line, in: model.current) { showCopiedToast() }
+            guard let line else { return }
+            // A command still waiting to be sent opens for editing rather than playing or copying:
+            // what is fixed here is what the send button then sends.
+            if model.isUnsentMacCommand(line) && model.macDelivery(of: line) == nil {
+                beginEditing(line, afterMenu: false)
+                return
+            }
+            if model.tap(line, in: model.current) { showCopiedToast() }
         }
         .contextMenu {
             // No menu over the text being edited: a long press there selects text.
@@ -470,7 +483,7 @@ struct ContentView: View {
     /// becomes the command, a blue line waiting to be sent as a spoken one would. Return, or the
     /// keyboard going away, adds it; left empty, the card just goes.
     private var commandDraftCard: some View {
-        let field = TextField("", text: $commandText, prompt: Text("输入要发送到 Mac 的内容"), axis: .vertical)
+        let textField = TextField("", text: $commandText, prompt: Text("输入要发送到 Mac 的内容"), axis: .vertical)
             .font(.body.bold())
             .focused($commandFocused)
             .submitLabel(.done)
@@ -485,6 +498,14 @@ struct ContentView: View {
             .onChange(of: commandFocused) { _, focused in
                 if !focused { finishTypingCommand() }
             }
+        // The field is a few points taller than its text, all of it below the glyphs, which left
+        // the prompt above the card's middle. As in lineEditor: laid from the top over the same
+        // text, hidden, so the card is sized by the text and centres it.
+        let field = (commandText.isEmpty ? Text("输入要发送到 Mac 的内容") : Text(verbatim: commandText))
+            .font(.body.bold())
+            .hidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topLeading) { textField.fixedSize(horizontal: false, vertical: true) }
         return Group {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 8) { timestampLabel("TYPE", mac: true); field }
@@ -573,12 +594,12 @@ struct ContentView: View {
         withAnimation(.easeOut(duration: 0.25)) { editLift += covered }
     }
 
-    private func beginEditing(_ line: TranscriptLine) {
+    private func beginEditing(_ line: TranscriptLine, afterMenu: Bool = true) {
         editText = line.text
         editingLineID = line.id
         // After the context menu has closed, or the field is not there yet to take focus.
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(350))
+            try? await Task.sleep(for: .milliseconds(afterMenu ? 350 : 50))
             if editingLineID == line.id { editFocused = true }
         }
     }
@@ -778,6 +799,19 @@ struct ContentView: View {
         model.pendingCommand != nil && !model.holding && !model.recognizingHold && !model.stopping
     }
 
+    /// The dot beside the microphone, in the Mac's colours (statusColor in its ContentView): the
+    /// accent while recording, grey while the model downloads or loads, red after a failure, green
+    /// when ready. Light blue while held, which the Mac has no counterpart for, as what is said
+    /// then goes to the Mac.
+    private var statusColor: Color {
+        if model.holding { return VoicedPalette.macAccent.opacity(0.6) }
+        if model.busy { return .gray }
+        if model.recording { return MobileTheme.accent }
+        if model.modelLoading { return .gray }
+        if model.error != nil { return .red }
+        return .green
+    }
+
     private var recordingControls: some View {
         VStack(spacing: 12) {
             // Also once a stop has left the model loading in the background.
@@ -812,6 +846,18 @@ struct ContentView: View {
                             .symbolRenderingMode(.monochrome)
                             .foregroundStyle(filled ? Color.white : MobileTheme.accent)
                             .contentTransition(.symbolEffect(.replace))
+                            // A play mark inside the laptop's screen: a tap runs the waiting
+                            // command. The screen's inner centre sits half a point above the
+                            // symbol's; the half point right centres the triangle by eye.
+                            .overlay {
+                                if send {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 10, weight: .regular))
+                                        .foregroundStyle(filled ? Color.white : MobileTheme.accent)
+                                        .offset(x: 0.5, y: -0.5)
+                                        .transition(.opacity)
+                                }
+                            }
                     }
                 }
                 .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly))
@@ -837,9 +883,7 @@ struct ContentView: View {
                             .accessibilityIdentifier("ui-hold-count")
                     }
                     #endif
-                    // Light blue while held, as what is said then goes to the Mac.
-                    Circle().fill(model.holding ? VoicedPalette.macAccent.opacity(0.6)
-                                  : model.busy ? Color.red : model.recording ? Color.green : MobileTheme.accent.opacity(0.35))
+                    Circle().fill(statusColor)
                         .frame(width: 7, height: 7)
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }

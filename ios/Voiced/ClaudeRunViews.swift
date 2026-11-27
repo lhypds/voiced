@@ -81,13 +81,23 @@ struct ClaudeRunCard: View {
         }
     }
 
-    /// What Claude wrote last, or why the run failed.
+    /// What Claude wrote last, or why the run failed, on one run of lines: line breaks and blank
+    /// lines become single spaces, so the card's few lines hold text rather than gaps. The whole
+    /// run keeps them.
     private var lastText: String? {
         let items = run.items ?? []
+        let text: String?
         if run.state == .failed, let failure = items.last(where: { $0.kind == .error || ($0.kind == .result && $0.isError == true) }) {
-            return failure.text
+            text = failure.text
+        } else {
+            text = items.last(where: { $0.kind == .text && !($0.text ?? "").isEmpty })?.text
         }
-        return items.last(where: { $0.kind == .text && !($0.text ?? "").isEmpty })?.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text else { return nil }
+        let flat = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return flat.isEmpty ? nil : flat
     }
 }
 
