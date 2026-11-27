@@ -222,6 +222,46 @@ function Assert-Service([string]$Part) {
     Show-Usage
 }
 
+# MARK: Firewall
+
+function Test-FirewallRule {
+    netsh advfirewall firewall show rule name=voiced | Out-Null
+    $LASTEXITCODE -eq 0
+}
+
+# Runs netsh commands as administrator, which Windows asks the user to approve. Returns whether
+# the last one succeeded; $false too when the approval is refused.
+function Invoke-ElevatedNetsh([string[]]$Commands) {
+    $line = '/c ' + (($Commands | ForEach-Object { "netsh advfirewall firewall $_" }) -join ' & ')
+    try {
+        $process = Start-Process cmd -ArgumentList $line -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+        return $process.ExitCode -eq 0
+    } catch {
+        return $false
+    }
+}
+
+# Lets the iPhone reach the service on private networks. The rule is for the program, so it covers
+# its TCP port and Bonjour. Any other inbound rule for it goes first: Cancel in the firewall's own
+# prompt leaves one that blocks.
+function Add-FirewallRule {
+    if (Test-FirewallRule) { return }
+    Write-Host 'Allowing voiced through Windows Firewall on private networks; Windows asks for administrator approval.'
+    $program = "program=`"$Installed`""
+    if (-not (Invoke-ElevatedNetsh "delete rule name=all dir=in $program",
+            "add rule name=voiced dir=in action=allow profile=private $program")) {
+        Write-Host 'The firewall rule was not added. Run install.bat again, or allow voiced when Windows asks.'
+    }
+}
+
+function Remove-FirewallRule {
+    if (-not (Test-FirewallRule)) { return }
+    Write-Host 'Removing the firewall rule; Windows asks for administrator approval.'
+    if (-not (Invoke-ElevatedNetsh 'delete rule name=voiced')) {
+        Write-Host 'The firewall rule voiced was not removed.'
+    }
+}
+
 # MARK: The command, as install.bat and uninstall.bat set it up
 
 # voiced on PATH: a voiced.cmd in a folder of its own, since %LOCALAPPDATA%\voiced holds
@@ -239,12 +279,14 @@ function Install-Command {
     } else {
         Write-Host "Installed the voiced command in $CommandFolder."
     }
+    # Before the service starts, so that the firewall does not ask on its own.
+    Add-FirewallRule
     Restart-VoicedService
-    Write-Host 'The first time, allow voiced through Windows Firewall on private networks so the iPhone can reach it.'
 }
 
 function Uninstall-Command {
     Stop-VoicedService
+    Remove-FirewallRule
     Remove-Item -Force -ErrorAction SilentlyContinue $Installed
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $CommandFolder
     $path = [string][Environment]::GetEnvironmentVariable('Path', 'User')

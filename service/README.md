@@ -38,7 +38,7 @@ voiced                                              :: the help
 
 The service is built in `service\target\release` and runs as a copy in `%LOCALAPPDATA%\voiced`, so a build never has to replace the file of the running service; `voiced service restart` rebuilds, then puts the new copy in place and restarts it. `install.bat` puts the command on PATH through `%LOCALAPPDATA%\voiced\bin`; open a new window after installing to use it.
 
-- Windows Firewall asks the first time whether voiced may accept connections: allow it on private networks. The phone needs both the TCP port and Bonjour (UDP 5353).
+- `install.bat` allows voiced through Windows Firewall on private networks (it asks for administrator approval), and `uninstall.bat` removes that rule. Without the rule, Windows Firewall asks the first time whether voiced may accept connections: allow it on private networks. The phone needs both the TCP port and Bonjour (UDP 5353).
 - Bonjour is done by voiced itself (the `mdns-sd` crate); no Apple Bonjour service is needed.
 - Typing needs no permission. Windows does not let it type into an app running as administrator unless voiced runs as administrator too.
 - `claude` is looked up on the PATH and in `%USERPROFILE%\.local\bin`, where the native installer puts it; an npm install's `claude.cmd` works too.
