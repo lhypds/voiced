@@ -267,27 +267,30 @@ fn paint_rows(menu: &Menu, rows: &[(&MenuItem, usize, String)], accessibility_al
     }
 }
 
-/// A waveform of seven rounded bars in black, drawn here so the binary needs no image file. On
-/// macOS it is replaced by the system's waveform symbol (mac_status_item).
+/// A waveform in black, drawn here so the binary needs no image file: six rounded bars of one
+/// width, in the proportions of the system's waveform symbol that macOS shows in its place
+/// (mac_status_item), so the icon looks the same on both systems. The symbol itself may only be
+/// used on Apple's systems, so it is drawn rather than copied.
 fn icon() -> Icon {
-    const SIZE: usize = 36;
-    let heights = [0.28, 0.55, 0.85, 1.0, 0.7, 0.45, 0.25];
-    let bar = 3.0f32;
-    let gap = 2.0f32;
-    let total = heights.len() as f32 * bar + (heights.len() - 1) as f32 * gap;
-    let left = (SIZE as f32 - total) / 2.0;
+    const SIZE: usize = 64;
+    // Each bar's height, as a fraction of the icon's side, left to right.
+    const HEIGHTS: [f32; 6] = [0.205, 0.553, 0.889, 0.447, 0.705, 0.279];
+    const BAR: f32 = 0.074;
+    const PITCH: f32 = 0.142;
+    const MARGIN: f32 = 0.105;
+    let side = SIZE as f32;
+    let radius = BAR * side / 2.0;
     let mut rgba = vec![0u8; SIZE * SIZE * 4];
     for y in 0..SIZE {
         for x in 0..SIZE {
             let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
             let mut coverage = 0.0f32;
-            for (index, height) in heights.iter().enumerate() {
-                let cx = left + index as f32 * (bar + gap) + bar / 2.0;
-                let half = height * (SIZE as f32 - 6.0) / 2.0;
-                let cy = SIZE as f32 / 2.0;
-                // Distance to a vertical capsule of radius bar / 2.
-                let dy = ((py - cy).abs() - (half - bar / 2.0)).max(0.0);
-                let distance = ((px - cx).powi(2) + dy * dy).sqrt() - bar / 2.0;
+            for (index, height) in HEIGHTS.iter().enumerate() {
+                let cx = (MARGIN + index as f32 * PITCH) * side + radius;
+                let half = height * side / 2.0;
+                // Distance to a vertical capsule of the bar's width, centred on the icon.
+                let dy = ((py - side / 2.0).abs() - (half - radius)).max(0.0);
+                let distance = ((px - cx).powi(2) + dy * dy).sqrt() - radius;
                 coverage = coverage.max((0.5 - distance).clamp(0.0, 1.0));
             }
             let pixel = (y * SIZE + x) * 4;
