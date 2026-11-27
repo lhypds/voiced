@@ -198,10 +198,10 @@ struct ClaudeRunSheet: View {
     private func transcript(_ run: ClaudeRun) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(run.text).font(.headline)
-                        Text(verbatim: run.folder).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                        Text(run.text).font(.subheadline.bold())
+                        Text(verbatim: run.folder).font(.system(.caption2, design: .monospaced)).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.head)
                     }
                     ForEach(Array((run.items ?? []).enumerated()), id: \.offset) { index, item in
@@ -217,7 +217,7 @@ struct ClaudeRunSheet: View {
                     ClaudeRunStatus(run: run)
                     Color.clear.frame(height: 1).id("end")
                 }
-                .padding(20)
+                .padding(16)
                 .textSelection(.enabled)
             }
             .onAppear { proxy.scrollTo("end", anchor: .bottom) }
@@ -230,7 +230,7 @@ struct ClaudeRunSheet: View {
         switch item.kind {
         case .text:
             if let text = item.text, !text.isEmpty {
-                Text(LocalizedStringKey(text)).font(.body).foregroundStyle(MobileTheme.ink)
+                Text(LocalizedStringKey(text)).font(.footnote).foregroundStyle(MobileTheme.ink)
             }
         case .tool:
             VStack(alignment: .leading, spacing: 4) {
@@ -248,14 +248,14 @@ struct ClaudeRunSheet: View {
                         }
                     }
                     .frame(width: 14, height: 14)
-                    Text(verbatim: item.name ?? "tool").font(.subheadline.bold())
+                    Text(verbatim: item.name ?? "tool").font(.footnote.bold())
                 }
                 if let summary = item.summary, !summary.isEmpty {
-                    Text(summary).font(.system(.footnote, design: .monospaced)).foregroundStyle(.secondary).lineLimit(4)
+                    Text(summary).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).lineLimit(4)
                 }
                 if let result = item.result, !result.isEmpty {
                     Text(result)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(item.isError == true ? .red : .secondary)
                         .lineLimit(expanded.contains(index) ? nil : 3)
                         .padding(8).frame(maxWidth: .infinity, alignment: .leading)
@@ -263,20 +263,20 @@ struct ClaudeRunSheet: View {
                         .onTapGesture { if expanded.contains(index) { expanded.remove(index) } else { expanded.insert(index) } }
                 }
             }
-            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
             .background(claudeAccent.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
         case .result:
             if item.isError == true {
-                Label(item.text ?? "", systemImage: "xmark.circle").foregroundStyle(.red).font(.subheadline)
+                Label(item.text ?? "", systemImage: "xmark.circle").foregroundStyle(.red).font(.footnote)
             } else {
                 Label {
                     Text(verbatim: [item.durationMs.map { runDuration($0 / 1000) }, item.turns.map { String(localized: "\($0) 轮") }]
                         .compactMap { $0 }.joined(separator: " · "))
                 } icon: { Image(systemName: "checkmark.circle") }
-                .foregroundStyle(.green).font(.subheadline)
+                .foregroundStyle(.green).font(.footnote)
             }
         case .error:
-            Label(item.text ?? "", systemImage: "exclamationmark.triangle").foregroundStyle(.red).font(.subheadline)
+            Label(item.text ?? "", systemImage: "exclamationmark.triangle").foregroundStyle(.red).font(.footnote)
         }
     }
 }
