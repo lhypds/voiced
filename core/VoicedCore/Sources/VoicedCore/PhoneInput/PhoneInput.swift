@@ -145,31 +145,29 @@ public enum MachinePlatform: Sendable {
     }
 }
 
-/// What a machine's Bonjour TXT record says about it, for the list of machines: its system, host
-/// name and addresses on the local network. Each is nil when the service does not say, as older
-/// ones do not.
+/// What a machine's Bonjour TXT record says about it, for the list of machines: its system and
+/// addresses on the local network. (Its name, which the service is advertised under, is its host
+/// name.) Each is nil when the service does not say, as older ones do not.
 public struct MachineInfo: Equatable, Sendable {
     public var platform: MachinePlatform?
-    public var host: String?
     /// IPv4, comma-separated when there are several.
     public var ip: String?
 
     init(txt: NWTXTRecord) {
         platform = MachinePlatform(txt: txt["os"])
-        host = txt["host"].flatMap { $0.isEmpty ? nil : $0 }
         ip = txt["ip"].flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// The parts known, in order: system, host name, address.
+    /// The parts known, in order: system, address.
     public var parts: [String] {
-        [platform?.name, host, ip].compactMap { $0 }
+        [platform?.name, ip].compactMap { $0 }
     }
 }
 
 /// The phone's side: finds a machine (Mac or Windows) running the voiced service on the local
 /// network, keeps a connection to it and sends it sentences. Connects to the machine chosen by
-/// name, or with none chosen to the first found, by name, and looks again whenever the connection
-/// ends. A sentence sent while no machine is connected is dropped rather than typed late. The
+/// name, or with none chosen to the first Mac found by name, else the first machine, and looks
+/// again whenever the connection ends. A sentence sent while no machine is connected is dropped rather than typed late. The
 /// machine tells it over the same connection how the Claude Code runs of Run sentences go.
 @MainActor
 public final class PhoneInputSender: ObservableObject {
@@ -210,7 +208,7 @@ public final class PhoneInputSender: ObservableObject {
     public func start() {
         guard browser == nil else { return }
         isActive = true
-        // With the TXT record, which says what system the machine has, its host name and address.
+        // With the TXT record, which says what system the machine has and its address.
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: PhoneInput.serviceType, domain: nil), using: .tcp)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in self?.browsed(results, by: browser) }
@@ -299,7 +297,20 @@ public final class PhoneInputSender: ObservableObject {
             }
         }
         if machines != self.machines { self.machines = machines }
+        preferMac()
         connectIfIdle()
+    }
+
+    /// With no machine chosen, a Mac is preferred: one found only after a Windows machine was
+    /// connected to (machines are found one after another) takes over, unless a Claude Code run is
+    /// going on the Windows one, which the switch would cut off.
+    private func preferMac() {
+        guard preferredName == nil, let connection, let current = connectionName,
+              machines[current]?.platform == .windows,
+              !runs.values.contains(where: { $0.state.isGoing }),
+              results.contains(where: { machines[Self.name(of: $0.endpoint)]?.platform != .windows }) else { return }
+        connection.cancel()
+        dropConnection()
     }
 
     private func restartBrowser(_ failed: NWBrowser) {
@@ -311,7 +322,11 @@ public final class PhoneInputSender: ObservableObject {
 
     private func connectIfIdle() {
         guard isActive, connection == nil else { return }
-        let result = preferredName.map { name in results.first { Self.name(of: $0.endpoint) == name } } ?? results.first
+        // The machine chosen, or with none chosen the first Mac found, else the first found. A
+        // service that does not say its system is taken for a Mac's, as all were before Windows.
+        let result = preferredName.map { name in results.first { Self.name(of: $0.endpoint) == name } }
+            ?? results.first { machines[Self.name(of: $0.endpoint)]?.platform != .windows }
+            ?? results.first
         guard let result else { return }
         let connection = NWConnection(to: result.endpoint, using: .tcp)
         let name = Self.name(of: result.endpoint)

@@ -35,6 +35,7 @@ public struct AppSettings {
         case phoneInputMode
         case phoneInputMac
         case claudeFolder
+        case phoneInputMachines
         case allowLandscape
         case compiledModels
         case modelLoadSeconds
@@ -247,6 +248,32 @@ public struct AppSettings {
         nonmutating set {
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             set(trimmed.isEmpty || trimmed == "~" || trimmed == "~/" ? nil : trimmed, for: .claudeFolder)
+        }
+    }
+
+    /// How each machine was last sent to, by its name, so choosing it again sends the same way:
+    /// its mode and the folder Claude Code runs in (a Mac's and a Windows machine's paths differ).
+    public struct MachineSending: Equatable, Sendable {
+        public var mode: PhoneInput.Mode
+        public var folder: String
+
+        public init(mode: PhoneInput.Mode, folder: String) {
+            self.mode = mode
+            self.folder = folder
+        }
+    }
+
+    public var phoneInputMachines: [String: MachineSending] {
+        get {
+            let stored = file[Key.phoneInputMachines.rawValue] as? [String: [String: String]] ?? [:]
+            return stored.compactMapValues { entry in
+                guard let mode = entry["mode"].flatMap(PhoneInput.Mode.init(rawValue:)) else { return nil }
+                return MachineSending(mode: mode, folder: entry["folder"] ?? Self.defaultClaudeFolder)
+            }
+        }
+        nonmutating set {
+            let stored = newValue.mapValues { ["mode": $0.mode.rawValue, "folder": $0.folder] }
+            set(stored.isEmpty ? nil : stored, for: .phoneInputMachines)
         }
     }
 

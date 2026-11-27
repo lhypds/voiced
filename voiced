@@ -15,6 +15,12 @@
 
 set -euo pipefail
 
+# Run from a shell that did not read the zsh profile (PowerShell, say), PATH may lack where
+# Homebrew and rustup put cargo and the rest.
+for dir in "$HOME/.cargo/bin" /opt/homebrew/bin /usr/local/bin; do
+    [[ -d "$dir" && ":$PATH:" != *":$dir:"* ]] && path+=("$dir")
+done
+
 # :A resolves the /usr/local/bin/voiced symlink, so paths point into the checkout.
 ROOT="${0:A:h}"
 SERVICE="$ROOT/service"
@@ -287,7 +293,18 @@ for d in devices:
     connection = d.get("connectionProperties", {})
     if hardware.get("deviceType") not in ("iPhone", "iPad") or connection.get("pairingState") != "paired":
         continue
-    state = "connected" if connection.get("tunnelState") != "unavailable" and connection.get("tunnelState") != "disconnected" else "not connected"
+    # transportType says how the iPhone can be reached right now, over USB (wired) or Wi-Fi
+    # (localNetwork), and is missing while it cannot. tunnelState only says whether a debugging
+    # tunnel is open at the moment: it is "disconnected" until a deploy opens one.
+    transport = connection.get("transportType")
+    if transport == "wired":
+        state = "connected via USB"
+    elif transport == "localNetwork":
+        state = "connected via Wi-Fi"
+    elif transport or connection.get("tunnelState") == "connected":
+        state = "connected"
+    else:
+        state = "not connected"
     # Shown with a plain apostrophe rather than the curly one in the default "Name’s iPhone".
     name = d.get("deviceProperties", {}).get("name", d["identifier"]).replace("’", "\x27")
     print("device", d["identifier"], f"{name} ({state})", sep="\t")

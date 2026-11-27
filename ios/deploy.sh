@@ -30,7 +30,9 @@ phones = [
     if d.get("hardwareProperties", {}).get("deviceType") == "iPhone"
     and d.get("connectionProperties", {}).get("pairingState") == "paired"
 ]
-phones.sort(key=lambda d: d.get("connectionProperties", {}).get("tunnelState") == "unavailable")
+# Reachable now first: transportType (wired or localNetwork) is missing while the iPhone cannot be
+# reached; tunnelState is "disconnected" until a deploy opens a tunnel, so it says nothing.
+phones.sort(key=lambda d: not d.get("connectionProperties", {}).get("transportType"))
 if phones:
     print(phones[0]["identifier"])
 PY

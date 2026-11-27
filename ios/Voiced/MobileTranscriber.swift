@@ -49,11 +49,23 @@ final class MobileTranscriber: ObservableObject {
     @Published var sendToMacEnabled: Bool { didSet { settings.phoneInput = sendToMacEnabled; configureMacLink() } }
     /// What the Mac does with what is sent: type it at the cursor, type it and press Return, or
     /// have Claude Code carry it out. Sent with every sentence, so the Mac needs no setting.
-    @Published var sendToMacMode: PhoneInput.Mode { didSet { settings.phoneInputMode = sendToMacMode } }
+    @Published var sendToMacMode: PhoneInput.Mode { didSet { settings.phoneInputMode = sendToMacMode; rememberSending() } }
     /// The Mac sent to, by name; nil for the first one found.
-    @Published var sendToMacTarget: String? { didSet { settings.phoneInputMac = sendToMacTarget; macLink.preferredName = sendToMacTarget } }
+    @Published var sendToMacTarget: String? {
+        didSet {
+            settings.phoneInputMac = sendToMacTarget
+            macLink.preferredName = sendToMacTarget
+            recallSending(for: sendToMacTarget ?? macLink.connectedName)
+        }
+    }
     /// The Mac folder Claude Code runs in for Run; `~` is the home folder. Sent with every sentence.
-    @Published var claudeFolder: String { didSet { settings.claudeFolder = claudeFolder } }
+    @Published var claudeFolder: String { didSet { settings.claudeFolder = claudeFolder; rememberSending() } }
+    /// How each machine was last sent to (mode and folder), by name: choosing a machine, or
+    /// Automatic connecting to one, brings its way back.
+    private var machineSending: [String: AppSettings.MachineSending] = [:]
+    private var machineSendingRecalling: AnyCancellable?
+    /// Set while a machine's way of sending is put back, which is not a change to remember.
+    private var recallingSending = false
     /// Whether the microphone is being held, so speech now goes to the Mac.
     @Published private(set) var holding = false
     /// The input's loudness over the last few seconds while the microphone is held, for the
@@ -240,6 +252,12 @@ final class MobileTranscriber: ObservableObject {
         macLinkForwarding = macLink.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
         // After the change, not while `runs` is about to change.
         macRunsKeeping = macLink.$runs.receive(on: RunLoop.main).sink { [weak self] runs in self?.keep(runs) }
+        machineSending = settings.phoneInputMachines
+        // Automatic connected to a machine: the way it was last sent to.
+        machineSendingRecalling = macLink.$connectedName.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] name in
+            guard let self, self.sendToMacTarget == nil, let name else { return }
+            self.recallSending(for: name)
+        }
         configureMacLink()
         OrientationLock.apply(allowLandscape: allowLandscape)
         speaker.onPlayingChange = { [inputMute] playing in inputMute.isMuted = playing }
@@ -1419,6 +1437,10 @@ extension MobileTranscriber {
     func resetSettings() {
         guard !locked else { return }
         settings.reset()
+        // The defaults put back below are not a way of sending to remember for a machine.
+        machineSending = settings.phoneInputMachines
+        recallingSending = true
+        defer { recallingSending = false }
         appLanguage = settings.appLanguage
         engineID = settings.recognitionEngine.rawValue
         languageID = settings.recognitionLanguage.id
@@ -1453,6 +1475,27 @@ extension MobileTranscriber {
 
     /// Connects to the Mac while the switch is on. Turning it off also ends sending for a recording
     /// that is running.
+        /// The machine sent to now: the one chosen, else the one Automatic connected to.
+    private var sendingMachine: String? { sendToMacTarget ?? macLink.connectedName }
+
+    /// Keeps the current way of sending for the machine sent to now.
+    private func rememberSending() {
+        guard !recallingSending, let name = sendingMachine else { return }
+        let sending = AppSettings.MachineSending(mode: sendToMacMode, folder: claudeFolder)
+        guard machineSending[name] != sending else { return }
+        machineSending[name] = sending
+        settings.phoneInputMachines = machineSending
+    }
+
+    /// Sends to `name` the way it was last sent to; a machine never sent to keeps the current way.
+    private func recallSending(for name: String?) {
+        guard let name, let sending = machineSending[name] else { return }
+        recallingSending = true
+        defer { recallingSending = false }
+        if sendToMacMode != sending.mode { sendToMacMode = sending.mode }
+        if claudeFolder != sending.folder { claudeFolder = sending.folder }
+    }
+
     func configureMacLink() {
         macLink.preferredName = sendToMacTarget
         if sendToMacEnabled {

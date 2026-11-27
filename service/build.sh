@@ -8,6 +8,12 @@
 
 set -euo pipefail
 
+# Run from a shell that did not read the zsh profile (PowerShell, say), PATH may lack where
+# Homebrew and rustup put cargo and the rest.
+for dir in "$HOME/.cargo/bin" /opt/homebrew/bin /usr/local/bin; do
+    [[ -d "$dir" && ":$PATH:" != *":$dir:"* ]] && path+=("$dir")
+done
+
 ROOT="${0:A:h}"
 BINARY="$ROOT/.build/voiced"
 

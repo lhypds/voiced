@@ -15,7 +15,7 @@ voiced service status
 
 On the first start macOS asks for the Accessibility permission, which posting the paste needs: allow `voiced` in System Settings → Privacy & Security → Accessibility. Run by hand from a terminal (`service/.build/voiced`, after `voiced service stop` so the phone does not connect to the other copy), the permission is the terminal's.
 
-While the service runs, a black-and-white waveform icon sits in the menu bar. Its menu shows the service's status: the name it is advertised under, iPhones connected, sentences delivered, and the Accessibility permission, with a link to allow it when missing.
+While the service runs, a black-and-white waveform icon sits in the menu bar. Its menu shows the service's status: the name it is advertised under (the host name), iPhones connected, sentences delivered, and the Accessibility permission, with a link to allow it when missing.
 
 ## Windows
 
@@ -54,7 +54,7 @@ Turn on "Send to Machine" in Voiced's General settings and pick its mode: Type (
 
 ## How it works
 
-- The service advertises `_voiced-input._tcp` over Bonjour under the computer's name and accepts TCP connections. Each sentence arrives as one JSON object on its own line, `{"text":"...","mode":"type"}`, where `mode` is `type`, `typeAndReturn` or `claude` (missing or unknown: `type`) and a `claude` sentence also carries `folder` (missing or empty: the home folder), `line` (the phone's id for the transcript line) and `history`. The format is defined by `PhoneInput` and `ClaudeRunEvents` in `core/VoicedCore`; `src/protocol.rs` is the service's side of it. Keep the two in step.
+- The service advertises `_voiced-input._tcp` over Bonjour under the computer's host name (without `.local`), with a TXT record giving its system (`os`) and local IPv4 addresses (`ip`) for the phone's list of machines, and accepts TCP connections. Each sentence arrives as one JSON object on its own line, `{"text":"...","mode":"type"}`, where `mode` is `type`, `typeAndReturn` or `claude` (missing or unknown: `type`) and a `claude` sentence also carries `folder` (missing or empty: the home folder), `line` (the phone's id for the transcript line) and `history`. The format is defined by `PhoneInput` and `ClaudeRunEvents` in `core/VoicedCore`; `src/protocol.rs` is the service's side of it. Keep the two in step.
 - A sentence is pasted rather than typed key by key (Command-V, or Ctrl+V on Windows), so an active Chinese or Japanese input method does not compose it again. The clipboard's text is put back half a second later unless something else replaced it meanwhile; an image or file on the clipboard is not kept.
 - A sentence ending in a Latin letter or ASCII punctuation gets a trailing space; Chinese and Japanese are typed as they are.
 - What happens to a sentence, and the Claude Code folder, are chosen on the phone and sent with it, so the service keeps neither. A folder that does not exist drops the sentence and shows why in the icon's menu.

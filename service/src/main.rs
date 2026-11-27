@@ -99,7 +99,7 @@ fn main() {
     }
     let status = Arc::new(Mutex::new(Status {
         listener: ListenerState::Starting,
-        name: listener::computer_name(),
+        name: listener::hostname(),
         connections: 0,
         accessibility_allowed: typer::is_trusted(),
         sentences_typed: 0,

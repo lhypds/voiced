@@ -46,6 +46,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: MobileTranscriber
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showSettings = false
+    @State private var showMachines = false
     /// The line being edited in its own card, from the card's menu, and the text being typed.
     @State private var editingLineID: String?
     /// The Claude Code run shown whole, opened from its card.
@@ -275,6 +276,7 @@ struct ContentView: View {
             .modifier(MobileTranslationHost(translator: model.translator))
             .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $openRun) { run in ClaudeRunSheet(runID: run.id).environmentObject(model) }
+            .sheet(isPresented: $showMachines) { SendToMachineSheet().environmentObject(model) }
             .sheet(isPresented: $showSettings, onDismiss: { model.stopInputMeter(); if model.previewActive || model.busy || model.calibrating { model.stop() }; model.savePrompt() }) { MobileSettingsView().environmentObject(model) }
             .sheet(isPresented: $showHistory, onDismiss: {
                 // A record opened from a history search shows only its matching lines; any other
@@ -820,8 +822,33 @@ struct ContentView: View {
                     .padding(.horizontal, 24)
             }
             HStack(spacing: 12) {
-                // Equal side columns keep the microphone centered, as on macOS.
-                Color.clear.frame(width: 44, height: 44).frame(maxWidth: .infinity)
+                // Equal side columns keep the microphone centered, as on macOS. With "Send to
+                // machine" on, the left one has the button for where and how to send
+                // (SendToMachineSheet), in its middle, without a ring and a little smaller than
+                // the buttons above.
+                Group {
+                    if model.sendToMacEnabled {
+                        Button { showMachines = true } label: {
+                            Image(systemName: "laptopcomputer")
+                                .font(.system(size: 20, weight: .regular))
+                                // An outline, as in the microphone, rather than a grey screen.
+                                .symbolRenderingMode(.monochrome)
+                                .foregroundStyle(MobileTheme.accent)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("电脑"))
+                        .accessibilityValue(model.machineChoiceLabel(model.sendToMacTarget))
+                        .accessibilityIdentifier("machine-button")
+                    } else {
+                        Color.clear.frame(width: 44, height: 44)
+                    }
+                }
+                // In the middle of the column, halfway between the edge and the microphone, then a
+                // little towards the microphone, which looks better balanced.
+                .offset(x: 12)
+                .frame(maxWidth: .infinity)
                 // One touch tracker decides between a tap and a hold, so a hold can never end as a
                 // tap. A touch released before half a second is a tap: it starts or stops
                 // recording, or, while a hold's command waits, sends it. Held longer, with "Send to

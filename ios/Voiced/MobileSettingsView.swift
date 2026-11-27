@@ -95,46 +95,6 @@ struct MobileSettingsView: View {
     @State private var isAPIKeyRevealed = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    /// "Send to machine" → Run (true) or Type (false); the wire still carries one of three modes.
-    private var sendsToClaude: Binding<Bool> {
-        Binding { model.sendToMacMode == .claude } set: { run in
-            // Choosing Type again while already typing keeps the Return switch as it is.
-            if run { model.sendToMacMode = .claude } else if model.sendToMacMode == .claude { model.sendToMacMode = .type }
-        }
-    }
-
-    /// Under Type: whether Return follows the typed text.
-    private var pressesReturn: Binding<Bool> {
-        Binding { model.sendToMacMode == .typeAndReturn } set: { model.sendToMacMode = $0 ? .typeAndReturn : .type }
-    }
-
-    /// "Send to machine" → Machine: automatic (nil), then the machines found, then the chosen one
-    /// if it is away.
-    private var macChoices: [String?] {
-        var names = model.macLink.availableNames
-        if let target = model.sendToMacTarget, !names.contains(target) { names.append(target) }
-        return [nil] + names
-    }
-
-    /// A machine choice, with what is connected: the machine automatic found, or whether a chosen
-    /// one is away.
-    private func macChoiceLabel(_ name: String?) -> Text {
-        let separator = Text(verbatim: " · ")
-        guard let name else {
-            guard model.sendToMacTarget == nil else { return Text("自动") }
-            return Text("自动") + separator + (model.macLink.connectedName.map { Text(verbatim: $0) } ?? Text("正在查找…"))
-        }
-        return model.macLink.availableNames.contains(name) ? Text(verbatim: name) : Text(verbatim: name) + separator + Text("未找到")
-    }
-
-    /// Under a machine in the list, in grey: its system, host name and address, as its service
-    /// says; under Automatic, those of the machine it connected to.
-    private func macChoiceDetail(_ name: String?) -> Text? {
-        guard let name = name ?? model.macLink.connectedName,
-              let parts = model.macLink.machines[name]?.parts, !parts.isEmpty else { return nil }
-        return Text(verbatim: parts.joined(separator: " · "))
-    }
-
     private static let apiKeyLines = 4
     /// The key's font: monospaced at the caption size the reader has chosen, small enough that
     /// a whole key fits in the box's four lines on a phone.
@@ -250,30 +210,10 @@ struct MobileSettingsView: View {
             } footer: { Text("关闭后界面始终保持竖屏，不随设备旋转。") }
                 .listRowBackground(Color.white)
             Section {
+                // Which machine and what it does are set with the main screen's machine button
+                // (SendToMachineSheet).
                 Toggle("发送到电脑", isOn: $model.sendToMacEnabled)
-                if model.sendToMacEnabled {
-                    // Automatic (the first machine found) or one machine by name; a chosen machine
-                    // that is away stays listed, marked not found, and nothing is sent until it is back.
-                    // Its list has Refresh List on top, to look for machines again, for one whose
-                    // service has just started.
-                    ChoicePicker("电脑", selection: $model.sendToMacTarget, options: macChoices,
-                                 refresh: { model.macLink.refresh() }, detail: macChoiceDetail) { name in
-                        macChoiceLabel(name)
-                    }.accessibilityIdentifier("send-to-mac-target")
-                    // Two choices, Type and Run; Return is a switch under Type rather than a third mode.
-                    ChoicePicker("方式", selection: sendsToClaude, options: [false, true]) { run in
-                        run ? Text("执行") : Text("输入")
-                    }
-                    if model.sendToMacMode == .claude {
-                        // A path on the machine, which the phone cannot browse: typed, `~` for the home folder.
-                        LabeledContent("工作目录") {
-                            FolderField(text: $model.claudeFolder, placeholder: AppSettings.defaultClaudeFolder)
-                        }
-                    } else {
-                        Toggle("输入后按回车", isOn: pressesReturn)
-                    }
-                }
-            } footer: { Text("打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 voiced 服务的电脑（Mac 或 Windows）；正在录音时也可以按住。“输入”把文字输入到电脑的光标处，例如终端的提示符，打开“输入后按回车”会再按回车；“执行”交给电脑上的 Claude Code 执行，它在终端里打开，位置是上面的“工作目录”（电脑上的路径，~ 为主目录）。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在电脑上运行 voiced service start 启动 voiced 服务；找不到电脑时，点“刷新列表”重新查找。未连接时说的话不会补发。") }
+            } footer: { Text("打开后，按住麦克风说话，松开前说的话会发送到同一网络中运行 voiced 服务的电脑（Mac 或 Windows）；正在录音时也可以按住。发到哪台电脑、怎么处理（“输入”到电脑的光标处，或交给电脑上的 Claude Code “执行”），在主界面左下角的电脑按钮里设置。发送的话在记录中以蓝色显示。单击麦克风只开始或停止录音，不发送。需在电脑上运行 voiced service start 启动 voiced 服务。未连接时说的话不会补发。") }
                 .listRowBackground(Color.white)
             Section {
                 Button("重置所有设置", role: .destructive) { confirmReset = true }.disabled(model.locked)
@@ -596,25 +536,18 @@ private struct ChoicePicker<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
     let options: [Value]
-    /// When given, the list has a Refresh List button on top, in a card of its own.
-    let refresh: (() -> Void)?
-    /// When given, a line in grey under an option in the list, if it has one.
-    let detail: ((Value) -> Text?)?
     let label: (Value) -> Text
 
-    init(_ title: String, selection: Binding<Value>, options: [Value], refresh: (() -> Void)? = nil,
-         detail: ((Value) -> Text?)? = nil, label: @escaping (Value) -> Text) {
+    init(_ title: String, selection: Binding<Value>, options: [Value], label: @escaping (Value) -> Text) {
         self.title = title
         _selection = selection
         self.options = options
-        self.refresh = refresh
-        self.detail = detail
         self.label = label
     }
 
     var body: some View {
         NavigationLink {
-            ChoiceList(title: title, selection: $selection, options: options, refresh: refresh, detail: detail, label: label)
+            ChoiceList(title: title, selection: $selection, options: options, label: label)
         } label: {
             HStack {
                 Text(LocalizedStringKey(title))
@@ -629,27 +562,11 @@ private struct ChoiceList<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
     let options: [Value]
-    let refresh: (() -> Void)?
-    let detail: ((Value) -> Text?)?
     let label: (Value) -> Text
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
-            if let refresh {
-                Section {
-                    Button(action: refresh) {
-                        Label("刷新列表", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .foregroundStyle(MobileTheme.accent)
-                    .accessibilityIdentifier("choice-refresh")
-                }
-                .listRowBackground(Color.white)
-                // Close to the list it refreshes.
-                .listSectionSpacing(18)
-            }
             Section {
                 ForEach(options, id: \.self) { option in
                     Button {
@@ -657,12 +574,7 @@ private struct ChoiceList<Value: Hashable>: View {
                         dismiss()
                     } label: {
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                label(option).foregroundStyle(MobileTheme.ink)
-                                if let detail = detail?(option) {
-                                    detail.font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
+                            label(option).foregroundStyle(MobileTheme.ink)
                             Spacer()
                             if selection == option {
                                 Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(MobileTheme.accent)
@@ -728,6 +640,120 @@ private struct FolderField: UIViewRepresentable {
         func textFieldShouldReturn(_ field: UITextField) -> Bool {
             field.resignFirstResponder()
             return true
+        }
+    }
+}
+
+/// "Send to machine", in Settings and in the sheet the main screen opens (SendToMachineSheet).
+extension MobileTranscriber {
+    /// Run (true) or Type (false); the wire still carries one of three modes.
+    var sendsToClaude: Bool {
+        get { sendToMacMode == .claude }
+        set {
+            // Choosing Type again while already typing keeps the Return switch as it is.
+            if newValue { sendToMacMode = .claude } else if sendToMacMode == .claude { sendToMacMode = .type }
+        }
+    }
+
+    /// Under Type: whether Return follows the typed text.
+    var pressesReturn: Bool {
+        get { sendToMacMode == .typeAndReturn }
+        set { sendToMacMode = newValue ? .typeAndReturn : .type }
+    }
+
+    /// Automatic (nil), then the machines found, then the chosen one if it is away.
+    var machineChoices: [String?] {
+        var names = macLink.availableNames
+        if let target = sendToMacTarget, !names.contains(target) { names.append(target) }
+        return [nil] + names
+    }
+
+    /// A machine choice, with what is connected: the machine automatic found, or whether a chosen
+    /// one is away.
+    func machineChoiceLabel(_ name: String?) -> Text {
+        let separator = Text(verbatim: " · ")
+        guard let name else {
+            guard sendToMacTarget == nil else { return Text("自动") }
+            return Text("自动") + separator + (macLink.connectedName.map { Text(verbatim: $0) } ?? Text("正在查找…"))
+        }
+        return macLink.availableNames.contains(name) ? Text(verbatim: name) : Text(verbatim: name) + separator + Text("未找到")
+    }
+
+    /// Under a machine in the list, in grey: its system and address, as its service says; under
+    /// Automatic, those of the machine it connected to.
+    func machineChoiceDetail(_ name: String?) -> Text? {
+        guard let name = name ?? macLink.connectedName,
+              let parts = macLink.machines[name]?.parts, !parts.isEmpty else { return nil }
+        return Text(verbatim: parts.joined(separator: " · "))
+    }
+}
+
+/// "Send to machine" at hand, opened from the main screen's machine button: which machine, and
+/// what it does with what is sent, the same settings as in Settings, on one page with Done.
+struct SendToMachineSheet: View {
+    @EnvironmentObject private var model: MobileTranscriber
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    // Both choices side by side, rather than a page of their own to go back from.
+                    Picker("方式", selection: $model.sendsToClaude) {
+                        Text("输入").tag(false)
+                        Text("执行").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    if model.sendsToClaude {
+                        LabeledContent("工作目录") {
+                            FolderField(text: $model.claudeFolder, placeholder: AppSettings.defaultClaudeFolder)
+                        }
+                    } else {
+                        Toggle("输入后按回车", isOn: $model.pressesReturn)
+                    }
+                } header: { Text("方式") }
+                    .listRowBackground(Color.white)
+                Section {
+                    Button { model.macLink.refresh() } label: {
+                        Label("刷新列表", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(MobileTheme.accent)
+                }
+                .listRowBackground(Color.white)
+                .listSectionSpacing(18)
+                Section {
+                    // Choosing one leaves the sheet open, for the settings below.
+                    ForEach(model.machineChoices, id: \.self) { name in
+                        Button { model.sendToMacTarget = name } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    model.machineChoiceLabel(name).foregroundStyle(MobileTheme.ink)
+                                    if let detail = model.machineChoiceDetail(name) {
+                                        detail.font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                if model.sendToMacTarget == name {
+                                    Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(MobileTheme.accent)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 32)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(model.sendToMacTarget == name ? .isSelected : [])
+                    }
+                } header: { Text("电脑") }
+                    .listRowBackground(Color.white)
+            }
+            .settingsSurface(title: "发送到电脑")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }.fontWeight(.semibold).foregroundStyle(MobileTheme.accent)
+                }
+            }
         }
     }
 }

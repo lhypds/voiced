@@ -64,32 +64,21 @@ fn bind_v6(port: u16) -> std::io::Result<TcpListener> {
     Ok(socket.into())
 }
 
-/// The name people know the computer by: "Liu's MacBook Pro" rather than its host name.
-pub fn computer_name() -> String {
-    #[cfg(target_os = "macos")]
-    if let Ok(output) = std::process::Command::new("/usr/sbin/scutil").args(["--get", "ComputerName"]).output() {
-        let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if output.status.success() && !name.is_empty() {
-            return name;
-        }
-    }
-    #[cfg(windows)]
-    if let Ok(name) = std::env::var("COMPUTERNAME") {
-        if !name.is_empty() {
-            return name;
-        }
-    }
-    gethostname::gethostname().to_string_lossy().trim_end_matches(".local").to_string()
+/// The computer's host name, without `.local`: the name the service is advertised under, which
+/// the phone lists it by, as "Heyangs-MacBook-Pro" rather than "Heyang’s MacBook Pro".
+pub fn hostname() -> String {
+    let name = gethostname::gethostname().to_string_lossy().into_owned();
+    let name = name.trim_end_matches('.').trim_end_matches(".local").to_string();
+    if name.is_empty() { "computer".into() } else { name }
 }
 
 /// What the phone shows under the computer's name in its list: its system (`os`, macos or
-/// windows), its host name (`host`) and its addresses on the local network (`ip`, IPv4, the
-/// Wi-Fi or Ethernet one first, comma-separated). Taken when the service starts: a computer that
+/// windows) and its addresses on the local network (`ip`, IPv4, the Wi-Fi or Ethernet one first,
+/// comma-separated). Taken when the service starts: a computer that
 /// moves to another network shows its old address until the service restarts.
 fn txt_entries() -> Vec<(&'static str, String)> {
     let os = if cfg!(windows) { "windows".to_string() } else { std::env::consts::OS.to_string() };
-    let host = gethostname::gethostname().to_string_lossy().into_owned();
-    let mut entries = vec![("os", os), ("host", host)];
+    let mut entries = vec![("os", os)];
     let addresses = local_addresses();
     if !addresses.is_empty() {
         entries.push(("ip", addresses.join(", ")));
@@ -207,10 +196,11 @@ mod bonjour {
         }
     }
 
-    /// Registered under the computer's name (no name given), which mDNSResponder changes itself
-    /// when another device already uses it, with what the phone shows about it (txt_entries).
+    /// Registered under the host name, which mDNSResponder changes itself when another device
+    /// already uses it, with what the phone shows about it (txt_entries).
     pub fn advertise(port: u16) -> Result<Advertisement, String> {
         let regtype = CString::new(super::SERVICE_TYPE.trim_end_matches(".local.")).unwrap();
+        let name = CString::new(super::hostname()).unwrap_or_default();
         // A TXT record is its entries one after another, each after a byte giving its length.
         let mut txt = Vec::new();
         for (key, value) in super::txt_entries() {
@@ -225,7 +215,7 @@ mod bonjour {
                 &mut service,
                 0,
                 0,
-                ptr::null(),
+                name.as_ptr(),
                 regtype.as_ptr(),
                 ptr::null(),
                 ptr::null(),
@@ -269,7 +259,7 @@ mod bonjour {
 
     pub fn advertise(port: u16) -> Result<Advertisement, String> {
         let daemon = ServiceDaemon::new().map_err(|e| e.to_string())?;
-        let name = super::computer_name();
+        let name = super::hostname();
         // A host name of our own, so the system's own records for `<name>.local` are not answered twice.
         let host = format!("voiced-{}.local.", super::sanitized(&gethostname::gethostname().to_string_lossy()));
         let properties: std::collections::HashMap<String, String> = super::txt_entries().into_iter().map(|(key, value)| (key.to_string(), value)).collect();
