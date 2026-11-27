@@ -2215,6 +2215,7 @@ dependencies = [
  "dirs",
  "fastrand",
  "gethostname",
+ "if-addrs",
  "libc",
  "mdns-sd",
  "objc2",

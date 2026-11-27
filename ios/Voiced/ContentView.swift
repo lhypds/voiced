@@ -97,18 +97,6 @@ struct ContentView: View {
     }
     /// The microphone button's diameter, and the space the recording controls keep above and below it.
     private static let micSize: CGFloat = 84
-    /// The machine's icon in the microphone while a command waits to be sent.
-    private static let machineIconSize: CGFloat = 34
-
-    /// The system of the machine sentences go to: the one connected, else the one chosen.
-    private var machine: MachinePlatform {
-        model.macLink.platform(of: model.macLink.connectedName ?? model.sendToMacTarget)
-    }
-
-    /// A machine icon at the size of the text beside it.
-    private func machineIcon(_ name: String) -> some View {
-        Image(name).resizable().scaledToFit().frame(width: 18, height: 18)
-    }
     private static let controlsTopPadding: CGFloat = 24
     private static let controlsBottomPadding: CGFloat = 4
     /// The recording controls float over the list; its last card can scroll up clear of them.
@@ -431,10 +419,8 @@ struct ContentView: View {
                 Button("编辑", systemImage: "pencil") { beginEditing(line) }
                 // Only with "Send to machine" on in Settings; again for a line already sent.
                 if model.sendToMacEnabled {
-                    Button {
+                    Button("发送到电脑", systemImage: "laptopcomputer") {
                         show(model.sendLineToMac(line) ? .sentToMac : .notSentToMac, for: .seconds(2))
-                    } label: {
-                        Label { Text("发送到电脑") } icon: { Image(machine.imageName) }
                     }
                 }
                 // The view's tint would colour the symbol with the accent and leave only the title
@@ -654,8 +640,8 @@ struct ContentView: View {
             switch toast {
             case .copied: Label(model.strings.copied, systemImage: "checkmark")
             case .releaseToCancel: Label("松开手指，取消识别", systemImage: "xmark")
-            case .sentToMac: Label { Text("已发送到电脑") } icon: { machineIcon(machine.imageName) }
-            case .notSentToMac: Label { Text("未连接电脑，未发送") } icon: { machineIcon(machine.slashedImageName) }
+            case .sentToMac: Label("已发送到电脑", systemImage: "laptopcomputer")
+            case .notSentToMac: Label("未连接电脑，未发送", systemImage: "laptopcomputer.slash")
             }
         }
             .font(.callout.weight(.medium))
@@ -854,22 +840,24 @@ struct ContentView: View {
                         // through, rather than a second, filled layer. The colours repeat
                         // RingButtonStyle's, which this has to set over.
                         let filled = micTouching && !micOutside && !micLoadOnly
-                        if send {
-                            // The machine the command goes to, with a play mark drawn in the middle
-                            // of its screen: a tap runs the waiting command.
-                            Image(machine.playImageName)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: Self.machineIconSize, height: Self.machineIconSize)
-                                .foregroundStyle(filled ? Color.white : MobileTheme.accent)
-                                .transition(.opacity)
-                        } else {
-                            Image(systemName: !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
-                                .font(.system(size: 33, weight: .regular))
-                                .symbolRenderingMode(.monochrome)
-                                .foregroundStyle(filled ? Color.white : MobileTheme.accent)
-                                .contentTransition(.symbolEffect(.replace))
-                        }
+                        Image(systemName: send ? "laptopcomputer"
+                              : !micHolding && (model.recording || model.busy || model.previewActive) ? "stop.fill" : "mic.fill")
+                            .font(.system(size: send ? 30 : 33, weight: .regular))
+                            .symbolRenderingMode(.monochrome)
+                            .foregroundStyle(filled ? Color.white : MobileTheme.accent)
+                            .contentTransition(.symbolEffect(.replace))
+                            // A play mark inside the laptop's screen: a tap runs the waiting
+                            // command. The screen's inner centre sits half a point above the
+                            // symbol's; the half point right centres the triangle by eye.
+                            .overlay {
+                                if send {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 10, weight: .regular))
+                                        .foregroundStyle(filled ? Color.white : MobileTheme.accent)
+                                        .offset(x: 0.5, y: -0.5)
+                                        .transition(.opacity)
+                                }
+                            }
                     }
                 }
                 .buttonStyle(RingButtonStyle(size: Self.micSize, lineWidth: 2, held: micTouching && !micOutside && !micLoadOnly))
@@ -1195,12 +1183,4 @@ struct PressTracker: UIViewRepresentable {
             reportedInside = true
         }
     }
-}
-
-/// The machine icons in the asset catalog: a classic Macintosh, and a PC with its tower, each also
-/// slashed, and with a play mark in the middle of its screen.
-private extension MachinePlatform {
-    var imageName: String { self == .windows ? "machine.pc" : "machine.mac" }
-    var slashedImageName: String { imageName + ".slash" }
-    var playImageName: String { imageName + ".play" }
 }

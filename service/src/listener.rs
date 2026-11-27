@@ -82,6 +82,47 @@ pub fn computer_name() -> String {
     gethostname::gethostname().to_string_lossy().trim_end_matches(".local").to_string()
 }
 
+/// What the phone shows under the computer's name in its list: its system (`os`, macos or
+/// windows), its host name (`host`) and its addresses on the local network (`ip`, IPv4, the
+/// Wi-Fi or Ethernet one first, comma-separated). Taken when the service starts: a computer that
+/// moves to another network shows its old address until the service restarts.
+fn txt_entries() -> Vec<(&'static str, String)> {
+    let os = if cfg!(windows) { "windows".to_string() } else { std::env::consts::OS.to_string() };
+    let host = gethostname::gethostname().to_string_lossy().into_owned();
+    let mut entries = vec![("os", os), ("host", host)];
+    let addresses = local_addresses();
+    if !addresses.is_empty() {
+        entries.push(("ip", addresses.join(", ")));
+    }
+    entries
+}
+
+/// The computer's IPv4 addresses on the local network: not loopback, not self-assigned
+/// (169.254.x.x), not on a VPN, container or virtual machine adapter.
+fn local_addresses() -> Vec<String> {
+    const VIRTUAL: [&str; 9] = ["utun", "bridge", "vmnet", "vboxnet", "docker", "veth", "awdl", "llw", "vEthernet"];
+    let Ok(interfaces) = if_addrs::get_if_addrs() else { return Vec::new() };
+    let mut found: Vec<(bool, String)> = interfaces
+        .into_iter()
+        .filter(|i| !i.is_loopback() && !VIRTUAL.iter().any(|prefix| i.name.starts_with(prefix)))
+        .filter_map(|i| match i.addr {
+            if_addrs::IfAddr::V4(v4) if !v4.ip.is_link_local() => {
+                let physical = ["en0", "en1", "eth", "wlan", "Wi-Fi", "Ethernet"].iter().any(|p| i.name.starts_with(p));
+                Some((!physical, v4.ip.to_string()))
+            }
+            _ => None,
+        })
+        .collect();
+    found.sort_by_key(|(later, _)| *later);
+    let mut addresses: Vec<String> = Vec::new();
+    for (_, address) in found {
+        if !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
+    addresses
+}
+
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn sanitized(name: &str) -> String {
     let name: String = name
@@ -167,13 +208,17 @@ mod bonjour {
     }
 
     /// Registered under the computer's name (no name given), which mDNSResponder changes itself
-    /// when another device already uses it. The TXT record says what system this is (os=macos),
-    /// for the phone's icon.
+    /// when another device already uses it, with what the phone shows about it (txt_entries).
     pub fn advertise(port: u16) -> Result<Advertisement, String> {
         let regtype = CString::new(super::SERVICE_TYPE.trim_end_matches(".local.")).unwrap();
-        let entry = b"os=macos";
-        let mut txt = vec![entry.len() as u8];
-        txt.extend_from_slice(entry);
+        // A TXT record is its entries one after another, each after a byte giving its length.
+        let mut txt = Vec::new();
+        for (key, value) in super::txt_entries() {
+            let entry = format!("{key}={value}");
+            let entry = &entry.as_bytes()[..entry.len().min(255)];
+            txt.push(entry.len() as u8);
+            txt.extend_from_slice(entry);
+        }
         let mut service: DNSServiceRef = ptr::null_mut();
         let error = unsafe {
             DNSServiceRegister(
@@ -227,9 +272,7 @@ mod bonjour {
         let name = super::computer_name();
         // A host name of our own, so the system's own records for `<name>.local` are not answered twice.
         let host = format!("voiced-{}.local.", super::sanitized(&gethostname::gethostname().to_string_lossy()));
-        // What system this is, for the phone's icon.
-        let os = if cfg!(windows) { "windows" } else { std::env::consts::OS };
-        let properties = std::collections::HashMap::from([("os".to_string(), os.to_string())]);
+        let properties: std::collections::HashMap<String, String> = super::txt_entries().into_iter().collect();
         let info = ServiceInfo::new(super::SERVICE_TYPE, &name, &host, "", port, Some(properties))
             .map_err(|e| e.to_string())?
             .enable_addr_auto();

@@ -127,6 +127,14 @@ struct MobileSettingsView: View {
         return model.macLink.availableNames.contains(name) ? Text(verbatim: name) : Text(verbatim: name) + separator + Text("未找到")
     }
 
+    /// Under a machine in the list, in grey: its system, host name and address, as its service
+    /// says; under Automatic, those of the machine it connected to.
+    private func macChoiceDetail(_ name: String?) -> Text? {
+        guard let name = name ?? model.macLink.connectedName,
+              let parts = model.macLink.machines[name]?.parts, !parts.isEmpty else { return nil }
+        return Text(verbatim: parts.joined(separator: " · "))
+    }
+
     private static let apiKeyLines = 4
     /// The key's font: monospaced at the caption size the reader has chosen, small enough that
     /// a whole key fits in the box's four lines on a phone.
@@ -249,7 +257,7 @@ struct MobileSettingsView: View {
                     // Its list has Refresh List on top, to look for machines again, for one whose
                     // service has just started.
                     ChoicePicker("电脑", selection: $model.sendToMacTarget, options: macChoices,
-                                 refresh: { model.macLink.refresh() }) { name in
+                                 refresh: { model.macLink.refresh() }, detail: macChoiceDetail) { name in
                         macChoiceLabel(name)
                     }.accessibilityIdentifier("send-to-mac-target")
                     // Two choices, Type and Run; Return is a switch under Type rather than a third mode.
@@ -590,20 +598,23 @@ private struct ChoicePicker<Value: Hashable>: View {
     let options: [Value]
     /// When given, the list has a Refresh List button on top, in a card of its own.
     let refresh: (() -> Void)?
+    /// When given, a line in grey under an option in the list, if it has one.
+    let detail: ((Value) -> Text?)?
     let label: (Value) -> Text
 
     init(_ title: String, selection: Binding<Value>, options: [Value], refresh: (() -> Void)? = nil,
-         label: @escaping (Value) -> Text) {
+         detail: ((Value) -> Text?)? = nil, label: @escaping (Value) -> Text) {
         self.title = title
         _selection = selection
         self.options = options
         self.refresh = refresh
+        self.detail = detail
         self.label = label
     }
 
     var body: some View {
         NavigationLink {
-            ChoiceList(title: title, selection: $selection, options: options, refresh: refresh, label: label)
+            ChoiceList(title: title, selection: $selection, options: options, refresh: refresh, detail: detail, label: label)
         } label: {
             HStack {
                 Text(LocalizedStringKey(title))
@@ -619,6 +630,7 @@ private struct ChoiceList<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [Value]
     let refresh: (() -> Void)?
+    let detail: ((Value) -> Text?)?
     let label: (Value) -> Text
     @Environment(\.dismiss) private var dismiss
 
@@ -636,7 +648,7 @@ private struct ChoiceList<Value: Hashable>: View {
                 }
                 .listRowBackground(Color.white)
                 // Close to the list it refreshes.
-                .listSectionSpacing(12)
+                .listSectionSpacing(18)
             }
             Section {
                 ForEach(options, id: \.self) { option in
@@ -645,7 +657,12 @@ private struct ChoiceList<Value: Hashable>: View {
                         dismiss()
                     } label: {
                         HStack {
-                            label(option).foregroundStyle(MobileTheme.ink)
+                            VStack(alignment: .leading, spacing: 2) {
+                                label(option).foregroundStyle(MobileTheme.ink)
+                                if let detail = detail?(option) {
+                                    detail.font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
                             if selection == option {
                                 Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(MobileTheme.accent)

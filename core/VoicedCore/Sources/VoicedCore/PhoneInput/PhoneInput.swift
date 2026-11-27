@@ -123,14 +123,46 @@ public enum PhoneInput {
 }
 
 /// The system a machine running the voiced service has, from the `os` key of its Bonjour TXT
-/// record (`macos` or `windows`). A service that does not say is a Mac's: the only kind there was
-/// before Windows.
+/// record.
 public enum MachinePlatform: Sendable {
     case mac
     case windows
 
-    init(txt value: String?) {
-        self = value == "windows" ? .windows : .mac
+    init?(txt value: String?) {
+        switch value {
+        case "macos": self = .mac
+        case "windows": self = .windows
+        default: return nil
+        }
+    }
+
+    /// The system's name, the same in every language.
+    public var name: String {
+        switch self {
+        case .mac: "macOS"
+        case .windows: "Windows"
+        }
+    }
+}
+
+/// What a machine's Bonjour TXT record says about it, for the list of machines: its system, host
+/// name and addresses on the local network. Each is nil when the service does not say, as older
+/// ones do not.
+public struct MachineInfo: Equatable, Sendable {
+    public var platform: MachinePlatform?
+    public var host: String?
+    /// IPv4, comma-separated when there are several.
+    public var ip: String?
+
+    init(txt: NWTXTRecord) {
+        platform = MachinePlatform(txt: txt["os"])
+        host = txt["host"].flatMap { $0.isEmpty ? nil : $0 }
+        ip = txt["ip"].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The parts known, in order: system, host name, address.
+    public var parts: [String] {
+        [platform?.name, host, ip].compactMap { $0 }
     }
 }
 
@@ -145,9 +177,9 @@ public final class PhoneInputSender: ObservableObject {
     @Published public private(set) var connectedName: String?
     /// The names of the machines found on the network, sorted.
     @Published public private(set) var availableNames: [String] = []
-    /// The system of each machine found, by name; kept for machines no longer found, so a chosen
-    /// machine that is away still shows as what it is.
-    @Published public private(set) var platforms: [String: MachinePlatform] = [:]
+    /// What each machine found says about itself, by name; kept for machines no longer found, so a
+    /// chosen machine that is away still shows what it was.
+    @Published public private(set) var machines: [String: MachineInfo] = [:]
     /// Whether the sender is looking for, or connected to, a Mac.
     @Published public private(set) var isActive = false
     /// The Mac's Claude Code runs, by id, as last heard; replaced whenever a connection opens.
@@ -178,7 +210,7 @@ public final class PhoneInputSender: ObservableObject {
     public func start() {
         guard browser == nil else { return }
         isActive = true
-        // With the TXT record, which says what system the machine has.
+        // With the TXT record, which says what system the machine has, its host name and address.
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: PhoneInput.serviceType, domain: nil), using: .tcp)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             Task { @MainActor in self?.browsed(results, by: browser) }
@@ -209,9 +241,9 @@ public final class PhoneInputSender: ObservableObject {
         start()
     }
 
-    /// The system of the machine called `name`: a Mac's unless it said otherwise.
-    public func platform(of name: String?) -> MachinePlatform {
-        name.flatMap { platforms[$0] } ?? .mac
+    /// The system of the machine called `name`, when it said.
+    public func platform(of name: String?) -> MachinePlatform? {
+        name.flatMap { machines[$0]?.platform }
     }
 
     public func stop() {
@@ -260,13 +292,13 @@ public final class PhoneInputSender: ObservableObject {
         self.results = results.sorted { Self.name(of: $0.endpoint) < Self.name(of: $1.endpoint) }
         let names = self.results.map { Self.name(of: $0.endpoint) }
         if names != availableNames { availableNames = names }
-        var platforms = self.platforms
+        var machines = self.machines
         for result in self.results {
             if case .bonjour(let txt) = result.metadata {
-                platforms[Self.name(of: result.endpoint)] = MachinePlatform(txt: txt["os"])
+                machines[Self.name(of: result.endpoint)] = MachineInfo(txt: txt)
             }
         }
-        if platforms != self.platforms { self.platforms = platforms }
+        if machines != self.machines { self.machines = machines }
         connectIfIdle()
     }
 
