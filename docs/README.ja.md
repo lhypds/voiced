@@ -30,7 +30,7 @@ open macos/.build/Voiced.app
 
 `macos/` の `start.sh`、`stop.sh`、`restart.sh` も同じことを行い、必要に応じて再ビルドします。
 
-`./install.sh` は `/usr/local/bin/voiced` に `voiced` コマンド（[`./voiced`](../voiced) へのリンク）をインストールします。`voiced service start` で voiced サービスを起動します（Claude Code を実行するフォルダは iPhone で設定）。`voiced service`・`voiced macos`・`voiced ios`・`voiced core` で各部分をビルド・起動・停止・再起動し、`voiced build`・`voiced restart` は一部または全部に対して行います。部分や操作を省略すると上下キーで選べます。`voiced` だけを入力するとすべてのコマンドが表示されます。`./uninstall.sh` で削除できます。アプリの Voiced メニューにも同じ「voiced コマンドをインストール」があります。
+`./install.sh` は `/usr/local/bin/voiced` に `voiced` コマンド（[`./voiced`](../voiced) へのリンク）をインストールします。`voiced service start` で voiced サービスを起動します（Claude Code を実行するフォルダは iPhone で設定）。`voiced service`・`voiced macos`・`voiced ios` で各部分をビルド・起動・停止・再起動し、`voiced build`・`voiced restart` は一部または全部に対して行います。部分や操作を省略すると上下キーで選べます。`voiced` だけを入力するとすべてのコマンドが表示されます。`./uninstall.sh` で削除できます。アプリの Voiced メニューにも同じ「voiced コマンドをインストール」があります。
 
 初回起動時にマイクへのアクセス許可を求められます。macOS は仮想オーディオデバイスもマイク入力として扱うため、物理マイクを使わない場合でもこの許可が必要です。
 

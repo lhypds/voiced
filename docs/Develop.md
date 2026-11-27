@@ -8,15 +8,14 @@ Everything is built and run through [`voiced`](../voiced) at the repository root
 voiced service [build | start | stop | restart | status]   # the voiced service, service/
 voiced macos   [build | start | stop | restart]            # the Mac app, macos/
 voiced ios     [build | start | stop | restart | deploy]   # the iOS app, ios/
-voiced core    [build]                                     # the shared library, core/VoicedCore
 
-voiced build   [all | core | service | ios | macos] [device]
+voiced build   [all | service | ios | macos] [device]
 voiced restart [all | service | ios | macos] [device]
 voiced start   [all | service | macos | ios]
 voiced stop    [all | service | macos | ios]
 ```
 
-`restart` always builds first. `voiced build all` builds the service and both apps, which build core themselves (iOS for the simulator; `voiced build all device` for a real iPhone). `voiced restart all` rebuilds and restarts the service and the Mac app, then reinstalls and reopens the app on the paired iPhone; a disconnected iPhone is reported and skipped. `voiced start all` starts the service and the Mac app and opens the app on the paired iPhone; `voiced stop all` stops the service and the Mac app and quits the app on every connected iPhone and booted simulator.
+`restart` always builds first. `voiced build all` builds the service and both apps (iOS for the simulator; `voiced build all device` for a real iPhone). Each app's build compiles core/VoicedCore along with it, so the library has no build command of its own. `voiced restart all` rebuilds and restarts the service and the Mac app, then reinstalls and reopens the app on the paired iPhone; a disconnected iPhone is reported and skipped. `voiced start all` starts the service and the Mac app and opens the app on the paired iPhone; `voiced stop all` stops the service and the Mac app and quits the app on every connected iPhone and booted simulator.
 
 `voiced macos build` builds the app at `macos/.build/Voiced.app`. `voiced ios start` (or `restart`) asks for a connected iPhone or a simulator, then builds, installs and starts the app there; `voiced ios deploy` does the same on a paired, unlocked iPhone with Developer Mode on, without asking. `voiced service build` builds the service at `service/.build/voiced`; `voiced service restart` rebuilds it and restarts it under launchd.
 

@@ -32,7 +32,7 @@ open macos/.build/Voiced.app
 
 `start.sh`, `stop.sh` and `restart.sh` in `macos/` do the same and rebuild when needed.
 
-`./install.sh` installs the `voiced` command at `/usr/local/bin/voiced`, a link to [`./voiced`](voiced). `voiced service start` starts the voiced service (the folder Claude Code runs in is set on the iPhone). `voiced service`, `voiced macos`, `voiced ios` and `voiced core` build, start, stop or restart each part, and `voiced build` and `voiced restart` do it for a part or all of them; leave out the part or the action to pick it with the arrow keys. `voiced` on its own lists them all. `./uninstall.sh` removes it. The same installer is in the app's Voiced menu as "Install 'voiced' Command".
+`./install.sh` installs the `voiced` command at `/usr/local/bin/voiced`, a link to [`./voiced`](voiced). `voiced service start` starts the voiced service (the folder Claude Code runs in is set on the iPhone). `voiced service`, `voiced macos` and `voiced ios` build, start, stop or restart each part, and `voiced build` and `voiced restart` do it for a part or all of them; leave out the part or the action to pick it with the arrow keys. `voiced` on its own lists them all. `./uninstall.sh` removes it. The same installer is in the app's Voiced menu as "Install 'voiced' Command".
 
 The first launch asks for microphone access. macOS treats virtual audio devices as microphone input too, so the permission is needed even without a physical microphone.
 

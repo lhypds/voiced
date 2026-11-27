@@ -4,12 +4,12 @@
 # 在仓库根目录直接运行 ./voiced，或用 ./install.sh 安装为系统命令 voiced（./uninstall.sh 删除）。
 #
 #   voiced                       显示帮助（同 voiced help）
-#   voiced <部分> [操作]         部分：service、macos、ios、core；不给操作时用上下箭头选择
+#   voiced <部分> [操作]         部分：service、macos、ios；不给操作时用上下箭头选择
 #   voiced <操作> [部分]         操作：build、start、stop、restart；不给部分时用上下箭头选择
 #   voiced status                显示服务和 Mac 版的状态
 #
-# 例：voiced service restart、voiced restart ios、voiced build core、voiced ios deploy。
-# restart 总是先 git pull（只快进）再构建。服务（service/，Rust）由 launchd 运行；core/VoicedCore 是两个应用共用的 Swift 库。
+# 例：voiced service restart、voiced restart ios、voiced build macos、voiced ios deploy。
+# restart 总是先 git pull（只快进）再构建。服务（service/，Rust）由 launchd 运行；core/VoicedCore 是两个应用共用的 Swift 库，随应用一起构建。
 # 每句话如何处理（输入、输入后回车、用 Claude Code 执行）由 iPhone 上的“发送到 Mac”方式决定，
 # Claude Code 的文件夹也在 iPhone 上设置。
 
@@ -24,7 +24,6 @@ done
 # :A resolves the /usr/local/bin/voiced symlink, so paths point into the checkout.
 ROOT="${0:A:h}"
 SERVICE="$ROOT/service"
-CORE="$ROOT/core/VoicedCore"
 
 LABEL="com.local.voiced.input"
 DOMAIN="gui/$(id -u)"
@@ -40,12 +39,11 @@ IOS_BUNDLE_ID="com.voiced.personal.ios"
 usage() {
     print -u2 "Usage: voiced service [build|start|stop|restart|status]"
     print -u2 "       voiced macos [build|start|stop|restart]"
-    print -u2 "       voiced ios [build [device]|start [device]|stop|restart [device]|deploy [device]]"
-    print -u2 "       voiced core [build]"
-    print -u2 "       voiced build [all|core|service|ios|macos] [device]"
+    print -u2 "       voiced ios [build [device]|start [device]|stop [device]|restart [device]|deploy [device]]"
+    print -u2 "       voiced build [all|service|ios|macos] [device]"
     print -u2 "       voiced restart [all|service|ios|macos] [device]"
-    print -u2 "       voiced start [all|service|macos|ios]"
-    print -u2 "       voiced stop [all|service|macos|ios]"
+    print -u2 "       voiced start [all|service|macos|ios] [device]"
+    print -u2 "       voiced stop [all|service|macos|ios] [device]"
     print -u2 "       voiced status"
     print -u2 "       voiced help"
     exit 2
@@ -55,7 +53,7 @@ show_help() {
     cat <<'HELP'
 voiced builds and runs the parts of Voiced: the voiced service, which types what Voiced on the
 iPhone hears at the Mac's cursor (service/, Rust), the Mac app (macos/), the iOS app (ios/) and
-the library both apps share (core/VoicedCore).
+the library both apps share (core/VoicedCore), which each app's build compiles along with it.
 
   voiced service start         start the service, and at every login
 
@@ -68,24 +66,28 @@ Name a part, then what to do with it; leave out what to do to pick it with the a
                                build: for the simulator (build device: for an iPhone)
                                start, restart: pick a connected iPhone or a simulator, then build,
                                install and open the app there (… device: the paired iPhone, no list)
-                               stop: quit the app on the iPhone or simulator you pick
+                               stop: quit the app on the iPhone or simulator you pick (stop device:
+                               on every connected iPhone, no list)
                                deploy [name]: build, install and open on the paired iPhone, or the
                                one named
-  voiced core [build]          build the shared library on its own
 
 Or name what to do, then the part; leave out the part to pick it with the arrow keys:
 
-  voiced build [all|core|service|ios|macos] [device]
-                               all: the service and both apps (they build core themselves);
+  voiced build [all|service|ios|macos] [device]
+                               all: the service and both apps (they build core/VoicedCore themselves);
                                device: build iOS for an iPhone rather than the simulator
   voiced restart [all|service|ios|macos] [device]
                                always pulls (fast-forward only) and builds first; all: the
                                service and the Mac app, then the app on the paired iPhone
-  voiced start [all|service|macos|ios]
-                               all: the service and the Mac app, then the app on the paired iPhone
-  voiced stop [all|service|macos|ios]
+  voiced start [all|service|macos|ios] [device]
+                               all: the service and the Mac app, then the app on the paired iPhone;
+                               ios device: the paired iPhone, without the list
+  voiced stop [all|service|macos|ios] [device]
                                all: the service, the Mac app, and the app on every connected
-                               iPhone and booted simulator
+                               iPhone and booted simulator; ios device: every connected iPhone,
+                               without the list
+                               Without a part, restart, start and stop show a menu where Space
+                               selects several parts (all, or any of the others) and Return runs
 
   voiced status                show the service and the Mac app
   voiced help                  show this
@@ -140,6 +142,70 @@ choose() {
         esac
     done
     choice="${options[index]}"
+}
+
+# choose_many <title> <option>...: like choose, but Space ticks options, so several can be
+# picked, and sets choices to them in menu order. The first option is "all": ticking it clears
+# the others, and ticking another clears it. Return with nothing ticked picks the highlighted
+# option, as choose does.
+choose_many() {
+    local title="$1"
+    shift
+    local -a options=("$@") marked
+    local count=${#options} index=1 picked=0 drawn=0 key rest i box
+    if [[ ! -t 0 || ! -t 2 ]]; then
+        print -u2 "voiced: $title give one on the command line: ${(j:, :)options}"
+        return 1
+    fi
+    for i in {1..$count}; do marked[i]=0; done
+    print -u2 -- $'\e[1m'"$title"$'\e[0m'$'\e[2m  (Space to select several, Return to run)\e[0m'
+    while true; do
+        (( drawn )) && print -nu2 -- $'\e['"${count}A"
+        for i in {1..$count}; do
+            (( marked[i] )) && box="◉" || box="○"
+            if (( i == index )); then
+                print -u2 -- $'\e[2K\e[36m❯ '"$box ${options[i]}"$'\e[0m'
+            else
+                print -u2 -- $'\e[2K  '"$box ${options[i]}"
+            fi
+        done
+        drawn=1
+        (( picked )) && break
+        read -rsk1 key || return 1
+        case "$key" in
+            $'\e')
+                rest=""
+                read -rsk2 -t 0.05 rest || true
+                case "$rest" in
+                    "[A"|"OA") (( index = index > 1 ? index - 1 : count )) ;;
+                    "[B"|"OB") (( index = index < count ? index + 1 : 1 )) ;;
+                    "") return 1 ;;
+                esac
+                ;;
+            k) (( index = index > 1 ? index - 1 : count )) ;;
+            j) (( index = index < count ? index + 1 : 1 )) ;;
+            " ")
+                if (( marked[index] )); then
+                    marked[index]=0
+                elif (( index == 1 )); then
+                    # all: nothing else alongside it.
+                    for i in {1..$count}; do marked[i]=0; done
+                    marked[1]=1
+                else
+                    marked[1]=0
+                    marked[index]=1
+                fi
+                ;;
+            $'\n'|$'\r') picked=1 ;;
+            q) return 1 ;;
+            <1-9>) (( key <= count )) && index=$key ;;
+        esac
+    done
+    choices=()
+    for i in {1..$count}; do
+        (( marked[i] )) && choices+=("${options[i]}")
+    done
+    (( ${#choices} )) || choices=("${options[index]}")
 }
 
 # MARK: Service
@@ -362,7 +428,19 @@ start_ios() {
     fi
 }
 
+# Quits the app on the iPhone or simulator picked; with device, on every connected iPhone
+# without asking.
 stop_ios() {
+    if [[ "${1:-}" == device ]]; then
+        local kind id label found=0
+        while IFS=$'\t' read -r kind id label; do
+            [[ "$kind" == device && "$label" != *"(not connected)"* ]] || continue
+            found=1
+            stop_ios_on "$kind" "$id" "$label" || true
+        done < <(ios_targets)
+        (( found )) || print "No connected iPhone."
+        return 0
+    fi
     pick_ios_target "Quit Voiced on:" running || return 1
     stop_ios_on "$target_kind" "$target_id" "$target_label"
 }
@@ -412,12 +490,6 @@ for p in json.load(open(sys.argv[1])).get("result", {}).get("runningProcesses", 
     print "Stopped Voiced on $target_label."
 }
 
-# MARK: Core
-
-build_core() {
-    print "Building core/VoicedCore..."
-    (cd "$CORE" && swift build)
-}
 
 # MARK: All
 
@@ -473,6 +545,9 @@ restart_all() {
 # merges. When that cannot be done (offline, no upstream, local changes in the way) the restart
 # goes on with the code as it is.
 pull() {
+    # Once per run, when several parts are restarted together.
+    (( PULLED )) && return 0
+    PULLED=1
     git -C "$ROOT" rev-parse --is-inside-work-tree &>/dev/null || return 0
     print "Pulling..."
     git -C "$ROOT" pull --ff-only || print -u2 "Could not pull; restarting with the code as it is."
@@ -532,9 +607,8 @@ perform() {
             if [[ "$action" == restart ]]; then pull; fi
             start_ios "$@"
             ;;
-        ios:stop) (( $# == 0 )) || usage; stop_ios ;;
+        ios:stop) [[ -z "${1:-}" || "$1" == device ]] || usage; stop_ios "$@" ;;
         ios:deploy) "$ROOT/ios/deploy.sh" "$@" ;;
-        core:build) build_core ;;
         all:build)
             case "${1:-simulator}" in
                 sim|simulator) build_all simulator ;;
@@ -557,20 +631,20 @@ actions_of() {
         service) reply=(restart build start stop status) ;;
         macos) reply=(restart build start stop) ;;
         ios) reply=(restart build start stop) ;;
-        core) reply=(build) ;;
     esac
 }
 
 parts_for() {
     case "$1" in
-        build) reply=(all core service ios macos) ;;
+        build) reply=(all service ios macos) ;;
         restart) reply=(all service ios macos) ;;
         start|stop) reply=(all service macos ios) ;;
     esac
 }
 
-typeset -a reply
+typeset -a reply choices
 choice=""
+PULLED=0
 
 case "${1:-}" in
     ""|help|-h|--help)
@@ -580,7 +654,7 @@ case "${1:-}" in
         (( $# == 1 )) || usage
         show_status
         ;;
-    service|macos|ios|core)
+    service|macos|ios)
         part="$1"
         shift
         if (( $# == 0 )); then
@@ -592,7 +666,24 @@ case "${1:-}" in
         shift
         perform "$part" "$action" "$@"
         ;;
-    build|start|stop|restart)
+    start|stop|restart)
+        action="$1"
+        shift
+        if (( $# == 0 )); then
+            # Several parts at once: each in menu order, with a heading when more than one.
+            parts_for "$action"
+            choose_many "$action:" "${reply[@]}" || exit 1
+            for part in "${choices[@]}"; do
+                (( ${#choices} > 1 )) && print -- $'\e[1m'"== $action $part"$'\e[0m'
+                perform "$part" "$action"
+            done
+            exit 0
+        fi
+        part="$1"
+        shift
+        perform "$part" "$action" "$@"
+        ;;
+    build)
         action="$1"
         shift
         if (( $# == 0 )); then
