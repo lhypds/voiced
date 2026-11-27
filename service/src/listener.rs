@@ -272,7 +272,7 @@ mod bonjour {
         let name = super::computer_name();
         // A host name of our own, so the system's own records for `<name>.local` are not answered twice.
         let host = format!("voiced-{}.local.", super::sanitized(&gethostname::gethostname().to_string_lossy()));
-        let properties: std::collections::HashMap<String, String> = super::txt_entries().into_iter().collect();
+        let properties: std::collections::HashMap<String, String> = super::txt_entries().into_iter().map(|(key, value)| (key.to_string(), value)).collect();
         let info = ServiceInfo::new(super::SERVICE_TYPE, &name, &host, "", port, Some(properties))
             .map_err(|e| e.to_string())?
             .enable_addr_auto();
