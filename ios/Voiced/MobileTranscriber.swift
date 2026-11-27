@@ -574,11 +574,15 @@ final class MobileTranscriber: ObservableObject {
             downloadProgress = nil
         }
         error = nil
+        // Apple Speech starts at once: no status, and so no preparation banner, unless something
+        // slow (an asset or voice detector download) sets one.
+        if engine == .apple && !modelLoading { status = "" }
         startModelLoad(engine)
         task = Task {
             do {
                 // The model load's progress, when one is running, says more than this.
-                if !modelLoading { status = "请求麦克风权限…" }
+                // Apple Speech starts at once, so the status would only flash.
+                if !modelLoading && engine != .apple { status = "请求麦克风权限…" }
                 let permitted = await AVAudioApplication.requestRecordPermission()
                 try checkPreparation(preparationID)
                 guard permitted else {
@@ -591,9 +595,12 @@ final class MobileTranscriber: ObservableObject {
                 try checkPreparation(preparationID)
                 let detector: SileroVoiceDetector?
                 if voiceFilter {
-                    status = "加载人声检测模型…"
+                    let cached = VoiceDetectorModelStore.cachedModelFolder()
+                    // Apple Speech starts at once, and a cached detector loads at once too, so
+                    // the status would only flash; it still shows when the model must be downloaded.
+                    if selected != .apple || cached == nil { status = "加载人声检测模型…" }
                     let folder: URL
-                    if let cached = VoiceDetectorModelStore.cachedModelFolder() { folder = cached }
+                    if let cached { folder = cached }
                     else { folder = try await VoiceDetectorModelStore.download() }
                     detector = try SileroVoiceDetector(modelFolder: folder)
                 } else { detector = nil }
@@ -741,8 +748,7 @@ final class MobileTranscriber: ObservableObject {
                 // Apple's recognizer: the system installs the language's assets when missing,
                 // and there is nothing to compile.
                 guard #available(iOS 26, *) else { throw AppleSpeechUnavailable() }
-                self.loadingStartedAt = Date()
-                self.status = self.strings.loadingModel
+                // Nothing shown while it prepares, which is near instant; an asset download shows.
                 let loaded = try await AppleSpeechDecoder.prepare(for: language) { [weak self] fraction in
                     Task { @MainActor in
                         guard let self, self.modelLoading else { return }

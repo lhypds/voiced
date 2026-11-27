@@ -817,7 +817,8 @@ struct ContentView: View {
     private var recordingControls: some View {
         VStack(spacing: 12) {
             // Also once a stop has left the model loading in the background.
-            if model.busy || model.modelLoading {
+            // Not with an empty status: Apple Speech starts at once and shows nothing.
+            if (model.busy || model.modelLoading) && !model.status.isEmpty {
                 preparationBanner
                     .padding(.horizontal, 24)
             }
